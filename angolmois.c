@@ -379,66 +379,75 @@ Uint8 fontdata[]="\\WWWWWWWWWWWW\\.::::..$...66662'67;O7;O64));IIH;*III;))CDE'+\
 	EEEEE..$.......&&$$&&&&EEE;CCEFJQQJFE0+++++++++OUIIIIEETEEEEEEE;EEEEEE;TEEE\
 	EEETCCC<EEEEEE<&&&TEECCCCC;EC;&&E;..T...///,EEEEEEE;EEEEE60)EEEIIIU6>E6006E\
 	>EEEE51+.4CU(,08MCU,....M....,................M....,....MM[X,";
-int rawfont[95][16]={0,};
+Uint8 rawfont[16][95]={0,}, (*zoomfont[16])[95]={rawfont,0,};
 
-void putpixel(int x, int y, int c) { ((Uint32*)screen->pixels)[x+y*800]=c; }
-void drawhline(int x1, int x2, int y, int c) { while(x1<x2) putpixel(x1++, y, c); }
-void drawvline(int x, int y1, int y2, int c) { while(y1<y2) putpixel(x, y1++, c); }
-int blend(int x, int y, int a, int b) { int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
-void putblendedpixel(int x, int y, int c, int o) { putpixel(x, y, blend(((Uint32*)screen->pixels)[x+y*800], c, o, 255)); }
+int putpixel(int x, int y, int c)
+	{ return((Uint32*)screen->pixels)[x+y*800]=c; }
+void drawhline(int x1, int x2, int y, int c)
+	{ while(x1<x2) putpixel(x1++, y, c); }
+void drawvline(int x, int y1, int y2, int c)
+	{ while(y1<y2) putpixel(x, y1++, c); }
+int blend(int x, int y, int a, int b)
+	{ int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
+void putblendedpixel(int x, int y, int c, int o)
+	{ putpixel(x, y, blend(((Uint32*)screen->pixels)[x+y*800], c, o, 255)); }
 
-void fontprocess() {
-	int i,j,k=0;
-	for(i=0; i<95; i++)
-		for(j=--fontinfo[i]/16; j<=fontinfo[i]%16; k++)
-			if(!isspace(fontdata[k])) rawfont[i][j++] = fontmap[fontdata[k]-36];
+int _fontprocess(int x, int y, int z, int c, int s) {
+	int i, j;
+	for(i=0; i<z; i++)
+		for(j=(s==1?z-i:s==3?i+1:0); j<(s==2?i:s==4?z-i-1:z); j++)
+			zoomfont[z-1][(y*z+i)*z+j][c] |= 1<<(7-x);
+	return z;
 }
 
-void printchar(int x, int y, int c, int u, int v) {
+void fontprocess(int z) {
+	int i, j, k, l;
+	if(z) {
+		if(zoomfont[z-1]) return;
+		zoomfont[z-1] = malloc(95*16*z*z);
+		for(i=0; i<95; i++) {
+			for(j=0; j<16*z*z; j++)
+				zoomfont[z-1][j][i] = 0;
+			for(j=0; j<16; j++)
+				for(k=0; k<8; k++) {
+					l = (j>0?rawfont[j-1][i]<<k>>6&7:0)<<6 |
+						(rawfont[j][i]<<k>>6&7)<<3 |
+						(j<15?rawfont[j+1][i]<<k>>6&7:0);
+					if((i==3 || i==20) && k<2) l |= (l & 0222) << 1;
+					if((i==3 || i==20) && k>6) l |= (l & 0222) >> 1;
+					if(l & 0x10) {
+						_fontprocess(k, j, z, i, 0);
+					} else {
+						if((l & 0xda) == 0xa || (l & 0x3f) == 0xb) /* /| */
+							_fontprocess(k, j, z, i, 1);
+						if((l & 0x1b2) == 0x22 || (l & 0x3f) == 0x26) /* |\ */
+							_fontprocess(k, j, z, i, 2);
+						if((l & 0x9b) == 0x88 || (l & 0x1f8) == 0xc8) /* \| */
+							_fontprocess(k, j, z, i, 3);
+						if((l & 0xb6) == 0xa0 || (l & 0x1f8) == 0x1a0) /* |/ */
+							_fontprocess(k, j, z, i, 4);
+					}
+				}
+		}
+	} else {
+		for(i=k=0; i<95; i++)
+			for(j=--fontinfo[i]/16; j<=fontinfo[i]%16; k++)
+				if(!isspace(fontdata[k])) rawfont[j++][i] = fontmap[fontdata[k]-36];
+	}
+}
+
+void printchar(int x, int y, int z, int c, int u, int v) {
 	int i, j;
 	if(isspace(c)) return;
 	c -= (c<33 || c>126 ? c : 32);
-	for(i=0; i<16; i++)
-		for(j=0; j<8; j++)
-			if(rawfont[c][i]&(1<<(7-j)))
-				putpixel(x+j, y+i, blend(u, v, i, 15));
+	for(i=0; i<16*z; i++)
+		for(j=0; j<8*z; j++)
+			if(zoomfont[z-1][i*z+j%z][c]&(1<<(7-j/z)))
+				putpixel(x+j, y+i, blend(u, v, i, 16*z-1));
 }
 
-void _printzchar(int a, int b, int x, int y, int c) {
-	while(a<b) putpixel(x+a++, y, c);
-}
-
-void printzchar(int x, int y, int z, int c, int u, int v) {
-	int i, j, k, m, n;
-	if(isspace(c)) return;
-	c -= (c<33 || c>126 ? c : 32);
-	for(i=0; i<16; i++,y+=z)
-		for(j=0; j<8; j++) {
-			m = (i>0?rawfont[c][i-1]<<j>>6&7:0)<<6 |
-				(rawfont[c][i]<<j>>6&7)<<3 |
-				(i<15?rawfont[c][i+1]<<j>>6&7:0);
-			if((c==3 || c==20) && j<2) m |= (m & 0222) << 1;
-			if((c==3 || c==20) && j>6) m |= (m & 0222) >> 1;
-			for(k=0; k<z; k++) {
-				n = blend(u, v, i*z+k, 16*z-1);
-				if(m & 0x10) {
-					_printzchar(0,z,x+j*z,y+k,n);
-				} else {
-					if((m & 0xda) == 0xa || (m & 0x3f) == 0xb) /* /| */
-						_printzchar(z-k,z,x+j*z,y+k,n);
-					if((m & 0x1b2) == 0x22 || (m & 0x3f) == 0x26) /* |\ */
-						_printzchar(0,k,x+j*z,y+k,n);
-					if((m & 0x9b) == 0x88 || (m & 0x1f8) == 0xc8) /* \| */
-						_printzchar(k+1,z,x+j*z,y+k,n);
-					if((m & 0xb6) == 0xa0 || (m & 0x1f8) == 0x1a0) /* |/ */
-						_printzchar(0,z-k-1,x+j*z,y+k,n);
-				}
-			}
-		}
-}
-
-void printstr(int x, int y, char *s, int u, int v) { for(;*s;x+=8)printchar(x,y,(Uint8)*s++,u,v); }
-void printzstr(int x, int y, int z, char *s, int u, int v) { for(;*s;x+=8*z)printzchar(x,y,z,*s++,u,v); }
+void printstr(int x, int y, int z, char *s, int u, int v)
+	{ for(;*s;x+=8*z)printchar(x,y,z,(Uint8)*s++,u,v); }
 
 #if 0
 int test() {
@@ -487,29 +496,29 @@ angolmois <filename> <options...>
 note: ranking file is <filename>.arank
 */
 int main(int argc, char **argv) {
-	int i, j, k, q;
+	int i, j, q;
 
 	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
 	atexit(SDL_Quit);
 	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
 	if(!screen) return 1;
 
-	fontprocess();
+	fontprocess(0);
+	fontprocess(2);
+	fontprocess(3);
 	SDL_WM_SetCaption("TokigunStudio Angolmois: development version", "angolmois-dev (2005/03/31)");
-	printzstr(20, 4, 2, "\1 TokigunStudio Angolmois (alpha version!)", 0x80FF80, 0xFFFFFF);
-	printstr(20, 40, "3.1415926535897932384662643383279............", 0xFF80FF, 0xFFFFFF);
+	printstr(20, 4, 2, "\1 TokigunStudio Angolmois (alpha version!)", 0x80FF80, 0xFFFFFF);
+	printstr(20, 40, 1, "3.1415926535897932384662643383279............", 0xFF80FF, 0xFFFFFF);
 	for(i=0; i<95; i++)
-		printchar(20+i*8, 60, i+32, 0xFFFF80, 0xFFFFFF);
+		printchar(20+i*8, 60, 1, i+32, 0xFFFF80, 0xFFFFFF);
 	SDL_UpdateRect(screen, 0, 0, 800, 600);
 	
 	q = 1;
 	while(q) {
 		if(!SDL_MUSTLOCK(screen) || SDL_LockSurface(screen)>=0) {
 			for(i=500; i<550; i++) drawhline(0, 800, i, 0x000000);
-			while(k++<SDL_GetTicks()) printf("*");
-			printf("\n");
-			i = 600; j = k = SDL_GetTicks();
-			while(j) { printzchar(i-=24, 500, 3, "0123456789ABCDEF"[j%16], 0x808080, 0xFFFFFF); j/=16; }
+			i = 600; j = SDL_GetTicks();
+			while(j) { printchar(i-=24, 500, 3, "0123456789aBCDef"[j%16], 0x808080, 0xFFFFFF); j/=16; }
 			SDL_UnlockSurface(screen);
 		}
 		SDL_UpdateRect(screen, 0, 0, 800, 600);
