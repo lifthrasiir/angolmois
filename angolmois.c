@@ -1,6 +1,6 @@
 /*
  * Angolmois -- the Simple BMS Player
- * Copyright (c) 2005, Kang Seonghoon (TokigunStudio).
+ * Copyright (c) 2005, Kang Seonghoon (Tokigun).
  * Project Angolmois is copyright (c) 2003-2005, Choi Kaya (CHKY).
  * 
  * This program is free software; you can redistribute it and/or
@@ -26,11 +26,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <SDL_image.h>
-
-#define isspace(n) (n==8 || n==10 || n==13 || n==32)
 
 #ifdef WIN32
 const char sep = 92;
@@ -38,17 +37,20 @@ const char sep = 92;
 const char sep = 47;
 #endif
 
-const int nbmsheader = 16;
+const int nbmsheader = 20;
 const char *bmsheader[nbmsheader] = {
 	"title", "genre", "artist", "stagefile",
 	"bpm", "player", "playlevel", "rank", "total",
-	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp"
+	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
+	"random", "if", "else", "endif"
 };
 const char bmspath[512];
 char respath[512];
+char **bmsline=0;
+int nbmsline=0;
 
 char *metadata[4]={0,};
-float bpm=0f, bpmtab[1296]={0,};
+float bpm=0, bpmtab[1296]={0,};
 int value[6]={1,0,3,100,0,0};
 #define v_player value[0]
 #define v_playlevel value[1]
@@ -60,11 +62,9 @@ Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
 
-int key2index(char a, char b) {
-#define GET_DIGIT(n) (47<n && n<58 ? n-48 : ((n|32)-19)/26==3 ? (n|32)-87 : -1296)
-	return GET_DIGIT(a) * 36 + GET_DIGIT(b);
-#undef GET_DIGIT
-}
+int isspace(char n) { return n==8 || n==10 || n==13 || n==32; }
+int getdigit(char n) { return 47<a && a<58 ? a-48 : ((a|32)-19)/26==3 ? (a|32)-87 : -1296; }
+int key2index(char a, char b) { return getdigit(a) * 36 + getdigit(b); }
 
 char *adjust_path(char *path) {
 	int i, j=0;
@@ -80,90 +80,140 @@ char *adjust_path(char *path) {
 	return respath;
 }
 
-int remove_whitespace(char *str, int *i, int *j) {
+int remove_whitespace(char *str, int *i) {
+	int j;
 	if(!isspace(str[*i])) return 0;
 	while(isspace(str[++*i]));
 	if(!str[*i]) return 0;
-	for(*j=*i; str[*j]; *j++);
-	while(isspace(str[--*j]));
-	str[++*j] = 0;
+	for(j=*i; str[j]; j++);
+	while(isspace(str[--j]));
+	str[++j] = 0;
 	return 1;
 }
 
+int compare_bmsline(const void *a, const void *b) {
+	int i, j;
+	for(i=0; i<6; i++)
+		if(j = ((char*)a)[i] - ((char*)b)[i]) return j;
+	return 0;
+}
+
 int parse_bms(FILE *fp) {
-	int i, j, k;
+	int i, j, k, rnd=1, ignore=0;
 	char line[1024];
 	SDL_Surface *tempsurf;
 	
+	srand(time(0));
 	while(fgets(str, 1024, fp)) {
 		if(*str++ != '#') continue;
+
+		/* parsing meta data */
 		for(i=0; i<nbmsheader; i++) {
 			for(j=0; bmsheader[i][j]; j++)
 				if((bmsheader[i][j]|32) != (str[j]|32)) break;
 			if(!bmsheader[i][j]) break;
 		}
 		switch(i) {
-		case 0: /* title */
-		case 1: /* genre */
-		case 2: /* artist */
-		case 3: /* stagefile */
-			if(!remove_whitespace(line, &j, &k)) break;
-			metadata[i] = malloc(k-j+1);
-			for(k=j; line[k]; k++) metadata[i][k] = line[k-j];
-			break;
-		case 4: /* bpm */
-			if(isspace(line[j])) {
-				bpm = atof(line+j);
-			} else {
-				i = key2index(line[j], line[j+1]);
-				if(i < 0 || !isspace(line[j+2])) break;
-				bpmtab[i] = atof(line+j+2);
-			}
-			break;
-		case 5: /* player */
-		case 6: /* playlevel */
-		case 7: /* rank */
-		case 8: /* total */
-		case 9: /* lntype */
+		case 16: /* random */
 			if(isspace(line[j]))
-				value[i-5] = atoi(line+j);
+				if(i = abs(atoi(line+j)))
+					rnd = rand() % i + 1;
 			break;
-		case 10: /* lnobj */
-			if(!isspace(line[j])) break;
-			while(isspace(line[++j]));
-			if(line[j])
-				value[5] = key2index(line[j], line[j+1]);
+		case 17: /* if */
+			if(isspace(line[j]))
+				ignore = (rnd != atoi(line+j));
 			break;
-		case 11: /* wav## */
-			i = key2index(line[j], line[j+1]);
-			if(i < 0) break;
-			j += 2;
-			if(!remove_whitespace(line, &j, &k)) break;
-			if(sndres[i]) Mix_FreeChunk(sndres[i]);
-			sndres[i] = Mix_LoadWAV(adjust_path(line+j));
+		case 18: /* else */
+			ignore = !ignore;
 			break;
-		case 12: /* bmp## */
-			if(!remove_whitespace(line, &j, &k)) break;
-			if(tempsurf = IMG_Load(adjust_path(line+j))) {
-				if(imgres[i]) SDL_FreeSurface(imgres[i]);
-				imgres[i] = SDL_DisplayFormat(tempsurf);
-				SDL_FreeSurface(tempsurf);
-			}
-			break;
-		case 13: /* bga## */
-			/* TODO */
-			break;
-		case 14: /* stop## */
-			i = key2index(line[j], line[j+1]);
-			if(i < 0 || !isspace(line[j+2])) break;
-			stoptab[i] = atoi(line+j+2);
-			break;
-		case 15: /* stp## */
-			/* TODO */
+		case 19: /* endif */
+			ignore = 0;
 			break;
 		}
-		/* TODO: parsing sequence data (#xxxyy:...) */
+		
+		if(!ignore) {
+			switch(i) {
+			case 0: /* title */
+			case 1: /* genre */
+			case 2: /* artist */
+			case 3: /* stagefile */
+				if(!remove_whitespace(line, &j)) break;
+				metadata[i] = malloc(k-j+1);
+				for(k=j; line[k]; k++) metadata[i][k] = line[k-j];
+				break;
+			case 4: /* bpm */
+				if(isspace(line[j])) {
+					bpm = atof(line+j);
+				} else {
+					i = key2index(line[j], line[j+1]);
+					if(i < 0 || !isspace(line[j+2])) break;
+					bpmtab[i] = atof(line+j+2);
+				}
+				break;
+			case 5: /* player */
+			case 6: /* playlevel */
+			case 7: /* rank */
+			case 8: /* total */
+			case 9: /* lntype */
+				if(isspace(line[j]))
+					value[i-5] = atoi(line+j);
+				break;
+			case 10: /* lnobj */
+				if(!isspace(line[j])) break;
+				while(isspace(line[++j]));
+				if(line[j])
+					value[5] = key2index(line[j], line[j+1]);
+				break;
+			case 11: /* wav## */
+				i = key2index(line[j], line[j+1]);
+				if(i < 0) break;
+				j += 2;
+				if(!remove_whitespace(line, &j)) break;
+				if(sndres[i]) Mix_FreeChunk(sndres[i]);
+				sndres[i] = Mix_LoadWAV(adjust_path(line+j));
+				break;
+			case 12: /* bmp## */
+				if(!remove_whitespace(line, &j)) break;
+				if(tempsurf = IMG_Load(adjust_path(line+j))) {
+					if(imgres[i]) SDL_FreeSurface(imgres[i]);
+					imgres[i] = SDL_DisplayFormat(tempsurf);
+					SDL_FreeSurface(tempsurf);
+				}
+				break;
+			case 13: /* bga## */
+				/* TODO */
+				break;
+			case 14: /* stop## */
+				i = key2index(line[j], line[j+1]);
+				if(i < 0 || !isspace(line[j+2])) break;
+				stoptab[i] = atoi(line+j+2);
+				break;
+			case 15: /* stp## */
+				/* TODO */
+				break;
+			}
+			
+			/* parsing sequence data */
+			i = 0;
+			for(i=1; i<6; i++)
+				if((line[i]-8)/10 != 4) break;
+			if(i>5) {
+				while(line[i++]);
+				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
+				bmsline += nbmsline;
+				*bmsline = malloc(sizeof(char) * i);
+				for(i=0; line[i]; i++)
+					(*bmsline)[i] = line[i];
+				(*bmsline)[i] = 0;
+				bmsline -= nbmsline++;
+			}
+		}
 	}
+
+	/* sorting sequence data */
+	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
+
+	/* TODO: parsing each line and processing long notes */
 }
 
 /* vim: set ts=4 sw=4: */
