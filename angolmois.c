@@ -25,7 +25,7 @@
 #include <SDL_mixer.h>
 #include <SDL_image.h>
 
-char version[] = "TokigunStudio Angolmois version 0.0-dev-20050406";
+char version[] = "TokigunStudio Angolmois version 0.0-dev-20050407";
 
 #if 0
 #include "angolmois-test.c"
@@ -70,6 +70,11 @@ bmsnote **channel[22]={0,};
 double shorten[1000]={0,};
 int nchannel[22]={0,};
 double length;
+
+int starttime;
+double startoffset=0.;
+int pcur[22]={0,}, pfront[22]={0,}, prear[22]={0,}, thru[22]={0,};
+int bga[3]={-1,-1,-1}, bga_updated=0;
 
 #define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define ADD_NOTE(player, chan, time, index) \
@@ -421,6 +426,7 @@ int load_resource(void (*callback)(char*)) {
 			if(temp = IMG_Load(adjust_path(imgpath[i]))) {
 				imgres[i] = SDL_DisplayFormat(temp);
 				SDL_FreeSurface(temp);
+				SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 			}
 			free(imgpath[i]); imgpath[i] = 0;
 		}
@@ -579,7 +585,7 @@ void fontprocess(int z) {
 void fontfinalize() {
 	int i;
 	for(i=1; i<ARRAYSIZE(zoomfont); i++)
-		free(zoomfont[i]);
+		if(zoomfont[i]) free(zoomfont[i]);
 }
 
 void printchar(int x, int y, int z, int c, int u, int v) {
@@ -663,13 +669,10 @@ void callback_resource(char *path) {
 	check_exit();
 }
 
-int play(char *path) {
+void play_show_stagefile() {
 	SDL_Surface *temp, *stagefile;
-	int i, j, result;
+	int i, j, t;
 
-	for(i=0; bmspath[i] = path[i]; i++);
-	if(result = parse_bms()) return result;
-	
 	printstr(248, 284, 2, "loading bms file...", 0x202020, 0x808080);
 	SDL_Flip(screen);
 
@@ -700,9 +703,97 @@ int play(char *path) {
 	}
 	SDL_Flip(screen);
 
+	t = SDL_GetTicks() + 3000;
 	load_resource(callback_resource);
+	callback_resource("loading...");
+	SDL_FreeSurface(stagefile_tmp);
+	while((int)SDL_GetTicks() < t && !check_exit());
+}
+
+int play_prepare() {
+	SDL_FillRect(screen, 0, 0);
+	starttime = SDL_GetTicks();
+	Mix_AllocateChannels(96);
 	
-	while(!check_exit());
+	return 0;
+}
+
+int play_process_event() {
+	int i;
+	double bottom;
+
+	bottom = startoffset + (SDL_GetTicks() - starttime) * bpm / 24e4;
+	for(i=0; i<18; i++) {
+		/* temporary code (auto-playing) */
+		while(pfront[i] < nchannel[i] && channel[i][pfront[i]]->time < bottom) {
+			if(channel[i][pfront[i]]->type != 1 && sndres[channel[i][pfront[i]]->index])
+				Mix_PlayChannel(-1, sndres[channel[i][pfront[i]]->index], 0);
+			pfront[i]++;
+		}
+		while(prear[i] < nchannel[i] && channel[i][prear[i]]->time <= bottom + 1.0) prear[i]++;
+	}
+	for(i=18; i<22; i++) {
+		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time < bottom) {
+			if(i == 18) {
+				if(sndres[channel[i][pcur[i]]->index])
+					Mix_PlayChannel(-1, sndres[channel[i][pcur[i]]->index], 0);
+			} else if(i == 19) {
+				bga[channel[i][pcur[i]]->type] = channel[i][pcur[i]]->index;
+				bga_updated = 1;
+			} else if(i == 20) {
+				startoffset = bottom;
+				starttime = SDL_GetTicks();
+				bpm = (channel[i][pcur[i]]->type ? bpmtab[channel[i][pcur[i]]->index] : channel[i][pcur[i]]->index);
+			}
+			pcur[i]++;
+		}
+	}
+
+	if(check_exit()) return 0;
+	if(bottom > length && !Mix_Playing(-1)) return 0;
+	return 1;
+}
+
+int lasttick=0;
+
+int play_render_screen() {
+	int i, j;
+	double bottom;
+	char buf[30];
+	
+	SDL_FillRect(screen, newrect(0,0,260,600), 0);
+	bottom = startoffset + (SDL_GetTicks() - starttime) * bpm / 24e4;
+	for(i=0; i<9; i++) {
+		if(i == 6) continue;
+		for(j=pfront[i]; j<prear[i]; j++)
+			SDL_FillRect(screen, newrect(i<5 ? 50+i*30 : i>6 ? i*30-10 : 0, (int)(600-600*(channel[i][j]->time-bottom)), i==5 ? 50 : 30, 5), i!=5 ? (i%2 ? 0xc0c0ff : 0xc0c0c0) : 0xffc0c0);
+	}
+	if(bga_updated) {
+		SDL_FillRect(screen, newrect(272,172,256,256), 0);
+		for(i=0; i<2; i++)
+			if(bga[i] >= 0 && imgres[bga[i]])
+				SDL_BlitSurface(imgres[bga[i]], 0, screen, newrect(272,172,256,256));
+		bga_updated = 0;
+	}
+	sprintf(buf, "%.4f (%d) / %.2f :: %dms", bottom, Mix_Playing(-1), bpm, SDL_GetTicks() - lasttick);
+	lasttick = SDL_GetTicks();
+	printstr(5, 5, 1, buf, 0xffff80, 0xffffff);
+	SDL_Flip(screen);
+	return 0;
+}
+
+int play(char *path) {
+	int i, t;
+
+	for(i=0; bmspath[i] = path[i]; i++);
+	if(t = parse_bms()) return t;
+	
+	play_show_stagefile();
+	play_prepare();
+	while(play_process_event()) {
+		play_render_screen();
+	}
+
 	return 0;
 }
 
