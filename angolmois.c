@@ -68,13 +68,25 @@ typedef struct { float time; int type, index; } bmsnote;
 bmsnote **channel[23]={0,};
 float shorten[1000]={0,};
 int nchannel[23]={0,};
-#define P1(n) (n)
-#define P2(n) ((n)+9)
-#define BGM (18)
-#define BGA (19)
-#define BPM (20)
-#define STOP (21)
-#define STOP2 (22)
+float length;
+
+#define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
+#define ADD_NOTE(player, chan, time, index) \
+	add_note(GET_CHANNEL(player,chan), (time), 0, (index))
+#define ADD_INVNOTE(player, chan, time, index) \
+	add_note(GET_CHANNEL(player,chan), (time), 1, (index))
+#define ADD_LNSTART(player, chan, time, index) \
+	add_note(GET_CHANNEL(player,chan), (time), 2, (index))
+#define ADD_LNDONE(player, chan, time, index) \
+	add_note(GET_CHANNEL(player,chan), (time), 3, (index))
+#define ADD_BGM(time, index) add_note(18, (time), 0, (index))
+#define ADD_BGA(time, index) add_note(19, (time), 0, (index))
+#define ADD_BGA2(time, index) add_note(19, (time), 1, (index))
+#define ADD_POORBGA(time, index) add_note(19, (time), 2, (index))
+#define ADD_BPM(time, index) add_note(20, (time), 0, (index))
+#define ADD_BPM2(time, index) add_note(20, (time), 1, (index))
+#define ADD_STOP(time, index) add_note(21, (time), 0, (index))
+#define ADD_STP(time, index) add_note(22, (time), 0, (index))
 
 int isspace(char n) { return n==8 || n==10 || n==13 || n==32; }
 int getdigit(char n) { return 47<a && a<58 ? a-48 : ((a|32)-19)/26==3 ? (a|32)-87 : -1296; }
@@ -122,6 +134,7 @@ void add_note(int chan, float time, int type, int index) {
 
 int parse_bms(FILE *fp) {
 	int i, j, k, a, b, c;
+	int prev[20]={0,};
 	int rnd=1, ignore=0;
 	int measure, chan;
 	float time;
@@ -249,19 +262,66 @@ int parse_bms(FILE *fp) {
 				b = key2index(bmsline[i][j], bmsline[i][j+1]);
 				time = measure + 1. * k / a;
 				if(chan == 1) {
-					add_note(BGM, time, 0, b);
+					ADD_BGM(time, b);
+				} else if(chan == 3) {
+					ADD_BPM(time, b);
 				} else if(chan == 4) {
-					add_note(BGA, time, 0, b);
+					ADD_BGA(time, b);
 				} else if(chan == 6) {
-					add_note(BGA, time, 1, b);
+					ADD_POORBGA(time, b);
 				} else if(chan == 7) {
-					add_note(BGA, time, 2, b);
-				} else {
-					/* TODO */
+					ADD_BGA2(time, b);
+				} else if(chan == 8) {
+					ADD_BPM2(time, b);
+				} else if(chan == 9) {
+					ADD_STOP(time, b);
+				} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
+					if(lnobj && b == lnobj) {
+						chan = GET_CHANNEL(chan>20, chan%10);
+						for(c=nchannel[chan]-1; c>=0 && channel[chan][c]->type!=0; c--);
+						if(c >= 0) {
+							channel[chan][c]->type = 2;
+							ADD_LNDONE(chan>20, chan%10, time, b);
+						}
+					} else {
+						ADD_NOTE(chan>20, chan%10, time, b);
+					}
+				} else if(chan % 10 != 0 && chan > 29 && chan < 50) {
+					ADD_INVNOTE(chan>40, chan%10, time, b);
+				} else if(chan % 10 != 0 && chan > 49 && chan < 70 && b) {
+					if(lntype == 1) {
+						if(prev[chan-50]) {
+							prev[chan-50] = 0;
+							ADD_LNDONE(chan>60, chan%10, time, 0);
+						} else {
+							prev[chan-50] = b;
+							ADD_LNSTART(chan>60, chan%10, time, b);
+						}
+					} else if(lntype == 2) {
+						if(prev[chan-50] != b) {
+							prev[chan-50] = b;
+							ADD_LNDONE(chan>60, chan%10, time, 0);
+							if(b) {
+								ADD_LNSTART(chan>60, chan%10, time, b);
+							}
+						} else if(!prev[chan-50] && b) {
+							prev[chan-50] = b;
+							ADD_LNSTART(chan>60, chan%10, time, b);
+						}
+					}
 				}
 			}
 		}
 	}
+	
+	length = measure + 1;
+	for(i=0; i<20; i++) {
+		if(prev[i]) {
+			ADD_LNDONE(i>10, i%10, length, 0);
+		}
+	}
+
+	/* TODO: sort and arrange notes */
 }
 
 /* vim: set ts=4 sw=4: */
