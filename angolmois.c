@@ -31,15 +31,15 @@ const char sep = 92;
 const char sep = 47;
 #endif
 
-#define NBMSHEADER 20
-const char *bmsheader[NBMSHEADER] = {
+#define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
+const char *bmsheader[] = {
 	"title", "genre", "artist", "stagefile",
 	"bpm", "player", "playlevel", "rank", "total",
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-/*char bmspath[512]="D:\\Works\\angolmois\\project\\endlessdream\\MB_end7an.bme";*/
-char bmspath[512]="E:\\Program\\Games\\rdm\\1st\\sweetmorning\\sm_5hd.bms";
+/*char bmspath[512]="E:\\Program\\Games\\rdm\\1st\\sweetmorning\\sm_5hd.bms";*/
+char bmspath[512]="D:\\Works\\angolmois\\test\\suite\\blah.bms";
 char respath[512];
 char **bmsline=0;
 int nbmsline=0;
@@ -60,9 +60,9 @@ int stoptab[1296]={0,};
 double bpmtab[1296]={0,};
 
 typedef struct { double time; int type, index; } bmsnote;
-bmsnote **channel[23]={0,};
+bmsnote **channel[22]={0,};
 double shorten[1000]={0,};
-int nchannel[23]={0,};
+int nchannel[22]={0,};
 double length;
 
 #define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
@@ -70,9 +70,9 @@ double length;
 	add_note(GET_CHANNEL(player,chan), (time), 0, (index))
 #define ADD_INVNOTE(player, chan, time, index) \
 	add_note(GET_CHANNEL(player,chan), (time), 1, (index))
-#define ADD_LNSTART(player, chan, time, index) \
-	add_note(GET_CHANNEL(player,chan), (time), 2, (index))
 #define ADD_LNDONE(player, chan, time, index) \
+	add_note(GET_CHANNEL(player,chan), (time), 2, (index))
+#define ADD_LNSTART(player, chan, time, index) \
 	add_note(GET_CHANNEL(player,chan), (time), 3, (index))
 #define ADD_BGM(time, index) add_note(18, (time), 0, (index))
 #define ADD_BGA(time, index) add_note(19, (time), 0, (index))
@@ -81,7 +81,7 @@ double length;
 #define ADD_BPM(time, index) add_note(20, (time), 0, (index))
 #define ADD_BPM2(time, index) add_note(20, (time), 1, (index))
 #define ADD_STOP(time, index) add_note(21, (time), 0, (index))
-#define ADD_STP(time, index) add_note(22, (time), 0, (index))
+#define ADD_STP(time, index) add_note(21, (time), 1, (index))
 
 int isspace(int n) { return n==9 || n==10 || n==13 || n==32; }
 int getdigit(int n) { return 47<n && n<58 ? n-48 : ((n|32)-19)/26==3 ? (n|32)-87 : -1296; }
@@ -119,6 +119,11 @@ int compare_bmsline(const void *a, const void *b) {
 	return 0;
 }
 
+int compare_bmsnote(const void *a, const void *b) {
+	bmsnote *A=*(bmsnote**)a, *B=*(bmsnote**)b;
+	return (A->time > B->time ? 1 : A->time < B->time ? -1 : A->type - B->type);
+}
+
 void add_note(int chan, double time, int type, int index) {
 	bmsnote *temp;
 	temp = malloc(sizeof(bmsnote));
@@ -127,13 +132,23 @@ void add_note(int chan, double time, int type, int index) {
 	channel[chan][nchannel[chan]++] = temp;
 }
 
+void remove_note(int chan, int index) {
+	if(channel[chan][index]) {
+		if(chan < 18 && channel[chan][index]->index) {
+			ADD_BGM(channel[chan][index]->time, channel[chan][index]->index);
+		}
+		free(channel[chan][index]);
+		channel[chan][index] = 0;
+	}
+}
+
 int parse_bms() {
 	FILE* fp;
 	int i, j, k, a, b, c;
 	int prev[20]={0,};
 	int rnd=1, ignore=0;
 	int measure, chan;
-	double ctime;
+	double t;
 	char *line=malloc(1024);
 	SDL_Surface *tempsurf;
 	
@@ -145,7 +160,7 @@ int parse_bms() {
 		if(line[0] != 35) continue;
 		line++;
 
-		for(i=0; i<NBMSHEADER; i++) {
+		for(i=0; i<ARRAYSIZE(bmsheader); i++) {
 			for(j=0; bmsheader[i][j]; j++)
 				if((bmsheader[i][j]|32) != (line[j]|32)) break;
 			if(!bmsheader[i][j]) break;
@@ -261,53 +276,53 @@ int parse_bms() {
 			a = (k - j) / 2;
 			for(k=0; k<a; k++,j+=2) {
 				b = key2index(bmsline[i][j], bmsline[i][j+1]);
-				ctime = measure + 1. * k / a;
+				t = measure + 1. * k / a;
 				if(b) {
 					if(chan == 1) {
-						ADD_BGM(ctime, b);
-					} else if(chan == 3) {
-						ADD_BPM(ctime, b/36*16+b%36);
+						ADD_BGM(t, b);
+					} else if(chan == 3 && (b/36<16 && b%36<16)) {
+						ADD_BPM(t, b/36*16+b%36);
 					} else if(chan == 4) {
-						ADD_BGA(ctime, b);
+						ADD_BGA(t, b);
 					} else if(chan == 6) {
-						ADD_POORBGA(ctime, b);
+						ADD_POORBGA(t, b);
 					} else if(chan == 7) {
-						ADD_BGA2(ctime, b);
+						ADD_BGA2(t, b);
 					} else if(chan == 8) {
-						ADD_BPM2(ctime, b);
+						ADD_BPM2(t, b);
 					} else if(chan == 9) {
-						ADD_STOP(ctime, b);
+						ADD_STOP(t, b);
 					} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
 						if(lnobj && b == lnobj) {
 							c = GET_CHANNEL(chan>20, chan%10);
 							if(nchannel[c] && channel[c][nchannel[c]-1]->type==0) {
-								channel[c][nchannel[c]-1]->type = 2;
-								ADD_LNDONE(chan>20, chan%10, ctime, b);
+								channel[c][nchannel[c]-1]->type = 3;
+								ADD_LNDONE(chan>20, chan%10, t, b);
 							}
 						} else {
-							ADD_NOTE(chan>20, chan%10, ctime, b);
+							ADD_NOTE(chan>20, chan%10, t, b);
 						}
 					} else if(chan % 10 != 0 && chan > 29 && chan < 50) {
-						ADD_INVNOTE(chan>40, chan%10, ctime, b);
+						ADD_INVNOTE(chan>40, chan%10, t, b);
 					}
 				}
 				if(chan % 10 != 0 && chan > 49 && chan < 70) {
 					if(lntype == 1 && b) {
 						if(prev[chan-50]) {
 							prev[chan-50] = 0;
-							ADD_LNDONE(chan>60, chan%10, ctime, 0);
+							ADD_LNDONE(chan>60, chan%10, t, 0);
 						} else {
 							prev[chan-50] = b;
-							ADD_LNSTART(chan>60, chan%10, ctime, b);
+							ADD_LNSTART(chan>60, chan%10, t, b);
 						}
 					} else if(lntype == 2) {
 						if(prev[chan-50] != b) {
 							if(prev[chan-50]) {
-								ADD_LNDONE(chan>60, chan%10, ctime, 0);
+								ADD_LNDONE(chan>60, chan%10, t, 0);
 							}
 							prev[chan-50] = b;
 							if(b) {
-								ADD_LNSTART(chan>60, chan%10, ctime, b);
+								ADD_LNSTART(chan>60, chan%10, t, b);
 							}
 						}
 					}
@@ -322,12 +337,55 @@ int parse_bms() {
 			ADD_LNDONE(i>10, i%10, length, 0);
 		}
 	}
-
 	for(i=0; i<nbmsline; i++) free(bmsline[i]);
 	free(bmsline);
-	/* yes, finally this code above works! wow! */
 	
-	/* TODO: sort and arrange notes */
+	for(i=0; i<22; i++) {
+		if(!channel[i]) continue;
+		qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
+		if(i != 18 && i != 21) {
+			b = 0; t = -1;
+			for(j=0; j<=nchannel[i]; j++) {
+				if(j == nchannel[i] || channel[i][j]->time > t) {
+					if(t >= 0) {
+						c = 0;
+						for(; k<j; k++) {
+							if(
+								i<18 ?
+									(c & 1<<channel[i][k]->type) ||
+									(b ?
+										(a&4)==0 || channel[i][k]->type < 2 :
+										channel[i][k]->type != ((a&12)==8 ? 3 : a&1 ? 0 : 1)
+									)
+								: i==19 ? c & 1<<channel[i][k]->type : c
+							) {
+								remove_note(i, k);
+							} else {
+								c |= 1 << channel[i][k]->type;
+							}
+						}
+						b = (b ? (a&12)!=4 : (a&12)==8);
+					}
+					if(j == nchannel[i]) break;
+					a = 0;
+					k = j;
+					t = channel[i][j]->time;
+				}
+				a |= 1 << channel[i][j]->type;
+			}
+			if(i<18 && b) {
+				j--;
+				while(--j >= 0 && channel[i][j]);
+				if(j >= 0 && channel[i][j]->type == 3) remove_note(i, j);
+			}
+		}
+		k = 0;
+		for(j=0; j<nchannel[i]; j++) {
+			if(channel[i][j]) channel[i][j-k] = channel[i][j]; else k++;
+		}
+		nchannel[i] -= k;
+	}
+
 	return 0;
 }
 
@@ -342,11 +400,29 @@ int finalize() {
 		if(imgres[i]) SDL_FreeSurface(imgres[i]);
 	}
 	for(i=0; i<23; i++) {
-		for(j=0; j<nchannel[i]; j++)
-			free(channel[i][j]);
-		free(channel[i]);
+		if(channel[i]) {
+			for(j=0; j<nchannel[i]; j++)
+				free(channel[i][j]);
+			free(channel[i]);
+		}
 	}
 	
+	return 0;
+}
+
+int test_mixer() {
+	int i, j;
+
+	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
+	parse_bms();
+	for(i=0; i<23; i++) {
+		for(j=0; j<nchannel[i]; j++) {
+			printf("[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+		}
+	}
+	finalize();
+	Mix_CloseAudio();
+
 	return 0;
 }
 
@@ -442,26 +518,6 @@ void printchar(int x, int y, int z, int c, int u, int v) {
 void printstr(int x, int y, int z, char *s, int u, int v)
 	{ for(;*s;x+=8*z)printchar(x,y,z,(Uint8)*s++,u,v); }
 
-/* testing section */
-int test_mixer() {
-	int i, j;
-	FILE *f;
-
-	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
-	parse_bms();
-	f = fopen("angolmois.log", "w");
-	for(i=0; i<23; i++) {
-		for(j=0; j<nchannel[i]; j++) {
-			fprintf(f, "[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
-		}
-	}
-	fclose(f);
-	finalize();
-	Mix_CloseAudio();
-
-	return 0;
-}
-
 int test_font() {
 	int i, j, q;
 
@@ -500,6 +556,7 @@ angolmois help
 angolmois <filename> <options...>
 	play <filename> with the following options:
 	x<speed> -- playing speed (between 0.1 and 99.0; default 1.0)
+	lntype<n> -- default value of #LNTYPE field (0, 1, 2)
 	record -- when playing is done, update record file.
 	viewer -- work as viewer
 	ranking -- show ranking of <filename> (text)
