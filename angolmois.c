@@ -18,12 +18,6 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-/*
- * this code is development snapshot of angolmois.
- * i will not answer any letters before alpha version is released. please wait :)
- * <url: http://pandora.sapzil.info/dev/angolmois/>
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -37,8 +31,8 @@ const char sep = 92;
 const char sep = 47;
 #endif
 
-const int nbmsheader = 20;
-const char *bmsheader[nbmsheader] = {
+#define NBMSHEADER 20
+const char *bmsheader[NBMSHEADER] = {
 	"title", "genre", "artist", "stagefile",
 	"bpm", "player", "playlevel", "rank", "total",
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
@@ -50,7 +44,7 @@ char **bmsline=0;
 int nbmsline=0;
 
 char *metadata[4]={0,};
-float bpm=0;
+double bpm=0;
 int value[6]={1,0,3,100,0,0};
 #define v_player value[0]
 #define v_playlevel value[1]
@@ -62,13 +56,13 @@ int value[6]={1,0,3,100,0,0};
 Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
-float bpmtab[1296]={0,};
+double bpmtab[1296]={0,};
 
-typedef struct { float time; int type, index; } bmsnote;
+typedef struct { double time; int type, index; } bmsnote;
 bmsnote **channel[23]={0,};
-float shorten[1000]={0,};
+double shorten[1000]={0,};
 int nchannel[23]={0,};
-float length;
+double length;
 
 #define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define ADD_NOTE(player, chan, time, index) \
@@ -89,7 +83,7 @@ float length;
 #define ADD_STP(time, index) add_note(22, (time), 0, (index))
 
 int isspace(char n) { return n==8 || n==10 || n==13 || n==32; }
-int getdigit(char n) { return 47<a && a<58 ? a-48 : ((a|32)-19)/26==3 ? (a|32)-87 : -1296; }
+int getdigit(char n) { return 47<n && n<58 ? n-48 : ((n|32)-19)/26==3 ? (n|32)-87 : -1296; }
 int key2index(char a, char b) { return getdigit(a) * 36 + getdigit(b); }
 
 char *adjust_path(char *path) {
@@ -124,12 +118,12 @@ int compare_bmsline(const void *a, const void *b) {
 	return 0;
 }
 
-void add_note(int chan, float time, int type, int index) {
+void add_note(int chan, double time, int type, int index) {
 	bmsnote *temp;
 	temp = malloc(sizeof(bmsnote));
 	temp->time = time; temp->type = type; temp->index = index;
-	channel[chan] = realloc(channel[chan], sizeof(bmsnote*) * (nchannel+1));
-	channel[chan][nchannel++] = temp;
+	channel[chan] = realloc(channel[chan], sizeof(bmsnote*) * (nchannel[chan]+1));
+	channel[chan][nchannel[chan]++] = temp;
 }
 
 int parse_bms(FILE *fp) {
@@ -137,17 +131,17 @@ int parse_bms(FILE *fp) {
 	int prev[20]={0,};
 	int rnd=1, ignore=0;
 	int measure, chan;
-	float time;
-	char line[1024];
+	double ctime;
+	char *line=malloc(1024);
 	SDL_Surface *tempsurf;
 	
 	srand(time(0));
-	while(fgets(str, 1024, fp)) {
-		if(*str++ != '#') continue;
+	while(fgets(line, 1024, fp)) {
+		if(*line++ != '#') continue;
 
-		for(i=0; i<nbmsheader; i++) {
+		for(i=0; i<NBMSHEADER; i++) {
 			for(j=0; bmsheader[i][j]; j++)
-				if((bmsheader[i][j]|32) != (str[j]|32)) break;
+				if((bmsheader[i][j]|32) != (line[j]|32)) break;
 			if(!bmsheader[i][j]) break;
 		}
 		switch(i) {
@@ -175,6 +169,7 @@ int parse_bms(FILE *fp) {
 			case 2: /* artist */
 			case 3: /* stagefile */
 				if(!remove_whitespace(line, &j)) break;
+				for(k=j; line[k]; k++);
 				metadata[i] = malloc(k-j+1);
 				for(k=j; line[k]; k++) metadata[i][k] = line[k-j];
 				break;
@@ -260,53 +255,56 @@ int parse_bms(FILE *fp) {
 			a = (k - j) / 2;
 			for(k=0; k<a; k++,j+=2) {
 				b = key2index(bmsline[i][j], bmsline[i][j+1]);
-				time = measure + 1. * k / a;
-				if(chan == 1) {
-					ADD_BGM(time, b);
-				} else if(chan == 3) {
-					ADD_BPM(time, b);
-				} else if(chan == 4) {
-					ADD_BGA(time, b);
-				} else if(chan == 6) {
-					ADD_POORBGA(time, b);
-				} else if(chan == 7) {
-					ADD_BGA2(time, b);
-				} else if(chan == 8) {
-					ADD_BPM2(time, b);
-				} else if(chan == 9) {
-					ADD_STOP(time, b);
-				} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
-					if(lnobj && b == lnobj) {
-						chan = GET_CHANNEL(chan>20, chan%10);
-						for(c=nchannel[chan]-1; c>=0 && channel[chan][c]->type!=0; c--);
-						if(c >= 0) {
-							channel[chan][c]->type = 2;
-							ADD_LNDONE(chan>20, chan%10, time, b);
+				ctime = measure + 1. * k / a;
+				if(b) {
+					if(chan == 1) {
+						ADD_BGM(ctime, b);
+					} else if(chan == 3) {
+						ADD_BPM(ctime, b);
+					} else if(chan == 4) {
+						ADD_BGA(ctime, b);
+					} else if(chan == 6) {
+						ADD_POORBGA(ctime, b);
+					} else if(chan == 7) {
+						ADD_BGA2(ctime, b);
+					} else if(chan == 8) {
+						ADD_BPM2(ctime, b);
+					} else if(chan == 9) {
+						ADD_STOP(ctime, b);
+					} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
+						if(lnobj && b == lnobj) {
+							chan = GET_CHANNEL(chan>20, chan%10);
+							for(c=nchannel[chan]-1; c>=0 && channel[chan][c]->type!=0; c--);
+							if(c >= 0) {
+								channel[chan][c]->type = 2;
+								ADD_LNDONE(chan>20, chan%10, ctime, b);
+							}
+						} else {
+							ADD_NOTE(chan>20, chan%10, ctime, b);
 						}
-					} else {
-						ADD_NOTE(chan>20, chan%10, time, b);
+					} else if(chan % 10 != 0 && chan > 29 && chan < 50) {
+						ADD_INVNOTE(chan>40, chan%10, ctime, b);
 					}
-				} else if(chan % 10 != 0 && chan > 29 && chan < 50) {
-					ADD_INVNOTE(chan>40, chan%10, time, b);
-				} else if(chan % 10 != 0 && chan > 49 && chan < 70 && b) {
-					if(lntype == 1) {
+				}
+				if(chan % 10 != 0 && chan > 49 && chan < 70) {
+					if(lntype == 1 && b) {
 						if(prev[chan-50]) {
 							prev[chan-50] = 0;
-							ADD_LNDONE(chan>60, chan%10, time, 0);
+							ADD_LNDONE(chan>60, chan%10, ctime, 0);
 						} else {
 							prev[chan-50] = b;
-							ADD_LNSTART(chan>60, chan%10, time, b);
+							ADD_LNSTART(chan>60, chan%10, ctime, b);
 						}
 					} else if(lntype == 2) {
 						if(prev[chan-50] != b) {
 							prev[chan-50] = b;
-							ADD_LNDONE(chan>60, chan%10, time, 0);
+							ADD_LNDONE(chan>60, chan%10, ctime, 0);
 							if(b) {
-								ADD_LNSTART(chan>60, chan%10, time, b);
+								ADD_LNSTART(chan>60, chan%10, ctime, b);
 							}
-						} else if(!prev[chan-50] && b) {
+						} else if(!prev[chan-50]) {
 							prev[chan-50] = b;
-							ADD_LNSTART(chan>60, chan%10, time, b);
+							ADD_LNSTART(chan>60, chan%10, ctime, b);
 						}
 					}
 				}
@@ -320,8 +318,52 @@ int parse_bms(FILE *fp) {
 			ADD_LNDONE(i>10, i%10, length, 0);
 		}
 	}
+	for(i=0; i<nbmsline; i++) free(bmsline[i]);
+	free(bmsline);
 
 	/* TODO: sort and arrange notes */
+	free(line);
+	return 0;
+}
+
+/******************************************************************************/
+
+SDL_Surface *screen;
+SDL_Event event;
+
+/*
+angolmois
+	show logo screen
+angolmois help
+	print help message (text)
+angolmois <filename> <options...>
+	play <filename> with the following options:
+	x<speed> -- playing speed (between 0.1 and 99.0; default 1.0)
+	record -- when playing is done, update record file.
+	viewer -- work as viewer
+	ranking -- show ranking of <filename> (text)
+note: ranking file is <filename>.arank
+*/
+int main(int argc, char **argv) {
+	int i, j;
+
+	if(SDL_Init(SDL_INIT_VIDEO)<0) return 1;
+	atexit(SDL_Quit);
+	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
+	if(!screen) return 1;
+
+	while(1) {
+		while(SDL_PollEvent(&event)) {
+			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) return 0;
+		}
+		if(SDL_MUSTLOCK(screen) && SDL_LockSurface(screen)<0) continue;
+		for(i=0; i<600; i++) for(j=0; j<800; j++)
+			((unsigned int*)screen->pixels)[i*800+j] = ((rand()&0xFF)<<16) | (rand()&0xFFFF);
+		if(SDL_MUSTLOCK(screen)) SDL_UnlockSurface(screen);
+		SDL_UpdateRect(screen, 0, 0, 800, 600);
+	}
+	
+	return 0;
 }
 
 /* vim: set ts=4 sw=4: */
