@@ -38,13 +38,13 @@ const char *bmsheader[NBMSHEADER] = {
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-const char bmspath[512];
+char bmspath[512]="endlessdream\\MB_end7an.bme";
 char respath[512];
 char **bmsline=0;
 int nbmsline=0;
 
 char *metadata[4]={0,};
-double bpm=0;
+double bpm=130;
 int value[6]={1,0,3,100,0,0};
 #define v_player value[0]
 #define v_playlevel value[1]
@@ -126,7 +126,8 @@ void add_note(int chan, double time, int type, int index) {
 	channel[chan][nchannel[chan]++] = temp;
 }
 
-int parse_bms(FILE *fp) {
+int parse_bms() {
+	FILE* fp;
 	int i, j, k, a, b, c;
 	int prev[20]={0,};
 	int rnd=1, ignore=0;
@@ -135,9 +136,14 @@ int parse_bms(FILE *fp) {
 	char *line=malloc(1024);
 	SDL_Surface *tempsurf;
 	
+	fp = fopen(bmspath, "r");
+	if(!fp) return 1;
+
 	srand(time(0));
 	while(fgets(line, 1024, fp)) {
-		if(*line++ != '#') continue;
+		if(line[0] != 35) continue;
+		line++;
+		printf("%s",line);
 
 		for(i=0; i<NBMSHEADER; i++) {
 			for(j=0; bmsheader[i][j]; j++)
@@ -202,7 +208,7 @@ int parse_bms(FILE *fp) {
 				j += 2;
 				if(!remove_whitespace(line, &j)) break;
 				if(sndres[i]) Mix_FreeChunk(sndres[i]);
-				sndres[i] = Mix_LoadWAV(adjust_path(line+j));
+				sndres[i] = Mix_LoadWAV(adjust_path(line+j)); /* causes segfault */
 				break;
 			case 12: /* bmp## */
 				if(!remove_whitespace(line, &j)) break;
@@ -229,18 +235,22 @@ int parse_bms(FILE *fp) {
 				if((line[i]-8)/10 != 4) break;
 			if(i>4 && line[5]==58 && line[6]) {
 				while(line[i++]);
-				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+2));
+				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
+					/* sometimes returns 0 */
 				bmsline += nbmsline;
 				*bmsline = malloc(sizeof(char) * i);
-				for(i=0; line[i]; i++)
-					(*bmsline)[i] = line[i];
-				(*bmsline)[i] = 0;
+				for(i=0; (*bmsline)[i] = line[i]; i++);
 				bmsline -= nbmsline++;
 			}
 		}
+		line--;
 	}
+	free(line);
+	fclose(fp);
 
 	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
+	
+	/* not tested */
 	for(i=0; i<nbmsline; i++) {
 		j = 0;
 		for(k=0; k<5; k++)
@@ -318,11 +328,31 @@ int parse_bms(FILE *fp) {
 			ADD_LNDONE(i>10, i%10, length, 0);
 		}
 	}
+	/* /not tested */
+
 	for(i=0; i<nbmsline; i++) free(bmsline[i]);
 	free(bmsline);
-
+	
 	/* TODO: sort and arrange notes */
-	free(line);
+	return 0;
+}
+
+int finalize() {
+	int i, j;
+	
+	for(i=0; i<6; i++) {
+		free(metadata[i]);
+	}
+	for(i=0; i<1296; i++) {
+		if(sndres[i]) Mix_FreeChunk(sndres[i]);
+		if(imgres[i]) SDL_FreeSurface(imgres[i]);
+	}
+	for(i=0; i<23; i++) {
+		for(j=0; j<nchannel[i]; j++)
+			free(channel[i][j]);
+		free(channel[i]);
+	}
+	
 	return 0;
 }
 
@@ -330,6 +360,10 @@ int parse_bms(FILE *fp) {
 
 SDL_Surface *screen;
 SDL_Event event;
+
+void putpixel(int x, int y, int c) { ((Uint32*)screen->pixels)[x+y*800]=c; }
+void drawhline(int x1, int x2, int y, int c) { while(x1<x2) putpixel(x1++, y, c); }
+void drawvline(int x, int y1, int y2, int c) { while(y1<y2) putpixel(x, y1++, c); }
 
 /*
 angolmois
@@ -345,23 +379,36 @@ angolmois <filename> <options...>
 note: ranking file is <filename>.arank
 */
 int main(int argc, char **argv) {
-	int i, j;
+	int i, j, flag;
 
-	if(SDL_Init(SDL_INIT_VIDEO)<0) return 1;
+	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
 	atexit(SDL_Quit);
+	/*
 	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
 	if(!screen) return 1;
 
-	while(1) {
-		while(SDL_PollEvent(&event)) {
-			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) return 0;
+	flag = 1;
+	while(flag) {
+		if(!SDL_MUSTLOCK(screen) || SDL_LockSurface(screen)>=0) {
+			drawhline(0, 800, 300, (SDL_GetTicks() & 0xFF) * 0x10101);
+			SDL_UnlockSurface(screen);
 		}
-		if(SDL_MUSTLOCK(screen) && SDL_LockSurface(screen)<0) continue;
-		for(i=0; i<600; i++) for(j=0; j<800; j++)
-			((unsigned int*)screen->pixels)[i*800+j] = ((rand()&0xFF)<<16) | (rand()&0xFFFF);
-		if(SDL_MUSTLOCK(screen)) SDL_UnlockSurface(screen);
 		SDL_UpdateRect(screen, 0, 0, 800, 600);
+		while(SDL_PollEvent(&event)) {
+			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) flag = 0;
+		}
+	}*/
+
+	/* test section */
+	if(Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 1024)<0) return 1;
+	parse_bms();
+	for(i=0; i<23; i++) {
+		for(j=0; j<nchannel[i]; j++) {
+			printf("[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+		}
 	}
+	finalize();
+	Mix_CloseAudio();
 	
 	return 0;
 }
