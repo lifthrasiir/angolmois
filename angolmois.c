@@ -25,6 +25,12 @@
 #include <SDL_mixer.h>
 #include <SDL_image.h>
 
+char version[] = "TokigunStudio Angolmois version 0.0-dev-20050406";
+
+#if 0
+#include "angolmois-test.c"
+#endif
+
 #ifdef WIN32
 const char sep = 92;
 #else
@@ -38,8 +44,7 @@ const char *bmsheader[] = {
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-/*char bmspath[512]="D:\\Works\\angolmois\\test\\sweetmorning\\sm_5hd.bms";*/
-char bmspath[512]="D:\\Works\\angolmois\\test\\endlessdream\\MB_end7.bme";
+char bmspath[512];
 char respath[512];
 char **bmsline=0;
 int nbmsline=0;
@@ -54,6 +59,7 @@ int value[6]={1,0,3,100,1,0};
 #define lntype value[4]
 #define lnobj value[5]
 
+char *sndpath[1296]={0,}, *imgpath[1296]={0,};
 Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
@@ -143,6 +149,14 @@ void remove_note(int chan, int index) {
 	}
 }
 
+char *strcopy(char *src) {
+	char *dest; int i=0;
+	while(src[i++]);
+	dest = malloc(sizeof(char) * i);
+	for(i=0; dest[i]=src[i]; i++);
+	return dest;
+}
+
 int parse_bms() {
 	FILE* fp;
 	int i, j, k, a, b, c;
@@ -151,7 +165,6 @@ int parse_bms() {
 	int measure, chan;
 	double t;
 	char *line=malloc(1024);
-	SDL_Surface *tempsurf;
 	
 	fp = fopen(bmspath, "r");
 	if(!fp) return 1;
@@ -191,9 +204,7 @@ int parse_bms() {
 			case 2: /* artist */
 			case 3: /* stagefile */
 				if(!remove_whitespace(line, &j)) break;
-				for(k=j; line[k]; k++);
-				metadata[i] = malloc(sizeof(char) * (k-j+1));
-				for(k=j; line[k]; k++) metadata[i][k-j] = line[k];
+				metadata[i] = strcopy(line+j);
 				break;
 			case 4: /* bpm */
 				if(isspace(line[j])) {
@@ -223,16 +234,16 @@ int parse_bms() {
 				if(i < 0) break;
 				j += 2;
 				if(!remove_whitespace(line, &j)) break;
-				if(sndres[i]) { Mix_FreeChunk(sndres[i]); sndres[i]=0; }
-				sndres[i] = Mix_LoadWAV(adjust_path(line+j));
+				if(sndpath[i]) { free(sndpath[i]); sndpath[i] = 0; }
+				sndpath[i] = strcopy(line+j);
 				break;
 			case 12: /* bmp## */
+				i = key2index(line[j], line[j+1]);
+				if(i < 0) break;
+				j += 2;
 				if(!remove_whitespace(line, &j)) break;
-				if(tempsurf = IMG_Load(adjust_path(line+j))) {
-					if(imgres[i]) { SDL_FreeSurface(imgres[i]); imgres[i]=0; }
-					imgres[i] = SDL_DisplayFormat(tempsurf);
-					SDL_FreeSurface(tempsurf);
-				}
+				if(imgpath[i]) { free(imgpath[i]); imgpath[i] = 0; }
+				imgpath[i] = strcopy(line+j);
 				break;
 			case 13: /* bga## */
 				/* TODO */
@@ -250,10 +261,8 @@ int parse_bms() {
 			for(i=0; i<5; i++)
 				if((line[i]-8)/10 != 4) break;
 			if(i>4 && line[5]==58 && line[6]) {
-				while(line[i++]);
 				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
-				bmsline[nbmsline] = malloc(i);
-				for(i=0; bmsline[nbmsline][i] = line[i]; i++);
+				bmsline[nbmsline] = strcopy(line);
 				nbmsline++;
 			}
 		}
@@ -397,46 +406,44 @@ int parse_bms() {
 	return 0;
 }
 
-int finalize() {
-	int i, j;
+int load_resource() {
+	SDL_Surface *temp;
+	int i;
 	
-	for(i=0; i<4; i++) {
-		if(metadata[i]) free(metadata[i]);
-	}
 	for(i=0; i<1296; i++) {
-		if(sndres[i]) Mix_FreeChunk(sndres[i]);
-		if(imgres[i]) SDL_FreeSurface(imgres[i]);
-	}
-	for(i=0; i<23; i++) {
-		if(channel[i]) {
-			for(j=0; j<nchannel[i]; j++)
-				free(channel[i][j]);
-			free(channel[i]);
+		if(sndpath[i]) {
+			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
+			free(sndpath[i]);
+		}
+		if(imgpath[i]) {
+			if(temp = IMG_Load(adjust_path(imgpath[i]))) {
+				imgres[i] = SDL_DisplayFormat(temp);
+				SDL_FreeSurface(temp);
+			}
+			free(imgpath[i]);
 		}
 	}
-	
 	return 0;
 }
 
-int test_mixer() {
-	int i, j, t;
-	FILE *fp;
-
-	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
-	parse_bms();
-	fp = fopen("angolmois.log", "w");
-	t = 0;
-	for(i=0; i<23; i++) {
+/*
+bit 0: it uses 7 keys?
+bit 1: it uses long-note?
+bit 2: it uses pedal?
+...
+*/
+int get_bms_info(int *flag, int *nnotes, int *score, int *duration) {
+	int i, j;
+	
+	*flag = *nnotes = 0;
+	if(nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]) *flag |= 1;
+	if(nchannel[6] || nchannel[15]) *flag |= 4;
+	for(i=0; i<18; i++)
 		for(j=0; j<nchannel[i]; j++) {
-			if(i<18 && channel[i][j]->type != 2) t++;
-			fprintf(fp, "[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+			if(channel[i][j]->type > 1) *flag |= 2;
+			if(channel[i][j]->type < 3) ++*nnotes;
 		}
-	}
-	fprintf(fp, "total notes=%d\n", t);
-	fclose(fp);
-	finalize();
-	Mix_CloseAudio();
-
+	
 	return 0;
 }
 
@@ -532,59 +539,142 @@ void printchar(int x, int y, int z, int c, int u, int v) {
 void printstr(int x, int y, int z, char *s, int u, int v)
 	{ for(;*s;x+=8*z)printchar(x,y,z,(Uint8)*s++,u,v); }
 
-int test_font() {
-	int i, j, q;
+/******************************************************************************/
+
+Uint32 crc32t[256];
+void crc32_gen()
+	{int i=0;while(i++<2048)crc32t[i/8]=(i%8?crc32t[i/8]/2:0)^(3988292384*(crc32t[i/8]&1));}
+Uint32 crc32(FILE *f)
+	{Uint32 r=-1;while(!feof(f))r=(r>>8)^crc32t[(r^fgetc(f))&255];return~r;}
+
+/******************************************************************************/
+
+int initialize() {
+	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
+	atexit(SDL_Quit);
+	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
+	if(!screen) return 1;
+	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
+	SDL_WM_SetCaption("TokigunStudio Angolmois (dev-20050406)", "TokigunStudio Angolmois");
 
 	fontprocess(0);
 	fontprocess(2);
 	fontprocess(3);
-	SDL_WM_SetCaption("TokigunStudio Angolmois: development version", "angolmois-dev (2005/03/31)");
-	printstr(20, 4, 2, "\1 TokigunStudio Angolmois (alpha version!)", 0x80FF80, 0xFFFFFF);
-	printstr(20, 40, 1, "3.1415926535897932384662643383279............", 0xFF80FF, 0xFFFFFF);
-	for(i=0; i<95; i++)
-		printchar(20+i*8, 60, 1, i+32, 0xFFFF80, 0xFFFFFF);
-	SDL_UpdateRect(screen, 0, 0, 800, 600);
+	return 0;
+}
 	
-	q = 1;
-	while(q) {
-		if(!SDL_MUSTLOCK(screen) || SDL_LockSurface(screen)>=0) {
-			for(i=500; i<550; i++) drawhline(0, 800, i, 0x000000);
-			i = 600; j = SDL_GetTicks();
-			while(j) { printchar(i-=24, 500, 3, "0123456789aBCDef"[j%16], 0x808080, 0xFFFFFF); j/=16; }
-			SDL_UnlockSurface(screen);
+int finalize() {
+	int i, j;
+	
+	for(i=0; i<4; i++) {
+		if(metadata[i]) free(metadata[i]);
+	}
+	for(i=0; i<1296; i++) {
+		if(sndres[i]) Mix_FreeChunk(sndres[i]);
+		if(imgres[i]) SDL_FreeSurface(imgres[i]);
+	}
+	for(i=0; i<23; i++) {
+		if(channel[i]) {
+			for(j=0; j<nchannel[i]; j++)
+				free(channel[i][j]);
+			free(channel[i]);
 		}
-		SDL_UpdateRect(screen, 0, 0, 800, 600);
-		while(SDL_PollEvent(&event)) {
-			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) q = 0;
+	}
+
+	Mix_CloseAudio();
+	return 0;
+}
+
+int bicubic_kernel(int x, int y) {
+	if(x < 0) x = -x;
+	if(x < y) {
+		return ((y*y - 2*x*x + x*x/y*x) << 11) / y / y;
+	} else if(x < y * 2) {
+		return ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << 11) / y / y;
+	} else {
+		return 0;
+	}
+}
+
+int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
+	int x, dx, y, dy, ww, hh, w, h;
+	int i, j, k, r, g, b, c, xx, yy, a;
+
+	dx = x = 0;
+	ww = src->w - 1; hh = src->h - 1;
+	w = dest->w - 1; h = dest->h - 1;
+	for(i=0; i<=w; i++) {
+		dy = y = 0;
+		for(j=0; j<=h; j++) {
+			r = g = b = 0;
+			for(k=0; k<16; k++) {
+				xx = x + k/4 - 1; yy = y + k%4 - 1;
+				if(xx<0 || xx>ww || yy<0 || yy>hh) continue;
+				c = ((Uint32*)src->pixels)[xx+yy*src->w];
+				a = bicubic_kernel(xx*w-i*ww, w) * bicubic_kernel(yy*h-j*hh, h) >> 6;
+				r += (c&255) * a; g += (c>>8&255) * a; b += (c>>16&255) * a;
+			}
+			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
+			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
+			b = (b<0 ? 0 : b>>24 ? 255 : b>>16);
+			((Uint32*)dest->pixels)[i+j*dest->w] = r | (g<<8) | (b<<16);
+			dy += hh; if(dy >= h) { y++; dy -= h; }
 		}
+		dx += ww; if(dx >= w) { x++; dx -= w; }
 	}
 
 	return 0;
 }
 
-/*
-angolmois
-	show logo screen
-angolmois help
-	print help message (text)
-angolmois <filename> <options...>
-	play <filename> with the following options:
-	x<speed> -- playing speed (between 0.1 and 99.0; default 1.0)
-	lntype<n> -- default value of #LNTYPE field (0, 1, 2)
-	record -- when playing is done, update record file.
-	viewer -- work as viewer
-	ranking -- show ranking of <filename> (text)
-note: ranking file is <filename>.arank
-*/
-int main(int argc, char **argv) {
-	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
-	atexit(SDL_Quit);
-	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
-	if(!screen) return 1;
+int play(char *path) {
+	SDL_Surface *temp, *stagefile;
+	int i, j, result;
 
-	/* test_font(); */
-	test_mixer();
+	for(i=0; bmspath[i] = path[i]; i++);
+	if(result = parse_bms()) return result;
 	
+	if(metadata[3]) {
+		temp = IMG_Load(adjust_path(metadata[3]));
+		stagefile = SDL_DisplayFormat(temp);
+		bicubic_interpolation(stagefile, screen);
+		SDL_FreeSurface(temp);
+		SDL_FreeSurface(stagefile);
+	}
+	for(i=0; i<800; i++) {
+		for(j=0; j<42; j++) putblendedpixel(i, j, 0x101010, 64);
+		for(j=580; j<600; j++) putblendedpixel(i, j, 0x101010, 64);
+	}
+	printstr(6, 4, 2, metadata[0], 0x808080, 0xffffff);
+	for(i=0; metadata[1][i]; i++);
+	for(j=0; metadata[2][j]; j++);
+	printstr(792-8*i, 4, 1, metadata[1], 0x808080, 0xffffff);
+	printstr(792-8*j, 20, 1, metadata[2], 0x808080, 0xffffff);
+	{
+		char buf[99];
+		int flag, nnotes;
+		get_bms_info(&flag, &nnotes, 0, 0);
+		sprintf(buf, "%d note%s [%dKEY%s]", nnotes, nnotes==1 ? "" : "s", (flag&1) ? 7 : 5, (flag&2) ? "-LN" : "");
+		printstr(3, 582, 1, buf, 0x808080, 0xffffff);
+		printstr(800-8*ARRAYSIZE(version), 582, 1, version, 0x808080, 0xc0c0c0);
+	}
+	
+	SDL_UpdateRect(screen, 0, 0, 800, 600);
+	
+	i = 1;
+	while(i) {
+		while(SDL_PollEvent(&event)) {
+			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) i = 0;
+		}
+	}
+	return 0;
+}
+
+int main(int argc, char **argv) {
+	int result;
+	
+	if(result = initialize()) return result;
+	if(argc > 1) play(argv[1]);
+	if(result = finalize()) return result;
 	return 0;
 }
 
