@@ -38,14 +38,15 @@ const char *bmsheader[NBMSHEADER] = {
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-char bmspath[512]="D:\\Works\\angolmois\\project\\endlessdream\\MB_end7an.bme";
+/*char bmspath[512]="D:\\Works\\angolmois\\project\\endlessdream\\MB_end7an.bme";*/
+char bmspath[512]="E:\\Program\\Games\\rdm\\1st\\sweetmorning\\sm_5hd.bms";
 char respath[512];
 char **bmsline=0;
 int nbmsline=0;
 
 char *metadata[4]={0,};
 double bpm=130;
-int value[6]={1,0,3,100,0,0};
+int value[6]={1,0,3,100,1,0};
 #define v_player value[0]
 #define v_playlevel value[1]
 #define v_rank value[2]
@@ -87,9 +88,9 @@ int getdigit(int n) { return 47<n && n<58 ? n-48 : ((n|32)-19)/26==3 ? (n|32)-87
 int key2index(int a, int b) { return getdigit(a) * 36 + getdigit(b); }
 
 char *adjust_path(char *path) {
-	int i, j=0;
+	int i=0, j=0;
 	if(*path != 47 && *path != 92) {
-		for(i=0; bmspath[i]; ) {
+		while(bmspath[i]) {
 			respath[i] = bmspath[i];
 			if(respath[i++] == sep) j = i;
 		}
@@ -114,7 +115,7 @@ int remove_whitespace(char *str, int *i) {
 int compare_bmsline(const void *a, const void *b) {
 	int i, j;
 	for(i=0; i<6; i++)
-		if(j = ((char*)a)[i] - ((char*)b)[i]) return j;
+		if(j = (*(char**)a)[i] - (*(char**)b)[i]) return j;
 	return 0;
 }
 
@@ -143,7 +144,6 @@ int parse_bms() {
 	while(fgets(line, 1024, fp)) {
 		if(line[0] != 35) continue;
 		line++;
-		printf("%s",line);
 
 		for(i=0; i<NBMSHEADER; i++) {
 			for(j=0; bmsheader[i][j]; j++)
@@ -176,8 +176,8 @@ int parse_bms() {
 			case 3: /* stagefile */
 				if(!remove_whitespace(line, &j)) break;
 				for(k=j; line[k]; k++);
-				metadata[i] = malloc(k-j+1);
-				for(k=j; line[k]; k++) metadata[i][k] = line[k-j];
+				metadata[i] = malloc(sizeof(char) * (k-j+1));
+				for(k=j; line[k]; k++) metadata[i][k-j] = line[k];
 				break;
 			case 4: /* bpm */
 				if(isspace(line[j])) {
@@ -236,11 +236,9 @@ int parse_bms() {
 			if(i>4 && line[5]==58 && line[6]) {
 				while(line[i++]);
 				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
-					/* sometimes returns 0 */
-				bmsline += nbmsline;
-				*bmsline = malloc(sizeof(char) * i);
-				for(i=0; (*bmsline)[i] = line[i]; i++);
-				bmsline -= nbmsline++;
+				bmsline[nbmsline] = malloc(i);
+				for(i=0; bmsline[nbmsline][i] = line[i]; i++);
+				nbmsline++;
 			}
 		}
 		line--;
@@ -249,13 +247,10 @@ int parse_bms() {
 	fclose(fp);
 
 	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
-	return 0;
-	
-	/* not tested */
 	for(i=0; i<nbmsline; i++) {
 		j = 0;
 		for(k=0; k<5; k++)
-			j = j * 10 + bmsline[i][j] - 48;
+			j = j * 10 + bmsline[i][k] - 48;
 		measure = j / 100; chan = j % 100;
 		if(chan == 2) {
 			shorten[measure] = atof(bmsline[i]+7);
@@ -271,7 +266,7 @@ int parse_bms() {
 					if(chan == 1) {
 						ADD_BGM(ctime, b);
 					} else if(chan == 3) {
-						ADD_BPM(ctime, b);
+						ADD_BPM(ctime, b/36*16+b%36);
 					} else if(chan == 4) {
 						ADD_BGA(ctime, b);
 					} else if(chan == 6) {
@@ -284,10 +279,9 @@ int parse_bms() {
 						ADD_STOP(ctime, b);
 					} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
 						if(lnobj && b == lnobj) {
-							chan = GET_CHANNEL(chan>20, chan%10);
-							for(c=nchannel[chan]-1; c>=0 && channel[chan][c]->type!=0; c--);
-							if(c >= 0) {
-								channel[chan][c]->type = 2;
+							c = GET_CHANNEL(chan>20, chan%10);
+							if(nchannel[c] && channel[c][nchannel[c]-1]->type==0) {
+								channel[c][nchannel[c]-1]->type = 2;
 								ADD_LNDONE(chan>20, chan%10, ctime, b);
 							}
 						} else {
@@ -308,14 +302,13 @@ int parse_bms() {
 						}
 					} else if(lntype == 2) {
 						if(prev[chan-50] != b) {
+							if(prev[chan-50]) {
+								ADD_LNDONE(chan>60, chan%10, ctime, 0);
+							}
 							prev[chan-50] = b;
-							ADD_LNDONE(chan>60, chan%10, ctime, 0);
 							if(b) {
 								ADD_LNSTART(chan>60, chan%10, ctime, b);
 							}
-						} else if(!prev[chan-50]) {
-							prev[chan-50] = b;
-							ADD_LNSTART(chan>60, chan%10, ctime, b);
 						}
 					}
 				}
@@ -329,10 +322,10 @@ int parse_bms() {
 			ADD_LNDONE(i>10, i%10, length, 0);
 		}
 	}
-	/* /not tested */
 
 	for(i=0; i<nbmsline; i++) free(bmsline[i]);
 	free(bmsline);
+	/* yes, finally this code above works! wow! */
 	
 	/* TODO: sort and arrange notes */
 	return 0;
@@ -449,59 +442,28 @@ void printchar(int x, int y, int z, int c, int u, int v) {
 void printstr(int x, int y, int z, char *s, int u, int v)
 	{ for(;*s;x+=8*z)printchar(x,y,z,(Uint8)*s++,u,v); }
 
-#if 0
-int test() {
+/* testing section */
+int test_mixer() {
 	int i, j;
-	/* test section */
+	FILE *f;
+
 	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
-	/*
 	parse_bms();
+	f = fopen("angolmois.log", "w");
 	for(i=0; i<23; i++) {
 		for(j=0; j<nchannel[i]; j++) {
-			printf("[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+			fprintf(f, "[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
 		}
 	}
+	fclose(f);
 	finalize();
-
-	{
-		Mix_Chunk *music;
-		music = Mix_LoadWAV("E:\\Program\\Games\\rdm\\1st\\girl\\gtc3.wav");
-		for(i=0; i<8; i++) {
-			printf("%d", i);
-			Mix_PlayChannel(-1, music, 0);
-			SDL_Delay(200);
-		}
-		while(j=Mix_Playing(-1));
-		Mix_FreeChunk(music);
-	}
-	*/
 	Mix_CloseAudio();
-	getchar();
 
 	return 0;
 }
-#endif
 
-/*
-angolmois
-	show logo screen
-angolmois help
-	print help message (text)
-angolmois <filename> <options...>
-	play <filename> with the following options:
-	x<speed> -- playing speed (between 0.1 and 99.0; default 1.0)
-	record -- when playing is done, update record file.
-	viewer -- work as viewer
-	ranking -- show ranking of <filename> (text)
-note: ranking file is <filename>.arank
-*/
-int main(int argc, char **argv) {
+int test_font() {
 	int i, j, q;
-
-	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
-	atexit(SDL_Quit);
-	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
-	if(!screen) return 1;
 
 	fontprocess(0);
 	fontprocess(2);
@@ -526,6 +488,31 @@ int main(int argc, char **argv) {
 			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) q = 0;
 		}
 	}
+
+	return 0;
+}
+
+/*
+angolmois
+	show logo screen
+angolmois help
+	print help message (text)
+angolmois <filename> <options...>
+	play <filename> with the following options:
+	x<speed> -- playing speed (between 0.1 and 99.0; default 1.0)
+	record -- when playing is done, update record file.
+	viewer -- work as viewer
+	ranking -- show ranking of <filename> (text)
+note: ranking file is <filename>.arank
+*/
+int main(int argc, char **argv) {
+	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
+	atexit(SDL_Quit);
+	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
+	if(!screen) return 1;
+
+	/* test_font(); */
+	test_mixer();
 	
 	return 0;
 }
