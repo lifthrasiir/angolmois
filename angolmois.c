@@ -227,7 +227,7 @@ int parse_bms() {
 				if(!isspace(line[j])) break;
 				while(isspace(line[++j]));
 				if(line[j])
-					value[5] = key2index(line[j], line[j+1]);
+					lnobj = key2index(line[j], line[j+1]);
 				break;
 			case 11: /* wav## */
 				i = key2index(line[j], line[j+1]);
@@ -406,21 +406,23 @@ int parse_bms() {
 	return 0;
 }
 
-int load_resource() {
+int load_resource(void (*callback)(char*)) {
 	SDL_Surface *temp;
 	int i;
 	
 	for(i=0; i<1296; i++) {
 		if(sndpath[i]) {
+			if(callback) callback(sndpath[i]);
 			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
-			free(sndpath[i]);
+			free(sndpath[i]); sndpath[i] = 0;
 		}
 		if(imgpath[i]) {
+			if(callback) callback(imgpath[i]);
 			if(temp = IMG_Load(adjust_path(imgpath[i]))) {
 				imgres[i] = SDL_DisplayFormat(temp);
 				SDL_FreeSurface(temp);
 			}
-			free(imgpath[i]);
+			free(imgpath[i]); imgpath[i] = 0;
 		}
 	}
 	return 0;
@@ -451,6 +453,65 @@ int get_bms_info(int *flag, int *nnotes, int *score, int *duration) {
 
 SDL_Surface *screen;
 SDL_Event event;
+SDL_Rect rect[8]; int _rect=0;
+
+int putpixel(int x, int y, int c)
+	{ return((Uint32*)screen->pixels)[x+y*800]=c; }
+void drawhline(int x1, int x2, int y, int c)
+	{ while(x1<x2) putpixel(x1++, y, c); }
+void drawvline(int x, int y1, int y2, int c)
+	{ while(y1<y2) putpixel(x, y1++, c); }
+int blend(int x, int y, int a, int b)
+	{ int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
+void putblendedpixel(int x, int y, int c, int o)
+	{ putpixel(x, y, blend(((Uint32*)screen->pixels)[x+y*800], c, o, 255)); }
+SDL_Surface *newsurface(int f, int w, int h)
+	{ return SDL_CreateRGBSurface(f,w,h,32,0xff,0xff00,0xff0000,0xff000000); }
+SDL_Rect *newrect(int x, int y, int w, int h)
+	{ SDL_Rect*r=rect+_rect++%8;r->x=x;r->y=y;r->w=w;r->h=h;return r; }
+
+int bicubic_kernel(int x, int y) {
+	if(x < 0) x = -x;
+	if(x < y) {
+		return ((y*y - 2*x*x + x*x/y*x) << 11) / y / y;
+	} else if(x < y * 2) {
+		return ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << 11) / y / y;
+	} else {
+		return 0;
+	}
+}
+
+int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
+	int x, dx, y, dy, ww, hh, w, h;
+	int i, j, k, r, g, b, c, xx, yy, a;
+
+	dx = x = 0;
+	ww = src->w - 1; hh = src->h - 1;
+	w = dest->w - 1; h = dest->h - 1;
+	for(i=0; i<=w; i++) {
+		dy = y = 0;
+		for(j=0; j<=h; j++) {
+			r = g = b = 0;
+			for(k=0; k<16; k++) {
+				xx = x + k/4 - 1; yy = y + k%4 - 1;
+				if(xx<0 || xx>ww || yy<0 || yy>hh) continue;
+				c = ((Uint32*)src->pixels)[xx+yy*src->w];
+				a = bicubic_kernel(xx*w-i*ww, w) * bicubic_kernel(yy*h-j*hh, h) >> 6;
+				r += (c&255) * a; g += (c>>8&255) * a; b += (c>>16&255) * a;
+			}
+			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
+			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
+			b = (b<0 ? 0 : b>>24 ? 255 : b>>16);
+			((Uint32*)dest->pixels)[i+j*dest->w] = r | (g<<8) | (b<<16);
+			dy += hh; if(dy > h) { y++; dy -= h; }
+		}
+		dx += ww; if(dx > w) { x++; dx -= w; }
+	}
+
+	return 0;
+}
+
+/******************************************************************************/
 
 /* compressed font data (whitespaces are ignored) */
 Uint8 fontmap[]="\0\2\3\6\7\10\13\14\16\20\30\33\34\36$,03678;<>?@ACU]^`acfghkl"
@@ -470,17 +531,6 @@ Uint8 fontdata[]="\\WWWWWWWWWWWW\\.::::..$...66662'67;O7;O64));IIH;*III;))CDE'+\
 	EEETCCC<EEEEEE<&&&TEECCCCC;EC;&&E;..T...///,EEEEEEE;EEEEE60)EEEIIIU6>E6006E\
 	>EEEE51+.4CU(,08MCU,....M....,................M....,....MM[X,";
 Uint8 rawfont[16][95]={0,}, (*zoomfont[16])[95]={rawfont,0,};
-
-int putpixel(int x, int y, int c)
-	{ return((Uint32*)screen->pixels)[x+y*800]=c; }
-void drawhline(int x1, int x2, int y, int c)
-	{ while(x1<x2) putpixel(x1++, y, c); }
-void drawvline(int x, int y1, int y2, int c)
-	{ while(y1<y2) putpixel(x, y1++, c); }
-int blend(int x, int y, int a, int b)
-	{ int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
-void putblendedpixel(int x, int y, int c, int o)
-	{ putpixel(x, y, blend(((Uint32*)screen->pixels)[x+y*800], c, o, 255)); }
 
 int _fontprocess(int x, int y, int z, int c, int s) {
 	int i, j;
@@ -526,6 +576,12 @@ void fontprocess(int z) {
 	}
 }
 
+void fontfinalize() {
+	int i;
+	for(i=1; i<ARRAYSIZE(zoomfont); i++)
+		free(zoomfont[i]);
+}
+
 void printchar(int x, int y, int z, int c, int u, int v) {
 	int i, j;
 	if(isspace(c)) return;
@@ -549,13 +605,21 @@ Uint32 crc32(FILE *f)
 
 /******************************************************************************/
 
+int check_exit() {
+	int i = 0;
+	while(SDL_PollEvent(&event)) {
+		if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) i = 1;
+	}
+	return i;
+}
+
 int initialize() {
 	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
 	atexit(SDL_Quit);
-	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
+	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE|SDL_DOUBLEBUF/*|SDL_FULLSCREEN*/);
 	if(!screen) return 1;
 	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
-	SDL_WM_SetCaption("TokigunStudio Angolmois (dev-20050406)", "TokigunStudio Angolmois");
+	SDL_WM_SetCaption(version, "TokigunStudio Angolmois");
 
 	fontprocess(0);
 	fontprocess(2);
@@ -570,10 +634,12 @@ int finalize() {
 		if(metadata[i]) free(metadata[i]);
 	}
 	for(i=0; i<1296; i++) {
+		if(sndpath[i]) free(sndpath[i]);
+		if(imgpath[i]) free(imgpath[i]);
 		if(sndres[i]) Mix_FreeChunk(sndres[i]);
 		if(imgres[i]) SDL_FreeSurface(imgres[i]);
 	}
-	for(i=0; i<23; i++) {
+	for(i=0; i<22; i++) {
 		if(channel[i]) {
 			for(j=0; j<nchannel[i]; j++)
 				free(channel[i][j]);
@@ -582,48 +648,19 @@ int finalize() {
 	}
 
 	Mix_CloseAudio();
+	fontfinalize();
 	return 0;
 }
 
-int bicubic_kernel(int x, int y) {
-	if(x < 0) x = -x;
-	if(x < y) {
-		return ((y*y - 2*x*x + x*x/y*x) << 11) / y / y;
-	} else if(x < y * 2) {
-		return ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << 11) / y / y;
-	} else {
-		return 0;
-	}
-}
+SDL_Surface *stagefile_tmp;
 
-int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
-	int x, dx, y, dy, ww, hh, w, h;
-	int i, j, k, r, g, b, c, xx, yy, a;
-
-	dx = x = 0;
-	ww = src->w - 1; hh = src->h - 1;
-	w = dest->w - 1; h = dest->h - 1;
-	for(i=0; i<=w; i++) {
-		dy = y = 0;
-		for(j=0; j<=h; j++) {
-			r = g = b = 0;
-			for(k=0; k<16; k++) {
-				xx = x + k/4 - 1; yy = y + k%4 - 1;
-				if(xx<0 || xx>ww || yy<0 || yy>hh) continue;
-				c = ((Uint32*)src->pixels)[xx+yy*src->w];
-				a = bicubic_kernel(xx*w-i*ww, w) * bicubic_kernel(yy*h-j*hh, h) >> 6;
-				r += (c&255) * a; g += (c>>8&255) * a; b += (c>>16&255) * a;
-			}
-			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
-			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
-			b = (b<0 ? 0 : b>>24 ? 255 : b>>16);
-			((Uint32*)dest->pixels)[i+j*dest->w] = r | (g<<8) | (b<<16);
-			dy += hh; if(dy >= h) { y++; dy -= h; }
-		}
-		dx += ww; if(dx >= w) { x++; dx -= w; }
-	}
-
-	return 0;
+void callback_resource(char *path) {
+	int i;
+	for(i=0; path[i]; i++);
+	SDL_BlitSurface(stagefile_tmp, newrect(0,0,800,20), screen, newrect(0,580,800,20));
+	printstr(797-8*i, 582, 1, path, 0x808080, 0xc0c0c0);
+	SDL_Flip(screen);
+	check_exit();
 }
 
 int play(char *path) {
@@ -633,6 +670,10 @@ int play(char *path) {
 	for(i=0; bmspath[i] = path[i]; i++);
 	if(result = parse_bms()) return result;
 	
+	printstr(248, 284, 2, "loading bms file...", 0x202020, 0x808080);
+	SDL_Flip(screen);
+
+	stagefile_tmp = newsurface(SDL_SWSURFACE, 800, 20);
 	if(metadata[3]) {
 		temp = IMG_Load(adjust_path(metadata[3]));
 		stagefile = SDL_DisplayFormat(temp);
@@ -653,19 +694,15 @@ int play(char *path) {
 		char buf[99];
 		int flag, nnotes;
 		get_bms_info(&flag, &nnotes, 0, 0);
-		sprintf(buf, "%d note%s [%dKEY%s]", nnotes, nnotes==1 ? "" : "s", (flag&1) ? 7 : 5, (flag&2) ? "-LN" : "");
+		i = sprintf(buf, "Level %d | BPM %.2f | %d note%s [%dKEY%s]", v_playlevel, bpm, nnotes, nnotes==1 ? "" : "s", (flag&1) ? 7 : 5, (flag&2) ? "-LN" : "");
 		printstr(3, 582, 1, buf, 0x808080, 0xffffff);
-		printstr(800-8*ARRAYSIZE(version), 582, 1, version, 0x808080, 0xc0c0c0);
+		SDL_BlitSurface(screen, newrect(0,580,800,20), stagefile_tmp, newrect(0,0,800,20));
 	}
+	SDL_Flip(screen);
+
+	load_resource(callback_resource);
 	
-	SDL_UpdateRect(screen, 0, 0, 800, 600);
-	
-	i = 1;
-	while(i) {
-		while(SDL_PollEvent(&event)) {
-			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) i = 0;
-		}
-	}
+	while(!check_exit());
 	return 0;
 }
 
