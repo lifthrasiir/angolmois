@@ -38,7 +38,7 @@ const char *bmsheader[NBMSHEADER] = {
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-char bmspath[512]="endlessdream\\MB_end7an.bme";
+char bmspath[512]="D:\\Works\\angolmois\\project\\endlessdream\\MB_end7an.bme";
 char respath[512];
 char **bmsline=0;
 int nbmsline=0;
@@ -208,7 +208,7 @@ int parse_bms() {
 				j += 2;
 				if(!remove_whitespace(line, &j)) break;
 				if(sndres[i]) Mix_FreeChunk(sndres[i]);
-				sndres[i] = Mix_LoadWAV(adjust_path(line+j)); /* causes segfault */
+				sndres[i] = Mix_LoadWAV(adjust_path(line+j));
 				break;
 			case 12: /* bmp## */
 				if(!remove_whitespace(line, &j)) break;
@@ -249,6 +249,7 @@ int parse_bms() {
 	fclose(fp);
 
 	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
+	return 0;
 	
 	/* not tested */
 	for(i=0; i<nbmsline; i++) {
@@ -361,9 +362,91 @@ int finalize() {
 SDL_Surface *screen;
 SDL_Event event;
 
+/* compressed font data (whitespaces are ignored) */
+Uint8 fontmap[]="\0\2\3\6\7\10\13\14\16\20\30\33\34\36$,03678;<>?@AFU]_`acfghkl"
+	"nopsvwx{|~\177\201\237\303\333\361";
+Uint8 fontinfo[]=">',\37==8==M\\\256\211\255K==========MNM{M==================>"
+	"==========K=\26\315&]=]=]=_-=?==]]]``]]=]]]]_]-\20-7";
+Uint8 fontdata[]=".::::..$...66662'67;O7;O64));IIH;*III;))CDE'+.4F?'8JJJ9IKFK9+\
+    ++.-+.444444.+4.++++++.4.YYT.TYY....T......4T...%'+.4C=;EEGLRNEE;0:3++++++<\
+    ;EEG,08MCU;EE&1&&EE;,16FFFFU''UCCCT&&EE;;EECTEEEE;U&&'+.....;EEE;EEEE;;EEEE\
+    <&EE;...$$$......$$$...4'+.4C4.+'T$$TC4.+'+.4C;EEE'+.$..;>A@@@B>E;)06EEEUEE\
+    ETEEETEEEET15ECCCCE51SFEEEEEEFSUCCCTCCCCUUCCCTCCCCC15ECCGEE51EEEEUEEEEET...\
+    .....T&&&&&&EEE;EFJQMMQJFECCCCCCCCCUEPUUIIEEEEEEENRLGEEE06EEEEEE60TEEEETCCC\
+    C;EEEEEIL;(&TEEEETEEEE;EEC;&&EE;T.........EEEEEEEEE;EEEEEEE60)EEEEIIIU66>EP\
+    ;00;PE>VXF:......U&&(,08MCU:44444444:=C4.+'%:++++++++:)06E>U4.+';&&<EEE<CCC\
+    TEEEEET;EECCEE;&&&<EEEEE<;EEEUCE;,//.T.....<EEEE<&EE;CCCTEEEEEEE..$.......&\
+	&$$&&&&EEE;CCEFJQQJFE0+++++++++OUIIIIEETEEEEEEE;EEEEEE;TEEEEEETCCC<EEEEEE<&\
+	&&TEECCCCC;EC;&&E;..T...///,EEEEEEE;EEEEE60)EEEIIIU6>E6006E>EEEE51+.4CU(,08\
+	MCU,....M....,................M....,....MMZW,";
+int fontindex[96]={0};
+
 void putpixel(int x, int y, int c) { ((Uint32*)screen->pixels)[x+y*800]=c; }
 void drawhline(int x1, int x2, int y, int c) { while(x1<x2) putpixel(x1++, y, c); }
 void drawvline(int x, int y1, int y2, int c) { while(y1<y2) putpixel(x, y1++, c); }
+int blend(int x, int y, int a, int b) { int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
+void putblendedpixel(int x, int y, int c, int o) { putpixel(x, y, blend(((Uint32*)screen->pixels)[x+y*800], c, o, 255)); }
+
+void fontprocess() {
+	int i,j=0;
+	for(i=0; i<95; i++) {
+		fontinfo[i]--;
+		fontindex[i+1] = fontindex[i] + fontinfo[i]%16 - fontinfo[i]/16 + 1;
+	}
+	for(i=0; i<fontindex[95]; i++) {
+		if(fontdata[i+j] == 32) i--,j++;
+		else fontdata[i] = fontmap[fontdata[i+j]-36];
+	}
+}
+
+void printchar(int x, int y, char c) {
+	int i, j, k;
+	if(c < 33 || c > 126) return;
+	for(i=fontindex[c-33],j=fontinfo[c-33]>>4; j<=(fontinfo[c-33]&15); i++,j++) {
+		for(k=0; k<8; k++) {
+			if(fontdata[i]&(1<<(7-k)))
+				putpixel(x+k, y+j, blend(0xFF80FF, 0xFFFFFF, j, 15));
+		}
+	}
+}
+
+void printstr(int x, int y, char *s) {
+	while(*s) {
+		printchar(x, y, *s++);
+		x += 8;
+	}
+}
+
+int test() {
+	int i, j;
+	/* test section */
+	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
+	/*
+	parse_bms();
+	for(i=0; i<23; i++) {
+		for(j=0; j<nchannel[i]; j++) {
+			printf("[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+		}
+	}
+	finalize();
+
+	{
+		Mix_Chunk *music;
+		music = Mix_LoadWAV("E:\\Program\\Games\\rdm\\1st\\girl\\gtc3.wav");
+		for(i=0; i<8; i++) {
+			printf("%d", i);
+			Mix_PlayChannel(-1, music, 0);
+			SDL_Delay(200);
+		}
+		while(j=Mix_Playing(-1));
+		Mix_FreeChunk(music);
+	}
+	*/
+	Mix_CloseAudio();
+	getchar();
+
+	return 0;
+}
 
 /*
 angolmois
@@ -379,36 +462,34 @@ angolmois <filename> <options...>
 note: ranking file is <filename>.arank
 */
 int main(int argc, char **argv) {
-	int i, j, flag;
+	int i;
 
 	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
 	atexit(SDL_Quit);
-	/*
 	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE);
 	if(!screen) return 1;
 
-	flag = 1;
-	while(flag) {
+	fontprocess();
+	SDL_WM_SetCaption("TokigunStudio Angolmois: development version", "angolmois-dev (2005/03/31)");
+	printstr(20, 20, "TokigunStudio Angolmois (alpha version!)");
+	printstr(20, 40, "3.1415926535897932384662643383279............");
+	for(i=0; i<95; i++)
+		printchar(20+i*8, 60, i+33);
+	SDL_UpdateRect(screen, 0, 0, 800, 600);
+	
+	i = 1;
+	while(i) {
+		/*
 		if(!SDL_MUSTLOCK(screen) || SDL_LockSurface(screen)>=0) {
 			drawhline(0, 800, 300, (SDL_GetTicks() & 0xFF) * 0x10101);
 			SDL_UnlockSurface(screen);
 		}
 		SDL_UpdateRect(screen, 0, 0, 800, 600);
+		*/
 		while(SDL_PollEvent(&event)) {
-			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) flag = 0;
-		}
-	}*/
-
-	/* test section */
-	if(Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 1024)<0) return 1;
-	parse_bms();
-	for(i=0; i<23; i++) {
-		for(j=0; j<nchannel[i]; j++) {
-			printf("[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+			if(event.type==SDL_QUIT || (event.type==SDL_KEYUP && event.key.keysym.sym==SDLK_ESCAPE)) i = 0;
 		}
 	}
-	finalize();
-	Mix_CloseAudio();
 	
 	return 0;
 }
