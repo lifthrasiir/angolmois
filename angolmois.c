@@ -50,7 +50,7 @@ char **bmsline=0;
 int nbmsline=0;
 
 char *metadata[4]={0,};
-float bpm=0, bpmtab[1296]={0,};
+float bpm=0;
 int value[6]={1,0,3,100,0,0};
 #define v_player value[0]
 #define v_playlevel value[1]
@@ -58,9 +58,23 @@ int value[6]={1,0,3,100,0,0};
 #define v_total value[3]
 #define lntype value[4]
 #define lnobj value[5]
+
 Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
+float bpmtab[1296]={0,};
+
+typedef struct { float time; int type, index; } bmsnote;
+bmsnote **channel[23]={0,};
+float shorten[1000]={0,};
+int nchannel[23]={0,};
+#define P1(n) (n)
+#define P2(n) ((n)+9)
+#define BGM (18)
+#define BGA (19)
+#define BPM (20)
+#define STOP (21)
+#define STOP2 (22)
 
 int isspace(char n) { return n==8 || n==10 || n==13 || n==32; }
 int getdigit(char n) { return 47<a && a<58 ? a-48 : ((a|32)-19)/26==3 ? (a|32)-87 : -1296; }
@@ -98,8 +112,19 @@ int compare_bmsline(const void *a, const void *b) {
 	return 0;
 }
 
+void add_note(int chan, float time, int type, int index) {
+	bmsnote *temp;
+	temp = malloc(sizeof(bmsnote));
+	temp->time = time; temp->type = type; temp->index = index;
+	channel[chan] = realloc(channel[chan], sizeof(bmsnote*) * (nchannel+1));
+	channel[chan][nchannel++] = temp;
+}
+
 int parse_bms(FILE *fp) {
-	int i, j, k, rnd=1, ignore=0;
+	int i, j, k, a, b, c;
+	int rnd=1, ignore=0;
+	int measure, chan;
+	float time;
 	char line[1024];
 	SDL_Surface *tempsurf;
 	
@@ -107,7 +132,6 @@ int parse_bms(FILE *fp) {
 	while(fgets(str, 1024, fp)) {
 		if(*str++ != '#') continue;
 
-		/* parsing meta data */
 		for(i=0; i<nbmsheader; i++) {
 			for(j=0; bmsheader[i][j]; j++)
 				if((bmsheader[i][j]|32) != (str[j]|32)) break;
@@ -193,13 +217,11 @@ int parse_bms(FILE *fp) {
 				break;
 			}
 			
-			/* parsing sequence data */
-			i = 0;
-			for(i=1; i<6; i++)
+			for(i=0; i<5; i++)
 				if((line[i]-8)/10 != 4) break;
-			if(i>5) {
+			if(i>4 && line[5]==58 && line[6]) {
 				while(line[i++]);
-				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
+				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+2));
 				bmsline += nbmsline;
 				*bmsline = malloc(sizeof(char) * i);
 				for(i=0; line[i]; i++)
@@ -210,10 +232,36 @@ int parse_bms(FILE *fp) {
 		}
 	}
 
-	/* sorting sequence data */
 	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
-
-	/* TODO: parsing each line and processing long notes */
+	for(i=0; i<nbmsline; i++) {
+		j = 0;
+		for(k=0; k<5; k++)
+			j = j * 10 + bmsline[i][j] - 48;
+		measure = j / 100; chan = j % 100;
+		if(chan == 2) {
+			shorten[measure] = atof(bmsline[i]+7);
+		} else {
+			j = 6;
+			remove_whitespace(bmsline[i], &j);
+			for(k=j; bmsline[i][k]; k++);
+			a = (k - j) / 2;
+			for(k=0; k<a; k++,j+=2) {
+				b = key2index(bmsline[i][j], bmsline[i][j+1]);
+				time = measure + 1. * k / a;
+				if(chan == 1) {
+					add_note(BGM, time, 0, b);
+				} else if(chan == 4) {
+					add_note(BGA, time, 0, b);
+				} else if(chan == 6) {
+					add_note(BGA, time, 1, b);
+				} else if(chan == 7) {
+					add_note(BGA, time, 2, b);
+				} else {
+					/* TODO */
+				}
+			}
+		}
+	}
 }
 
 /* vim: set ts=4 sw=4: */
