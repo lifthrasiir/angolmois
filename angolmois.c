@@ -38,8 +38,8 @@ const char *bmsheader[] = {
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-/*char bmspath[512]="E:\\Program\\Games\\rdm\\1st\\sweetmorning\\sm_5hd.bms";*/
-char bmspath[512]="D:\\Works\\angolmois\\test\\suite\\blah.bms";
+/*char bmspath[512]="D:\\Works\\angolmois\\test\\sweetmorning\\sm_5hd.bms";*/
+char bmspath[512]="D:\\Works\\angolmois\\test\\endlessdream\\MB_end7.bme";
 char respath[512];
 char **bmsline=0;
 int nbmsline=0;
@@ -103,9 +103,10 @@ char *adjust_path(char *path) {
 
 int remove_whitespace(char *str, int *i) {
 	int j;
-	if(!isspace(str[*i])) return 0;
-	while(isspace(str[++*i]));
-	if(!str[*i]) return 0;
+	if(isspace(str[*i])) {
+		while(isspace(str[++*i]));
+		if(!str[*i]) return 0;
+	}
 	for(j=*i; str[j]; j++);
 	while(isspace(str[--j]));
 	str[++j] = 0;
@@ -145,7 +146,7 @@ void remove_note(int chan, int index) {
 int parse_bms() {
 	FILE* fp;
 	int i, j, k, a, b, c;
-	int prev[20]={0,};
+	int prev[40]={0,};
 	int rnd=1, ignore=0;
 	int measure, chan;
 	double t;
@@ -222,13 +223,13 @@ int parse_bms() {
 				if(i < 0) break;
 				j += 2;
 				if(!remove_whitespace(line, &j)) break;
-				if(sndres[i]) Mix_FreeChunk(sndres[i]);
+				if(sndres[i]) { Mix_FreeChunk(sndres[i]); sndres[i]=0; }
 				sndres[i] = Mix_LoadWAV(adjust_path(line+j));
 				break;
 			case 12: /* bmp## */
 				if(!remove_whitespace(line, &j)) break;
 				if(tempsurf = IMG_Load(adjust_path(line+j))) {
-					if(imgres[i]) SDL_FreeSurface(imgres[i]);
+					if(imgres[i]) { SDL_FreeSurface(imgres[i]); imgres[i]=0; }
 					imgres[i] = SDL_DisplayFormat(tempsurf);
 					SDL_FreeSurface(tempsurf);
 				}
@@ -316,29 +317,37 @@ int parse_bms() {
 							ADD_LNSTART(chan>60, chan%10, t, b);
 						}
 					} else if(lntype == 2) {
-						if(prev[chan-50] != b) {
+						if(prev[chan-50] || prev[chan-50] != b) {
 							if(prev[chan-50]) {
-								ADD_LNDONE(chan>60, chan%10, t, 0);
+								if(prev[chan-30] + 1 < measure) {
+									ADD_LNDONE(chan>60, chan%10, prev[chan-30]+1, 0);
+								} else if(prev[chan-50] != b) {
+									ADD_LNDONE(chan>60, chan%10, t, 0);
+								}
 							}
-							prev[chan-50] = b;
-							if(b) {
+							if(b && (prev[chan-50]!=b || prev[chan-30]+1<measure)) {
 								ADD_LNSTART(chan>60, chan%10, t, b);
 							}
+							prev[chan-30] = measure;
+							prev[chan-50] = b;
 						}
 					}
 				}
 			}
 		}
+		free(bmsline[i]);
 	}
-	
+	free(bmsline);
 	length = measure + 1;
 	for(i=0; i<20; i++) {
 		if(prev[i]) {
-			ADD_LNDONE(i>10, i%10, length, 0);
+			if(lntype == 2 && prev[i+20] + 1 < measure) {
+				ADD_LNDONE(i>10, i%10, prev[i+20]+1, 0);
+			} else {
+				ADD_LNDONE(i>10, i%10, length, 0);
+			}
 		}
 	}
-	for(i=0; i<nbmsline; i++) free(bmsline[i]);
-	free(bmsline);
 	
 	for(i=0; i<22; i++) {
 		if(!channel[i]) continue;
@@ -374,8 +383,7 @@ int parse_bms() {
 				a |= 1 << channel[i][j]->type;
 			}
 			if(i<18 && b) {
-				j--;
-				while(--j >= 0 && channel[i][j]);
+				while(j >= 0 && !channel[i][--j]);
 				if(j >= 0 && channel[i][j]->type == 3) remove_note(i, j);
 			}
 		}
@@ -392,8 +400,8 @@ int parse_bms() {
 int finalize() {
 	int i, j;
 	
-	for(i=0; i<6; i++) {
-		free(metadata[i]);
+	for(i=0; i<4; i++) {
+		if(metadata[i]) free(metadata[i]);
 	}
 	for(i=0; i<1296; i++) {
 		if(sndres[i]) Mix_FreeChunk(sndres[i]);
@@ -411,15 +419,21 @@ int finalize() {
 }
 
 int test_mixer() {
-	int i, j;
+	int i, j, t;
+	FILE *fp;
 
 	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
 	parse_bms();
+	fp = fopen("angolmois.log", "w");
+	t = 0;
 	for(i=0; i<23; i++) {
 		for(j=0; j<nchannel[i]; j++) {
-			printf("[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
+			if(i<18 && channel[i][j]->type != 2) t++;
+			fprintf(fp, "[%d.%d] %8.4lf (%d; %d)\n", i, j, channel[i][j]->time, channel[i][j]->type, channel[i][j]->index);
 		}
 	}
+	fprintf(fp, "total notes=%d\n", t);
+	fclose(fp);
 	finalize();
 	Mix_CloseAudio();
 
