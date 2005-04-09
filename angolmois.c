@@ -25,16 +25,26 @@
 #include <SDL_mixer.h>
 #include <SDL_image.h>
 
-char version[] = "TokigunStudio Angolmois version 0.0-dev-20050408";
-
-#if 0
-#include "angolmois-test.c"
-#endif
+char version[] = "TokigunStudio Angolmois version 0.0-dev-20050410";
 
 #ifdef WIN32
-const char sep = 92;
+#include <windows.h>
+char sep = 92;
+char _ofnfilter[] =
+	"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
+	"Be-Music Source File (*.bms)\0*.bms\0"
+	"Extended Be-Music Source File (*.bme)\0*.bme\0"
+	"Longnote Be-Music Source File (*.bml)\0*.bml\0"
+	"All Files (*.*)\0*.*\0";
+char _ofntitle[] = "TokigunStudio Angolmois: Choose a file to play";
+int filedialog(char *buf) {
+	OPENFILENAME ofn={76,0,0,_ofnfilter,0,0,0,buf,512,0,0,0,_ofntitle,0,0,0,0,0,0,0};
+	return GetOpenFileName(&ofn);
+}
 #else
-const char sep = 47;
+char sep = 47;
+int filedialog(char *buf) { return 0; }
+int isspace(int n) { return n==9 || n==10 || n==13 || n==32; }
 #endif
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
@@ -44,10 +54,8 @@ const char *bmsheader[] = {
 	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
-char bmspath[512];
-char respath[512];
-char **bmsline=0;
-int nbmsline=0;
+char *bmspath, respath[512];
+char **bmsline=0; int nbmsline=0;
 
 char *metadata[4]={0,};
 double bpm=130;
@@ -66,16 +74,22 @@ int stoptab[1296]={0,};
 double bpmtab[1296]={0,};
 
 typedef struct { double time; int type, index; } bmsnote;
-bmsnote **channel[22]={0,};
+bmsnote **channel[23]={0,};
 double shorten[1000]={0,};
-int nchannel[22]={0,};
+int nchannel[23]={0,};
 double length;
 
 double playspeed=1;
 int starttime;
 double startoffset;
-int pcur[22]={0,}, pfront[22]={0,}, prear[22]={0,}, thru[22]={0,};
+int pcur[23]={0,}, pfront[23]={0,}, prear[23]={0,}, thru[23]={0,};
 int bga[3]={-1,-1,-1}, bga_updated=0;
+
+const char *arglist[] = {
+	"viewer", "showinfo", "hideinfo", "window", "fullscreen",
+	"x", "speed", "lntype"
+};
+int opt_mode=0, opt_showinfo=1, opt_fullscreen=1;
 
 #define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define ADD_NOTE(player, chan, time, index) \
@@ -93,9 +107,8 @@ int bga[3]={-1,-1,-1}, bga_updated=0;
 #define ADD_BPM(time, index) add_note(20, (time), 0, (index))
 #define ADD_BPM2(time, index) add_note(20, (time), 1, (index))
 #define ADD_STOP(time, index) add_note(21, (time), 0, (index))
-#define ADD_STP(time, index) add_note(21, (time), 1, (index))
+#define ADD_STP(time, index) add_note(22, (time), 0, (index))
 
-int isspace(int n) { return n==9 || n==10 || n==13 || n==32; }
 int getdigit(int n) { return 47<n && n<58 ? n-48 : ((n|32)-19)/26==3 ? (n|32)-87 : -1296; }
 int key2index(int a, int b) { return getdigit(a) * 36 + getdigit(b); }
 
@@ -158,7 +171,7 @@ void remove_note(int chan, int index) {
 char *strcopy(char *src) {
 	char *dest; int i=0;
 	while(src[i++]);
-	dest = malloc(sizeof(char) * i);
+	dest = malloc(i);
 	for(i=0; dest[i]=src[i]; i++);
 	return dest;
 }
@@ -364,10 +377,10 @@ int parse_bms() {
 		}
 	}
 	
-	for(i=0; i<22; i++) {
+	for(i=0; i<23; i++) {
 		if(!channel[i]) continue;
 		qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
-		if(i != 18 && i != 21) {
+		if(i != 18 && i < 21) {
 			b = 0; t = -1;
 			for(j=0; j<=nchannel[i]; j++) {
 				if(j == nchannel[i] || channel[i][j]->time > t) {
@@ -466,16 +479,18 @@ SDL_Surface *screen;
 SDL_Event event;
 SDL_Rect rect[8]; int _rect=0;
 
-int putpixel(int x, int y, int c)
-	{ return((Uint32*)screen->pixels)[x+y*800]=c; }
-void drawhline(int x1, int x2, int y, int c)
-	{ while(x1<x2) putpixel(x1++, y, c); }
-void drawvline(int x, int y1, int y2, int c)
-	{ while(y1<y2) putpixel(x, y1++, c); }
+int getpixel(SDL_Surface *s, int x, int y)
+	{ return((Uint32*)s->pixels)[x+y*s->pitch/4]; }
+int putpixel(SDL_Surface *s, int x, int y, int c)
+	{ return((Uint32*)s->pixels)[x+y*s->pitch/4]=c; }
+void drawhline(SDL_Surface *s, int x1, int x2, int y, int c)
+	{ while(x1<x2) putpixel(s, x1++, y, c); }
+void drawvline(SDL_Surface *s, int x, int y1, int y2, int c)
+	{ while(y1<y2) putpixel(s, x, y1++, c); }
 int blend(int x, int y, int a, int b)
 	{ int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
-void putblendedpixel(int x, int y, int c, int o)
-	{ putpixel(x, y, blend(((Uint32*)screen->pixels)[x+y*800], c, o, 255)); }
+void putblendedpixel(SDL_Surface *s, int x, int y, int c, int o)
+	{ putpixel(s, x, y, blend(getpixel(s,x,y), c, o, 255)); }
 SDL_Surface *newsurface(int f, int w, int h)
 	{ return SDL_CreateRGBSurface(f,w,h,32,0xff0000,0xff00,0xff,0); }
 SDL_Rect *newrect(int x, int y, int w, int h)
@@ -506,14 +521,14 @@ int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 			for(k=0; k<16; k++) {
 				xx = x + k/4 - 1; yy = y + k%4 - 1;
 				if(xx<0 || xx>ww || yy<0 || yy>hh) continue;
-				c = ((Uint32*)src->pixels)[xx+yy*src->w];
+				c = getpixel(src, xx, yy);
 				a = bicubic_kernel(xx*w-i*ww, w) * bicubic_kernel(yy*h-j*hh, h) >> 6;
 				r += (c&255) * a; g += (c>>8&255) * a; b += (c>>16&255) * a;
 			}
 			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
 			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
 			b = (b<0 ? 0 : b>>24 ? 255 : b>>16);
-			((Uint32*)dest->pixels)[i+j*dest->w] = r | (g<<8) | (b<<16);
+			putpixel(dest, i, j, r | (g<<8) | (b<<16));
 			dy += hh; if(dy > h) { y++; dy -= h; }
 		}
 		dx += ww; if(dx > w) { x++; dx -= w; }
@@ -593,20 +608,20 @@ void fontfinalize() {
 		if(zoomfont[i]) free(zoomfont[i]);
 }
 
-int printchar(int x, int y, int z, int c, int u, int v) {
+int printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v) {
 	int i, j;
 	if(!isspace(c)) {
 		c -= (c<33 || c>126 ? c : 32);
 		for(i=0; i<16*z; i++)
 			for(j=0; j<8*z; j++)
 				if(zoomfont[z-1][i*z+j%z][c]&(1<<(7-j/z)))
-					putpixel(x+j, y+i, blend(u, v, i, 16*z-1));
+					putpixel(s, x+j, y+i, blend(u, v, i, 16*z-1));
 	}
 	return 8*z;
 }
 
-void printstr(int x, int y, int z, char *s, int u, int v)
-	{ while(*s)x+=printchar(x,y,z,(Uint8)*s++,u,v); }
+void printstr(SDL_Surface *s, int x, int y, int z, char *S, int u, int v)
+	{ while(*S)x+=printchar(s,x,y,z,(Uint8)*S++,u,v); }
 
 /******************************************************************************/
 
@@ -618,20 +633,16 @@ Uint32 crc32(FILE *f)
 
 /******************************************************************************/
 
-SDL_Surface *strokesprite=0;
+SDL_Surface *sprite=0;
 int keymap[9]={SDLK_z, SDLK_s, SDLK_x, SDLK_d, SDLK_c, SDLK_LSHIFT, SDLK_SPACE, SDLK_f, SDLK_v};
 int keypressed[9]={0,};
-int tkeyleft[9]={50,80,110,140,170,0,0,200,230};
-int tkeywidth[9]={30,30,30,30,30,50,50,30,30};
+int tkeyleft[9]={41,67,93,119,145,0,0,171,197};
+int tkeywidth[9]={25,25,25,25,25,40,40,25,25};
 #define WHITE 0x808080
 #define BLUE 0x8080ff
-#define RED 0xff8080
-#define GREEN 0x80ff80
-int tkeycolor[9]={WHITE,BLUE,WHITE,BLUE,WHITE,RED,GREEN,BLUE,WHITE};
+int tkeycolor[9]={WHITE,BLUE,WHITE,BLUE,WHITE,0xff8080,0x80ff80,BLUE,WHITE};
 #undef WHITE
 #undef BLUE
-#undef RED
-#undef GREEN
 
 int check_exit() {
 	int i = 0;
@@ -644,8 +655,9 @@ int check_exit() {
 int initialize() {
 	if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)<0) return 1;
 	atexit(SDL_Quit);
-	screen = SDL_SetVideoMode(800, 600, 32, SDL_SWSURFACE|SDL_DOUBLEBUF);
+	screen = SDL_SetVideoMode(800, 600, 32, opt_fullscreen ? SDL_SWSURFACE|SDL_FULLSCREEN : SDL_SWSURFACE|SDL_DOUBLEBUF);
 	if(!screen) return 1;
+	SDL_ShowCursor(SDL_DISABLE);
 	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 4096)<0) return 2;
 	SDL_WM_SetCaption(version, "TokigunStudio Angolmois");
 
@@ -655,7 +667,7 @@ int initialize() {
 	return 0;
 }
 	
-int finalize() {
+void finalize() {
 	int i, j;
 	
 	for(i=0; i<4; i++) {
@@ -675,11 +687,9 @@ int finalize() {
 		}
 	}
 
-	if(strokesprite) SDL_FreeSurface(strokesprite);
-	
+	if(sprite) SDL_FreeSurface(sprite);
 	Mix_CloseAudio();
 	fontfinalize();
-	return 0;
 }
 
 SDL_Surface *stagefile_tmp;
@@ -688,7 +698,7 @@ void callback_resource(char *path) {
 	int i;
 	for(i=0; path[i]; i++);
 	SDL_BlitSurface(stagefile_tmp, newrect(0,0,800,20), screen, newrect(0,580,800,20));
-	printstr(797-8*i, 582, 1, path, 0x808080, 0xc0c0c0);
+	printstr(screen, 797-8*i, 582, 1, path, 0x808080, 0xc0c0c0);
 	SDL_Flip(screen);
 	check_exit();
 }
@@ -699,55 +709,66 @@ void play_show_stagefile() {
 	int flag, nnotes;
 	int i, j, t;
 
-	printstr(248, 284, 2, "loading bms file...", 0x202020, 0x808080);
+	printstr(screen, 248, 284, 2, "loading bms file...", 0x202020, 0x808080);
 	SDL_Flip(screen);
 
 	stagefile_tmp = newsurface(SDL_SWSURFACE, 800, 20);
-	if(metadata[3]) {
-		temp = IMG_Load(adjust_path(metadata[3]));
+	if(metadata[3] && (temp = IMG_Load(adjust_path(metadata[3])))) {
 		stagefile = SDL_DisplayFormat(temp);
 		bicubic_interpolation(stagefile, screen);
 		SDL_FreeSurface(temp);
 		SDL_FreeSurface(stagefile);
 	}
-	for(i=0; i<800; i++) {
-		for(j=0; j<42; j++) putblendedpixel(i, j, 0x101010, 64);
-		for(j=580; j<600; j++) putblendedpixel(i, j, 0x101010, 64);
+	if(opt_showinfo) {
+		for(i=0; i<800; i++) {
+			for(j=0; j<42; j++) putblendedpixel(screen, i, j, 0x101010, 64);
+			for(j=580; j<600; j++) putblendedpixel(screen, i, j, 0x101010, 64);
+		}
+		printstr(screen, 6, 4, 2, metadata[0], 0x808080, 0xffffff);
+		for(i=0; metadata[1][i]; i++);
+		for(j=0; metadata[2][j]; j++);
+		printstr(screen, 792-8*i, 4, 1, metadata[1], 0x808080, 0xffffff);
+		printstr(screen, 792-8*j, 20, 1, metadata[2], 0x808080, 0xffffff);
+		get_bms_info(&flag, &nnotes, 0, 0);
+		i = sprintf(buf, "Level %d | BPM %.2f | %d note%s [%dKEY%s]", v_playlevel, bpm, nnotes, "s"+(nnotes==1), (flag&1) ? 7 : 5, (flag&2) ? "-LN" : "");
+		printstr(screen, 3, 582, 1, buf, 0x808080, 0xffffff);
+		SDL_BlitSurface(screen, newrect(0,580,800,20), stagefile_tmp, newrect(0,0,800,20));
 	}
-	printstr(6, 4, 2, metadata[0], 0x808080, 0xffffff);
-	for(i=0; metadata[1][i]; i++);
-	for(j=0; metadata[2][j]; j++);
-	printstr(792-8*i, 4, 1, metadata[1], 0x808080, 0xffffff);
-	printstr(792-8*j, 20, 1, metadata[2], 0x808080, 0xffffff);
-	get_bms_info(&flag, &nnotes, 0, 0);
-	i = sprintf(buf, "Level %d | BPM %.2f | %d note%s [%dKEY%s]", v_playlevel, bpm, nnotes, "s"+(nnotes==1), (flag&1) ? 7 : 5, (flag&2) ? "-LN" : "");
-	printstr(3, 582, 1, buf, 0x808080, 0xffffff);
-	SDL_BlitSurface(screen, newrect(0,580,800,20), stagefile_tmp, newrect(0,0,800,20));
 	SDL_Flip(screen);
 
 	t = SDL_GetTicks() + 3000;
-	load_resource(callback_resource);
-	callback_resource("loading...");
-	SDL_FreeSurface(stagefile_tmp);
+	load_resource(opt_showinfo ? callback_resource : 0);
+	if(opt_showinfo) {
+		callback_resource("loading...");
+		SDL_FreeSurface(stagefile_tmp);
+	}
 	while((int)SDL_GetTicks() < t && !check_exit());
 }
 
-int play_prepare() {
+void play_prepare() {
 	int i, j;
 	
-	strokesprite = newsurface(SDL_SWSURFACE, 260, 600);
+	sprite = newsurface(SDL_SWSURFACE, 800, 600);
 	for(i=0; i<9; i++) {
 		if(i == 6) continue;
-		for(j=140; j<530; j++)
-			SDL_FillRect(strokesprite, newrect(tkeyleft[i],j,tkeywidth[i],1), blend(tkeycolor[i], 0, j-140, 800));
+		for(j=140; j<520; j++)
+			SDL_FillRect(sprite, newrect(tkeyleft[i],j,tkeywidth[i],1), blend(tkeycolor[i], 0, j-140, 1000));
+		for(j=0; j*2<tkeywidth[i]; j++)
+			SDL_FillRect(sprite, newrect(tkeyleft[i]+j,20,tkeywidth[i]-2*j,5), blend(tkeycolor[i], 0xffffff, tkeywidth[i]-j, tkeywidth[i]));
 	}
+	for(i=0; i<20; i++)
+		for(j=-230; j<0 || j*j+i*i<400; j++)
+			putpixel(sprite, j+230, i, blend(0xc0c0c0, 0x404040, i*3+j*2+460, 560));
+	for(i=-20; i<60; i++)
+		for(j=-230; j<20 && (i>=0 || j<0 || j*j+i*i<400); j++)
+			putpixel(sprite, j+230, i+540, blend(0xc0c0c0, 0x404040, i*3+j*2+520, 740));
 
 	SDL_FillRect(screen, 0, 0);
+	SDL_BlitSurface(sprite, newrect(0,0,250,20), screen, newrect(0,0,0,0));
+	SDL_BlitSurface(sprite, newrect(0,520,250,80), screen, newrect(0,520,0,0));
 	starttime = SDL_GetTicks();
 	startoffset = -1.0;
 	Mix_AllocateChannels(96);
-	
-	return 0;
 }
 
 double adjust_object_time(double base, double offset) {
@@ -761,17 +782,22 @@ double adjust_object_time(double base, double offset) {
 }
 
 int play_process() {
-	int i, j, quit;
+	static int lasttick;
+	int i, j, k, quit;
 	double bottom, top, line;
 	char buf[30];
 
 	bottom = startoffset + (SDL_GetTicks() - starttime) * bpm / 24e4;
-	line = adjust_object_time(bottom, 0.1/playspeed);
-	top = adjust_object_time(bottom, 1.5/playspeed);
+	line = bottom;/*adjust_object_time(bottom, 0.05/playspeed);*/
+	top = adjust_object_time(bottom, 1.25/playspeed);
 	for(i=0; i<18; i++) {
 		while(pfront[i] < nchannel[i] && channel[i][pfront[i]]->time < bottom) pfront[i]++;
 		while(prear[i] < nchannel[i] && channel[i][prear[i]]->time <= top) prear[i]++;
-		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time <= line) pcur[i]++;
+		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time <= line) {
+			if(opt_mode && sndres[channel[i][pcur[i]]->index])
+				Mix_PlayChannel(-1, sndres[channel[i][pcur[i]]->index], 0);
+			pcur[i]++;
+		}
 	}
 	for(i=18; i<22; i++) {
 		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time < line) {
@@ -804,37 +830,43 @@ int play_process() {
 				if(event.key.keysym.sym == keymap[i])
 					keypressed[i] = 0;
 		} else if(event.type == SDL_KEYDOWN) {
+			if(opt_mode) continue;
 			for(i=0; i<ARRAYSIZE(keymap); i++) {
 				if(event.key.keysym.sym == keymap[i]) {
 					keypressed[i] = 1;
 					if(!nchannel[i]) continue;
-					if(pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line))
-						j = channel[i][pcur[i]]->index;
-					else
-						j = channel[i][pcur[i]-1]->index;
-					if(sndres[j]) j = Mix_PlayChannel(-1, sndres[j], 0);
+					j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
+					if(sndres[channel[i][j]->index])
+						Mix_PlayChannel(-1, sndres[channel[i][j]->index], 0);
 				}
 			}
 		}
 	}
-	if(quit || (bottom > length && !Mix_Playing(-1))) return 0;
+	if(quit) return -1;
+	if((bottom < -1.01 || bottom > length) && !Mix_Playing(-1)) return 0;
 
-	SDL_FillRect(screen, newrect(0,0,260,600), 0);
+	SDL_FillRect(screen, newrect(0,20,223,500), 0);
 	for(i=0; i<9; i++) {
+		SDL_FillRect(screen, newrect(tkeyleft[i]+tkeywidth[i],20,1,500), 0x404040);
 		if(i == 6) continue;
 		if(keypressed[i]) {
-			SDL_BlitSurface(strokesprite, newrect(tkeyleft[i],0,tkeywidth[i],600), screen, newrect(tkeyleft[i],0,0,0));
+			SDL_BlitSurface(sprite, newrect(tkeyleft[i],140,tkeywidth[i],380), screen, newrect(tkeyleft[i],140,0,0));
 		}
 	}
-	SDL_FillRect(screen, newrect(0,530,260,2), 0x800000);
 	for(i=0; i<9; i++) {
 		if(i == 6) continue;
 		for(j=pfront[i]; j<prear[i]; j++) {
-			SDL_FillRect(screen, newrect(tkeyleft[i], (int)(595-400*playspeed*(channel[i][j]->time-bottom)), tkeywidth[i], 5), tkeycolor[i]);
+			k = (int)(515-400*playspeed*(channel[i][j]->time-bottom));
+			if(k > 15) {
+				SDL_BlitSurface(sprite, newrect(tkeyleft[i],k<20?40-k:20,tkeywidth[i],k<20?k-15:5), screen, newrect(tkeyleft[i],k<20?20:k,0,0));
+			}
 		}
 	}
-	for(i=(int)bottom; i<=(int)top; i++)
-		SDL_FillRect(screen, newrect(0,(int)(600-400*playspeed*(i-bottom)),260,1), 0xc0c0c0);
+	for(i=(int)(bottom+1); i<=(int)top; i++) {
+		if(i < top) {
+			SDL_FillRect(screen, newrect(0,(int)(520-400*playspeed*(i-bottom)),223,1), 0xc0c0c0);
+		}
+	}
 	if(bga_updated) {
 		SDL_FillRect(screen, newrect(272,172,256,256), 0);
 		for(i=0; i<2; i++)
@@ -843,35 +875,77 @@ int play_process() {
 		bga_updated = 0;
 	}
 	sprintf(buf, "%.4f (%d) :: BPM %.2f", bottom, Mix_Playing(-1), bpm);
-	printstr(5, 5, 1, buf, 0xffff80, 0xffffff);
+	printstr(screen, 5, 25, 1, buf, 0xffff80, 0xffffff);
+	SDL_FillRect(screen, newrect(770, 0, 20, 600), 0);
+	for(i=0; lasttick++<(int)SDL_GetTicks(); i++)
+		SDL_FillRect(screen, newrect(770, 575-i*20, 20, 15), 0xff0000);
 	SDL_Flip(screen);
 	return 1;
 }
 
-int play(char *path) {
-	int i, t;
-
-	for(i=0; bmspath[i] = path[i]; i++);
+int play() {
+	int t;
+	if(t = initialize()) return t;
 	if(t = parse_bms()) return t;
-	
 	play_show_stagefile();
 	play_prepare();
-	while(play_process());
+	while((t = play_process())>0);
+	finalize();
+	return t;
+}
 
+int credit() {
+	printf("%s\nby Kang Seonghoon (Tokigun).\n\nQuote for version 0.0-dev-18:\n", version);
+	printf("\"If I have seen farther than others, it is because I was standing on the shoulders of giants.\" -- Isaac Newton\n");
 	return 0;
 }
 
 int main(int argc, char **argv) {
-	int result;
+	char buf[512]={0,};
+	int i, j, k, use_buf;
 	
-	if(result = initialize()) return result;
-	if(argc > 1) {
-		if(argc > 2 && argv[2][0]=='x')
-			playspeed = atof(argv[2]+1);
-		play(argv[1]);
+	if(argc < 2 || !argv[1] || !*argv[1]) {
+		use_buf = 1;
+		if(!filedialog(buf)) return 1;
+	} else {
+		use_buf = 0;
 	}
-	if(result = finalize()) return result;
-	return 0;
+	for(i=2; i<argc; i++) {
+		for(j=0; j<ARRAYSIZE(arglist); j++) {
+			for(k=0; arglist[j][k] && argv[i][k]; k++)
+				if((arglist[j][k]|32) != (argv[i][k]|32)) break;
+			if(!arglist[j][k]) break;
+		}
+		switch(j) {
+		case 0: /* viewer */
+			opt_mode = 1;
+			break;
+		case 1: /* showinfo */
+		case 2: /* hideinfo */
+			opt_showinfo = (j==1);
+			break;
+		case 3: /* window */
+		case 4: /* fullscreen */
+			opt_fullscreen = (j==4);
+			break;
+		case 5: /* x<speed> */
+		case 6: /* speed<speed> */
+			playspeed = atof(argv[i]+k);
+			break;
+		case 7: /* lntype<#> */
+			lntype = atoi(argv[i]+k);
+			break;
+		}
+	}
+	if(argv[1] || buf) {
+		if(playspeed <= 0) playspeed = 1.0;
+		if(playspeed < 0.1) playspeed = 0.1;
+		if(playspeed > 99.0) playspeed = 99.0;
+		bmspath = use_buf ? buf : argv[1];
+		return play();
+	} else {
+		return credit();
+	}
 }
 
 /* vim: set ts=4 sw=4: */
