@@ -25,7 +25,7 @@
 #include <SDL_mixer.h>
 #include <SDL_image.h>
 
-char version[] = "TokigunStudio Angolmois version 0.0-dev-20050410";
+char version[] = "TokigunStudio Angolmois version 0.0-dev-20050413";
 
 #ifdef WIN32
 #include <windows.h>
@@ -75,13 +75,13 @@ double bpmtab[1296]={0,};
 
 typedef struct { double time; int type, index; } bmsnote;
 bmsnote **channel[23]={0,};
-double shorten[1000]={0,};
+double _shorten[1001]={0,},*shorten=_shorten+1;
 int nchannel[23]={0,};
 double length;
 
 double playspeed=1;
 int starttime;
-double startoffset;
+double startoffset, startshorten;
 int pcur[23]={0,}, pfront[23]={0,}, prear[23]={0,}, thru[23]={0,};
 int bga[3]={-1,-1,-1}, bga_updated=0;
 
@@ -425,6 +425,7 @@ int parse_bms() {
 	for(i=0; i<1000; i++)
 		if(shorten[i] <= 0.001)
 			shorten[i] = 1.0;
+	shorten[-1] = shorten[0];
 
 	return 0;
 }
@@ -456,6 +457,7 @@ int load_resource(void (*callback)(char*)) {
 bit 0: it uses 7 keys?
 bit 1: it uses long-note?
 bit 2: it uses pedal?
+bit 3: it has bpm variation?
 ...
 */
 int get_bms_info(int *flag, int *nnotes, int *score, int *duration) {
@@ -464,6 +466,7 @@ int get_bms_info(int *flag, int *nnotes, int *score, int *duration) {
 	*flag = *nnotes = 0;
 	if(nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]) *flag |= 1;
 	if(nchannel[6] || nchannel[15]) *flag |= 4;
+	if(nchannel[20]) *flag |= 8;
 	for(i=0; i<18; i++)
 		for(j=0; j<nchannel[i]; j++) {
 			if(channel[i][j]->type > 1) *flag |= 2;
@@ -754,7 +757,7 @@ void play_prepare() {
 		for(j=140; j<520; j++)
 			SDL_FillRect(sprite, newrect(tkeyleft[i],j,tkeywidth[i],1), blend(tkeycolor[i], 0, j-140, 1000));
 		for(j=0; j*2<tkeywidth[i]; j++)
-			SDL_FillRect(sprite, newrect(tkeyleft[i]+j,20,tkeywidth[i]-2*j,5), blend(tkeycolor[i], 0xffffff, tkeywidth[i]-j, tkeywidth[i]));
+			SDL_FillRect(sprite, newrect(250+tkeyleft[i]+j,0,tkeywidth[i]-2*j,600), blend(tkeycolor[i], 0xffffff, tkeywidth[i]-j, tkeywidth[i]));
 	}
 	for(i=0; i<20; i++)
 		for(j=-230; j<0 || j*j+i*i<400; j++)
@@ -767,27 +770,41 @@ void play_prepare() {
 	SDL_BlitSurface(sprite, newrect(0,0,250,20), screen, newrect(0,0,0,0));
 	SDL_BlitSurface(sprite, newrect(0,520,250,80), screen, newrect(0,520,0,0));
 	starttime = SDL_GetTicks();
-	startoffset = -1.0;
+	startoffset = -1;
+	startshorten = 1;
 	Mix_AllocateChannels(96);
 }
 
 double adjust_object_time(double base, double offset) {
-	int i = (int)base;
+	int i = (int)(base+1)-1;
 	if((i + 1 - base) * shorten[i] > offset)
-		return base + offset * shorten[i];
-	offset -= (++i - base) * shorten[i];
-	while(shorten[i] <= offset)
-		offset -= shorten[i++];
-	return i + offset * shorten[i];
+		return base + offset / shorten[i];
+	offset -= (i + 1 - base) * shorten[i];
+	while(shorten[++i] <= offset)
+		offset -= shorten[i];
+	return i + offset / shorten[i];
+}
+
+double adjust_object_position(double base, double time) {
+	int i = (int)(base+1)-1, j = (int)(time+1)-1;
+	base = (time - j) * shorten[j] - (base - i) * shorten[i];
+	while(i < j) base += shorten[i++];
+	return base;
 }
 
 int play_process() {
 	static int lasttick;
-	int i, j, k, quit;
+	int i, j, k, ibottom;
 	double bottom, top, line;
 	char buf[30];
 
-	bottom = startoffset + (SDL_GetTicks() - starttime) * bpm / 24e4;
+	bottom = startoffset + (SDL_GetTicks() - starttime) * bpm / startshorten / 24e4;
+	ibottom = (int)(bottom + 1) - 1;
+	if(bottom > -1 && startshorten != shorten[ibottom]) {
+		starttime += (int)((ibottom - startoffset) * 24e4 * startshorten / bpm);
+		startoffset = bottom;
+		startshorten = shorten[ibottom];
+	}
 	line = bottom;/*adjust_object_time(bottom, 0.05/playspeed);*/
 	top = adjust_object_time(bottom, 1.25/playspeed);
 	for(i=0; i<18; i++) {
@@ -810,21 +827,21 @@ int play_process() {
 				bga[channel[i][pcur[i]]->type] = channel[i][pcur[i]]->index;
 				bga_updated = 1;
 			} else if(i == 20) {
-				startoffset = bottom;
-				starttime = SDL_GetTicks();
+				starttime += (int)((ibottom - startoffset) * 24e4 * startshorten / bpm);
+				startoffset = ibottom;
 				bpm = (channel[i][pcur[i]]->type ? bpmtab[channel[i][pcur[i]]->index] : channel[i][pcur[i]]->index);
 			}
 			pcur[i]++;
 		}
 	}
 
-	quit = 0;
+	k = 0;
 	while(SDL_PollEvent(&event)) {
 		if(event.type == SDL_QUIT) {
-			quit = 1;
+			k = 1;
 		} else if(event.type == SDL_KEYUP) {
 			if(event.key.keysym.sym == SDLK_ESCAPE) {
-				quit = 1; continue;
+				k = 1; continue;
 			}
 			for(i=0; i<ARRAYSIZE(keymap); i++)
 				if(event.key.keysym.sym == keymap[i])
@@ -842,7 +859,7 @@ int play_process() {
 			}
 		}
 	}
-	if(quit) return -1;
+	if(k) return -1;
 	if((bottom < -1.01 || bottom > length) && !Mix_Playing(-1)) return 0;
 
 	SDL_FillRect(screen, newrect(0,20,223,500), 0);
@@ -853,20 +870,17 @@ int play_process() {
 			SDL_BlitSurface(sprite, newrect(tkeyleft[i],140,tkeywidth[i],380), screen, newrect(tkeyleft[i],140,0,0));
 		}
 	}
+	SDL_SetClipRect(screen, newrect(0,20,223,500));
 	for(i=0; i<9; i++) {
 		if(i == 6) continue;
 		for(j=pfront[i]; j<prear[i]; j++) {
-			k = (int)(515-400*playspeed*(channel[i][j]->time-bottom));
-			if(k > 15) {
-				SDL_BlitSurface(sprite, newrect(tkeyleft[i],k<20?40-k:20,tkeywidth[i],k<20?k-15:5), screen, newrect(tkeyleft[i],k<20?20:k,0,0));
-			}
+			SDL_BlitSurface(sprite, newrect(250+tkeyleft[i],0,tkeywidth[i],5), screen, newrect(tkeyleft[i],(int)(515-400*playspeed*adjust_object_position(bottom,channel[i][j]->time)),0,0));
 		}
 	}
-	for(i=(int)(bottom+1); i<=(int)top; i++) {
-		if(i < top) {
-			SDL_FillRect(screen, newrect(0,(int)(520-400*playspeed*(i-bottom)),223,1), 0xc0c0c0);
-		}
+	for(i=(int)top; i>=ibottom; i--) {
+		SDL_FillRect(screen, newrect(0,(int)(520-400*playspeed*adjust_object_position(bottom,i)),223,1), 0xc0c0c0);
 	}
+	SDL_SetClipRect(screen, 0);
 	if(bga_updated) {
 		SDL_FillRect(screen, newrect(272,172,256,256), 0);
 		for(i=0; i<2; i++)
@@ -895,8 +909,10 @@ int play() {
 }
 
 int credit() {
-	printf("%s\nby Kang Seonghoon (Tokigun).\n\nQuote for version 0.0-dev-18:\n", version);
-	printf("\"If I have seen farther than others, it is because I was standing on the shoulders of giants.\" -- Isaac Newton\n");
+	printf("%s\nby Kang Seonghoon (Tokigun).\n\n", version);
+	printf("Quote for version 0.0-dev-18 was:\n\"If I have seen farther than others, it is because I was standing on the shoulders of giants.\" -- Isaac Newton\n\n");
+	printf("and, quote for version 0.0-dev-19 is:\n\"If I have not seen as far as others, it is because giants were standing on my shoulders.\" -- Hal Abelson\n\n");
+	printf("then, quote for version 0.0-dev-20 will be:\n\"In computer science, we stand on each other's feet.\" -- Brian K. Reid\n\n");
 	return 0;
 }
 
@@ -904,9 +920,9 @@ int main(int argc, char **argv) {
 	char buf[512]={0,};
 	int i, j, k, use_buf;
 	
-	if(argc < 2 || !argv[1] || !*argv[1]) {
+	if(argc < 2 || !*argv[1]) {
 		use_buf = 1;
-		if(!filedialog(buf)) return 1;
+		if(!filedialog(buf)) use_buf = 0;
 	} else {
 		use_buf = 0;
 	}
@@ -937,7 +953,7 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
-	if(argv[1] || buf) {
+	if(argc > 1 || use_buf) {
 		if(playspeed <= 0) playspeed = 1.0;
 		if(playspeed < 0.1) playspeed = 0.1;
 		if(playspeed > 99.0) playspeed = 99.0;
