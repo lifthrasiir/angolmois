@@ -18,6 +18,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -25,34 +26,10 @@
 #include <SDL_mixer.h>
 #include <SDL_image.h>
 
-char version[] = "TokigunStudio Angolmois version 0.0-dev-20050414";
+/******************************************************************************/
+/* constants, variables */
 
-#ifdef WIN32
-#include <windows.h>
-char sep = 92;
-char _ofnfilter[] =
-	"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
-	"Be-Music Source File (*.bms)\0*.bms\0"
-	"Extended Be-Music Source File (*.bme)\0*.bme\0"
-	"Longnote Be-Music Source File (*.bml)\0*.bml\0"
-	"All Files (*.*)\0*.*\0";
-char _ofntitle[] = "TokigunStudio Angolmois: Choose a file to play";
-int filedialog(char *buf) {
-	OPENFILENAME ofn={76,0,0,_ofnfilter,0,0,0,buf,512,0,0,0,_ofntitle,OFN_HIDEREADONLY,0,0,0,0,0,0};
-	return GetOpenFileName(&ofn);
-}
-int errormsg(char *c,...) {
-	va_list a;char b[512];
-	va_start(a,c);vsprintf(b,c,a);va_end(a);MessageBox(0,b,version,0);return 1;
-}
-#else
-char sep = 47;
-int filedialog(char *buf) { return 0; }
-int isspace(int n) { return n==9 || n==10 || n==13 || n==32; }
-int errormsg(char *c,...) {
-	va_list a;va_start(a,c);vfprintf(stderr,c,a);va_end(a);return 1;
-}
-#endif
+char version[] = "TokigunStudio Angolmois version 0.0-dev-20050415";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 const char *bmsheader[] = {
@@ -86,6 +63,120 @@ double _shorten[1001]={0,},*shorten=_shorten+1;
 int nchannel[23]={0,};
 double length;
 
+/******************************************************************************/
+/* system dependent functions */
+
+char *adjust_path(char*); /* will be removed when obfuscation */
+
+#ifdef WIN32
+#include <windows.h>
+char sep = 92;
+char _ofnfilter[] =
+	"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
+	"Be-Music Source File (*.bms)\0*.bms\0"
+	"Extended Be-Music Source File (*.bme)\0*.bme\0"
+	"Longnote Be-Music Source File (*.bml)\0*.bml\0"
+	"All Files (*.*)\0*.*\0";
+char _ofntitle[] = "Choose a file to play";
+int filedialog(char *buf) {
+	OPENFILENAME ofn={76,0,0,_ofnfilter,0,0,0,buf,512,0,0,0,_ofntitle,OFN_HIDEREADONLY,0,0,0,0,0,0};
+	return GetOpenFileName(&ofn);
+}
+int errormsg(char *c,char *s)
+	{ char b[512];sprintf(b,c,s);return MessageBox(0,b,version,0); }
+
+void dirinit() {} void dirfinal() {}
+Mix_Chunk *load_wav(char *file) { return Mix_LoadWAV(adjust_path(file)); }
+SDL_Surface *load_image(char *file) { return IMG_Load(adjust_path(file)); }
+#else
+#include <dirent.h>
+char *flist[2592]={0,}; int nfiles=0;
+char sep = 47;
+int filedialog(char *buf) { return 0; }
+int errormsg(char *c,char *s)
+	{ return fprinf(stderr,c,s); }
+int lcase(char c)
+	{ return((c|32)-19)/26==3?c|32:c; }
+int stricmp(char *a, char *b)
+	{ while(*a&&*b&&lcase(*a++)==lcase(*b++));return*a==*b; }
+
+char *strcopy(char*); /* will be removed when obfuscation */
+void dirinit() {
+	DIR *d; struct dirent *e; int i=0,j=0;
+	for(; bmspath[i]; j=bmspath[i++]-sep?j:i);
+	if(j > 0) bmspath[j-1] = 0;
+	if(d = opendir(bmspath))
+		while(e = readdir(d))
+			flist[nfiles++] = strcopy(e->d_name);
+	if(j > 0) bmspath[j-1] = sep;
+}
+void dirfinal() {
+	int i;
+	for(i=0; i<ARRAYSIZE(flist); i++)
+		if(flist[i]) free(flist[i]);
+}
+Mix_Chunk *load_wav(char *file) {
+	int i;
+	for(i=0; i<nfiles; i++)
+		if(stricmp(flist[i], file)) return Mix_LoadWAV(adjust_path(flist[i]));
+	return 0;
+}
+SDL_Surface *load_image(char *file) {
+	int i;
+	for(i=0; i<nfiles; i++)
+		if(stricmp(flist[i], file)) return IMG_Load(adjust_path(flist[i]));
+	return 0;
+}
+#endif
+
+/******************************************************************************/
+/* general functions */
+
+Uint32 crc32t[256]={0,};
+void crc32_gen()
+	{int i=0;while(i++<2048)crc32t[i/8]=(i%8?crc32t[i/8]/2:0)^(3988292384u*(crc32t[i/8]&1));}
+Uint32 crc32(FILE *f)
+	{Uint32 r=-1;while(!feof(f))r=(r>>8)^crc32t[(r^fgetc(f))&255];return~r;}
+int is_space(int n) { return!(n-9&&n-10&&n-13&&n-32); }
+
+char *adjust_path(char *path) {
+	int i=0, j=0;
+ 
+	if(*path != 47 && *path != 92) {
+		while(bmspath[i]) {
+			respath[i] = bmspath[i];
+			if(respath[i++] == sep) j = i;
+		}
+	}
+	for(i=0; *path; path++)
+		respath[j++] = (*path==47 || *path==92 ? sep : *path);
+	respath[j] = 0;
+	return respath;
+}
+
+int remove_whitespace(char *str, int *i) {
+	int j;
+	if(is_space(str[*i])) {
+		while(is_space(str[++*i]));
+		if(!str[*i]) return 0;
+	}
+	for(j=*i; str[j]; j++);
+	while(is_space(str[--j]));
+	str[++j] = 0;
+	return 1;
+}
+
+char *strcopy(char *src) {
+	char *dest; int i=0;
+	while(src[i++]);
+	dest = malloc(i);
+	for(i=0; dest[i]=src[i]; i++);
+	return dest;
+}
+
+/******************************************************************************/
+/* bms parser */
+
 #define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define ADD_NOTE(player, chan, time, index) \
 	add_note(GET_CHANNEL(player,chan), (time), 0, (index))
@@ -104,34 +195,10 @@ double length;
 #define ADD_STOP(time, index) add_note(21, (time), 0, (index))
 #define ADD_STP(time, index) add_note(22, (time), 0, (index))
 
-int getdigit(int n) { return 47<n && n<58 ? n-48 : ((n|32)-19)/26==3 ? (n|32)-87 : -1296; }
-int key2index(int a, int b) { return getdigit(a) * 36 + getdigit(b); }
-
-char *adjust_path(char *path) {
-	int i=0, j=0;
-	if(*path != 47 && *path != 92) {
-		while(bmspath[i]) {
-			respath[i] = bmspath[i];
-			if(respath[i++] == sep) j = i;
-		}
-	}
-	for(i=0; *path; path++)
-		respath[j++] = (*path==47 || *path==92 ? sep : *path);
-	respath[j] = 0;
-	return respath;
-}
-
-int remove_whitespace(char *str, int *i) {
-	int j;
-	if(isspace(str[*i])) {
-		while(isspace(str[++*i]));
-		if(!str[*i]) return 0;
-	}
-	for(j=*i; str[j]; j++);
-	while(isspace(str[--j]));
-	str[++j] = 0;
-	return 1;
-}
+int getdigit(int n)
+	{ return 47<n&&n<58?n-48:((n|32)-19)/26==3?(n|32)-87:-1296; }
+int key2index(int a, int b)
+	{ return getdigit(a)*36+getdigit(b); }
 
 int compare_bmsline(const void *a, const void *b) {
 	int i, j;
@@ -163,14 +230,6 @@ void remove_note(int chan, int index) {
 	}
 }
 
-char *strcopy(char *src) {
-	char *dest; int i=0;
-	while(src[i++]);
-	dest = malloc(i);
-	for(i=0; dest[i]=src[i]; i++);
-	return dest;
-}
-
 int parse_bms() {
 	FILE* fp;
 	int i, j, k, a, b, c;
@@ -182,6 +241,7 @@ int parse_bms() {
 	
 	fp = fopen(bmspath, "r");
 	if(!fp) return 1;
+	dirinit();
 
 	srand(time(0));
 	while(fgets(line, 1024, fp)) {
@@ -195,12 +255,12 @@ int parse_bms() {
 		}
 		switch(i) {
 		case 16: /* random */
-			if(isspace(line[j]))
+			if(is_space(line[j]))
 				if(i = abs(atoi(line+j)))
 					rnd = rand() % i + 1;
 			break;
 		case 17: /* if */
-			if(isspace(line[j]))
+			if(is_space(line[j]))
 				ignore = (rnd != atoi(line+j));
 			break;
 		case 18: /* else */
@@ -221,11 +281,11 @@ int parse_bms() {
 				metadata[i] = strcopy(line+j);
 				break;
 			case 4: /* bpm */
-				if(isspace(line[j])) {
+				if(is_space(line[j])) {
 					bpm = atof(line+j);
 				} else {
 					i = key2index(line[j], line[j+1]);
-					if(i < 0 || !isspace(line[j+2])) break;
+					if(i < 0 || !is_space(line[j+2])) break;
 					bpmtab[i] = atof(line+j+2);
 				}
 				break;
@@ -234,12 +294,12 @@ int parse_bms() {
 			case 7: /* rank */
 			case 8: /* total */
 			case 9: /* lntype */
-				if(isspace(line[j]))
+				if(is_space(line[j]))
 					value[i-5] = atoi(line+j);
 				break;
 			case 10: /* lnobj */
-				if(!isspace(line[j])) break;
-				while(isspace(line[++j]));
+				if(!is_space(line[j])) break;
+				while(is_space(line[++j]));
 				if(line[j])
 					lnobj = key2index(line[j], line[j+1]);
 				break;
@@ -264,7 +324,7 @@ int parse_bms() {
 				break;
 			case 14: /* stop## */
 				i = key2index(line[j], line[j+1]);
-				if(i < 0 || !isspace(line[j+2])) break;
+				if(i < 0 || !is_space(line[j+2])) break;
 				stoptab[i] = atoi(line+j+2);
 				break;
 			case 15: /* stp## */
@@ -437,12 +497,12 @@ int load_resource(void (*callback)(char*)) {
 	for(i=0; i<1296; i++) {
 		if(sndpath[i]) {
 			if(callback) callback(sndpath[i]);
-			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
+			sndres[i] = load_wav(sndpath[i]);
 			free(sndpath[i]); sndpath[i] = 0;
 		}
 		if(imgpath[i]) {
 			if(callback) callback(imgpath[i]);
-			if(temp = IMG_Load(adjust_path(imgpath[i]))) {
+			if(temp = load_image(imgpath[i])) {
 				imgres[i] = SDL_DisplayFormat(temp);
 				SDL_FreeSurface(temp);
 				SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
@@ -477,6 +537,7 @@ int get_bms_info(int *flag, int *nnotes, int *score, int *duration) {
 }
 
 /******************************************************************************/
+/* general graphic functions */
 
 SDL_Surface *screen;
 SDL_Event event;
@@ -541,8 +602,8 @@ int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 }
 
 /******************************************************************************/
+/* font functions */
 
-/* compressed font data (whitespaces are ignored) */
 Uint8 fontmap[]="\0\2\3\6\7\10\13\14\16\20\30\33\34\36$,03678;<>?@ACU]^`acfghkl"
 	"nopsvwx{|~\177\201\202\237\303\333\371\376";
 Uint8 fontinfo[]="\37>',\37==8==M\\\256\211\255K==========MNM{M================"
@@ -601,7 +662,7 @@ void fontprocess(int z) {
 	} else {
 		for(i=k=0; i<95; i++)
 			for(j=--fontinfo[i]/16; j<=fontinfo[i]%16; k++)
-				if(!isspace(fontdata[k])) rawfont[j++][i] = fontmap[fontdata[k]-36];
+				if(!is_space(fontdata[k])) rawfont[j++][i] = fontmap[fontdata[k]-36];
 	}
 }
 
@@ -613,7 +674,7 @@ void fontfinalize() {
 
 int printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v) {
 	int i, j;
-	if(!isspace(c)) {
+	if(!is_space(c)) {
 		c -= (c<33 || c>126 ? c : 32);
 		for(i=0; i<16*z; i++)
 			for(j=0; j<8*z; j++)
@@ -627,14 +688,7 @@ void printstr(SDL_Surface *s, int x, int y, int z, char *S, int u, int v)
 	{ while(*S)x+=printchar(s,x,y,z,(Uint8)*S++,u,v); }
 
 /******************************************************************************/
-
-Uint32 crc32t[256]={0,};
-void crc32_gen()
-	{int i=0;while(i++<2048)crc32t[i/8]=(i%8?crc32t[i/8]/2:0)^(3988292384u*(crc32t[i/8]&1));}
-Uint32 crc32(FILE *f)
-	{Uint32 r=-1;while(!feof(f))r=(r>>8)^crc32t[(r^fgetc(f))&255];return~r;}
-
-/******************************************************************************/
+/* main routines */
 
 double playspeed=1;
 int starttime;
@@ -688,7 +742,7 @@ int initialize() {
 	
 void finalize() {
 	int i, j;
-	
+ 
 	for(i=0; i<4; i++) {
 		if(metadata[i]) free(metadata[i]);
 	}
@@ -709,6 +763,7 @@ void finalize() {
 	if(sprite) SDL_FreeSurface(sprite);
 	Mix_CloseAudio();
 	fontfinalize();
+	dirfinal();
 }
 
 SDL_Surface *stagefile_tmp;
@@ -911,7 +966,8 @@ int play_process() {
 	for(i=0; i<9; i++) {
 		if(i == 6) continue;
 		for(j=pfront[i]; j<prear[i]; j++) {
-			if(channel[i][j]->type >= 0) SDL_BlitSurface(sprite, newrect(250+tkeyleft[i],0,tkeywidth[i],5), screen, newrect(tkeyleft[i],(int)(525-400*playspeed*adjust_object_position(bottom,channel[i][j]->time)),0,0));
+			if(channel[i][j]->type >= 0)
+				SDL_BlitSurface(sprite, newrect(250+tkeyleft[i],0,tkeywidth[i],5), screen, newrect(tkeyleft[i],(int)(525-400*playspeed*adjust_object_position(bottom,channel[i][j]->time)),0,0));
 		}
 	}
 	for(i=(int)top; i>=ibottom; i--) {
@@ -948,6 +1004,9 @@ int play_process() {
 	return 1;
 }
 
+/******************************************************************************/
+/* entry point */
+
 int play() {
 	int t;
 	if(initialize()) return 1;
@@ -964,7 +1023,6 @@ int play() {
 
 int credit() {
 	printf("%s\nby Kang Seonghoon (Tokigun).\n\n", version);
-	printf("As I said, quote for version 0.0-dev-20 is:\n\"In computer science, we stand on each other's feet.\" -- Brian K. Reid\n\n");
 	return 0;
 }
 
