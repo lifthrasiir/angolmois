@@ -29,7 +29,7 @@
 /******************************************************************************/
 /* constants, variables */
 
-char version[] = "TokigunStudio Angolmois version 0.0-dev-20050415";
+char version[] = "TokigunStudio Angolmois version 0.0-dev-20050415pl1";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 const char *bmsheader[] = {
@@ -85,35 +85,36 @@ int filedialog(char *buf) {
 int errormsg(char *c,char *s)
 	{ char b[512];sprintf(b,c,s);return MessageBox(0,b,version,0); }
 
-void dirinit() {} void dirfinal() {}
-Mix_Chunk *load_wav(char *file) { return Mix_LoadWAV(adjust_path(file)); }
-SDL_Surface *load_image(char *file) { return IMG_Load(adjust_path(file)); }
+void dirinit() {}
+void dirfinal() {}
+Mix_Chunk *load_wav(char *file)
+	{ return Mix_LoadWAV(adjust_path(file)); }
+SDL_Surface *load_image(char *file)
+	{ return IMG_Load(adjust_path(file)); }
 #else
 #include <dirent.h>
 char *flist[2592]={0,}; int nfiles=0;
 char sep = 47;
 int filedialog(char *buf) { return 0; }
 int errormsg(char *c,char *s)
-	{ return fprinf(stderr,c,s); }
+	{ return fprintf(stderr,c,s); }
 int lcase(char c)
 	{ return((c|32)-19)/26==3?c|32:c; }
 int stricmp(char *a, char *b)
-	{ while(*a&&*b&&lcase(*a++)==lcase(*b++));return*a==*b; }
+	{ while(*a&&*b&&lcase(*a)==lcase(*b))a++,b++;return*a==*b; }
 
 char *strcopy(char*); /* will be removed when obfuscation */
 void dirinit() {
 	DIR *d; struct dirent *e; int i=0,j=0;
 	for(; bmspath[i]; j=bmspath[i++]-sep?j:i);
 	if(j > 0) bmspath[j-1] = 0;
-	if(d = opendir(bmspath))
+	if(d = opendir(j?bmspath:"."))
 		while(e = readdir(d))
 			flist[nfiles++] = strcopy(e->d_name);
 	if(j > 0) bmspath[j-1] = sep;
 }
 void dirfinal() {
-	int i;
-	for(i=0; i<ARRAYSIZE(flist); i++)
-		if(flist[i]) free(flist[i]);
+	while(nfiles--) free(flist[nfiles]);
 }
 Mix_Chunk *load_wav(char *file) {
 	int i;
