@@ -29,7 +29,7 @@
 /******************************************************************************/
 /* constants, variables */
 
-char version[] = "TokigunStudio Angolmois version 0.0-alpha1-20050505";
+char version[] = "TokigunStudio Angolmois version 0.1-alpha2-20050510";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 const char *bmsheader[] = {
@@ -52,15 +52,16 @@ int value[6]={1,0,3,100,1,0};
 #define lnobj value[5]
 
 char *sndpath[1296]={0,}, *imgpath[1296]={0,};
+int (*blitcmd)[8]=0, nblitcmd=0;
 Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
 double bpmtab[1296]={0,};
 
 typedef struct { double time; int type, index; } bmsnote;
-bmsnote **channel[23]={0,};
+bmsnote **channel[22]={0,};
 double _shorten[1001]={0,},*shorten=_shorten+1;
-int nchannel[23]={0,};
+int nchannel[22]={0,};
 double length;
 
 /******************************************************************************/
@@ -194,7 +195,7 @@ char *strcopy(char *src) {
 #define ADD_BPM(time, index) add_note(20, (time), 0, (index))
 #define ADD_BPM2(time, index) add_note(20, (time), 1, (index))
 #define ADD_STOP(time, index) add_note(21, (time), 0, (index))
-#define ADD_STP(time, index) add_note(22, (time), 0, (index))
+#define ADD_STP(time, index) add_note(21, (time), 1, (index))
 
 int getdigit(int n)
 	{ return 47<n&&n<58?n-48:((n|32)-19)/26==3?(n|32)-87:-1296; }
@@ -321,7 +322,20 @@ int parse_bms() {
 				imgpath[i] = strcopy(line+j);
 				break;
 			case 13: /* bga## */
-				/* TODO */
+				i = nblitcmd;
+				blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
+				blitcmd[i][0] = key2index(line[j], line[j+1]);
+				if(!is_space(line[j+=2])) { blitcmd[i][0] = -1; break; }
+				while(is_space(line[++j]));
+				blitcmd[i][1] = key2index(line[j], line[j+1]);
+				for(k=2; k<8; k++) {
+					while(line[++j] && !is_space(line[j]));
+					while(is_space(line[++j]));
+					if(!line[j]) break;
+					blitcmd[i][k] = atoi(line+j);
+				}
+				if(k<8) blitcmd[i][0] = -1;
+				if(blitcmd[i][0] >= 0) nblitcmd++;
 				break;
 			case 14: /* stop## */
 				i = key2index(line[j], line[j+1]);
@@ -329,7 +343,8 @@ int parse_bms() {
 				stoptab[i] = atoi(line+j+2);
 				break;
 			case 15: /* stp## */
-				/* TODO */
+				if(sscanf(line+j, "%d.%d %d", &i, &j, &k) < 3) break;
+				ADD_STP(i+j/1e3, k);
 				break;
 			}
 			
@@ -433,7 +448,7 @@ int parse_bms() {
 		}
 	}
 	
-	for(i=0; i<23; i++) {
+	for(i=0; i<22; i++) {
 		if(!channel[i]) continue;
 		qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
 		if(i != 18 && i < 21) {
@@ -491,6 +506,9 @@ int parse_bms() {
 	return 0;
 }
 
+/* will be removed when obfuscation */
+SDL_Surface *newsurface(int f, int w, int h);
+SDL_Rect *newrect(int x, int y, int w, int h);
 int load_resource(void (*callback)(char*)) {
 	SDL_Surface *temp;
 	int i;
@@ -511,6 +529,25 @@ int load_resource(void (*callback)(char*)) {
 			free(imgpath[i]); imgpath[i] = 0;
 		}
 	}
+	
+	for(i=0; i<nblitcmd; i++) {
+		if(blitcmd[i][0]<0 || blitcmd[i][1]<0 || !imgres[blitcmd[i][1]]) continue;
+		temp = imgres[blitcmd[i][0]];
+		if(!temp) {
+			imgres[blitcmd[i][0]] = temp = newsurface(SDL_SWSURFACE, 256, 256);
+			SDL_FillRect(temp, 0, 0);
+			SDL_SetColorKey(temp, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+		}
+		if(blitcmd[i][2] < 0) blitcmd[i][2] = 0;
+		if(blitcmd[i][3] < 0) blitcmd[i][3] = 0;
+		if(blitcmd[i][4] > blitcmd[i][2] + 256) blitcmd[i][4] = blitcmd[i][2] + 256;
+		if(blitcmd[i][5] > blitcmd[i][3] + 256) blitcmd[i][5] = blitcmd[i][3] + 256;
+		SDL_BlitSurface(imgres[blitcmd[i][1]],
+			newrect(blitcmd[i][2], blitcmd[i][3], blitcmd[i][4]-blitcmd[i][2], blitcmd[i][5]-blitcmd[i][3]),
+			temp, newrect(blitcmd[i][6], blitcmd[i][7], 0, 0));
+	}
+	free(blitcmd);
+	
 	return 0;
 }
 
@@ -695,7 +732,7 @@ double playspeed=1;
 int starttime;
 double startoffset, startshorten;
 int xflag, xnnotes, xscore, xduration;
-int pcur[23]={0,}, pfront[23]={0,}, prear[23]={0,}, pcheck[18]={0,}, thru[23]={0,};
+int pcur[22]={0,}, pfront[22]={0,}, prear[22]={0,}, pcheck[18]={0,}, thru[22]={0,};
 int bga[3]={-1,-1,-1}, bga_updated=0;
 int score=0, scocnt[2]={0,}, scombo=0, gradetime=0, grademode=0;
 
@@ -766,6 +803,7 @@ void finalize() {
 			free(channel[i]);
 		}
 	}
+	free(blitcmd);
 
 	if(sprite) SDL_FreeSurface(sprite);
 	Mix_CloseAudio();
@@ -918,7 +956,7 @@ double adjust_object_position(double base, double time) {
 }
 
 int play_process() {
-	int i, j, k, ibottom;
+	int i, j, k, l, m, ibottom;
 	double bottom, top, line, tmp;
 	char buf[30];
 
@@ -985,18 +1023,31 @@ int play_process() {
 				if(event.key.keysym.sym == keymap[i])
 					keypressed[i] = 0;
 		} else if(event.type == SDL_KEYDOWN) {
-			if(opt_mode) continue;
-			for(i=0; i<18; i++) {
-				if(tkeyleft[i]>=0 && event.key.keysym.sym==keymap[i]) {
-					keypressed[i] = 1;
-					if(!nchannel[i]) continue;
-					j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
-					if(sndres[channel[i][j]->index])
-						Mix_PlayChannel(-1, sndres[channel[i][j]->index], 0);
-					tmp = (channel[i][j]->time - line) * shorten[(int)line];
-					if(channel[i][j]->type >= 0 && -0.08 < tmp && tmp < 0.05) {
-						channel[i][j]->type ^= -1; scocnt[0]++; scombo++;
-						gradetime = SDL_GetTicks() + 700; grademode = 0;
+			if(event.key.keysym.sym == SDLK_F3) {
+				if(playspeed > 20) playspeed -= 5;
+				else if(playspeed > 10) playspeed -= 1;
+				else if(playspeed > 1) playspeed -= .5;
+				else if(playspeed > .201) playspeed -= .2;
+				else continue;
+				for(i=0; i<18; i++) prear[i] = pfront[i];
+			} else if(event.key.keysym.sym == SDLK_F4) {
+				if(playspeed < 1) playspeed += .2;
+				else if(playspeed < 10) playspeed += .5;
+				else if(playspeed < 20) playspeed += 1;
+				else if(playspeed < 95) playspeed += 5;
+			} else if(!opt_mode) {
+				for(i=0; i<18; i++) {
+					if(tkeyleft[i]>=0 && event.key.keysym.sym==keymap[i]) {
+						keypressed[i] = 1;
+						if(!nchannel[i]) continue;
+						j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
+						if(sndres[channel[i][j]->index])
+							Mix_PlayChannel(-1, sndres[channel[i][j]->index], 0);
+						tmp = (channel[i][j]->time - line) * shorten[(int)line];
+						if(channel[i][j]->type >= 0 && -0.08 < tmp && tmp < 0.05) {
+							channel[i][j]->type ^= -1; scocnt[0]++; scombo++;
+							gradetime = SDL_GetTicks() + 700; grademode = 0;
+						}
 					}
 				}
 			}
@@ -1017,24 +1068,40 @@ int play_process() {
 	SDL_SetClipRect(screen, newrect(0,30,800,490));
 	for(i=0; i<18; i++) {
 		if(tkeyleft[i] < 0) continue;
+		m = 0;
 		for(j=pfront[i]; j<prear[i]; j++) {
-			if(channel[i][j]->type >= 0) {
-				SDL_BlitSurface(
-					sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],5),
-					screen, newrect(tkeyleft[i],(int)(525-400*playspeed*adjust_object_position(bottom,channel[i][j]->time)),0,0));
+			k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j]->time));
+			if(channel[i][j]->type == 3) {
+				l = k;
+				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j]->time));
+				if(k < 30) k = 30;
+			} else if(channel[i][j]->type == 2) {
+				l = 520;
+			} else if(channel[i][j]->type == 0) {
+				l = k + 5;
+			} else {
+				continue;
 			}
+			if(k > 0 && l > k) {
+				SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],l-k), screen, newrect(tkeyleft[i],k,0,0));
+			}
+			m++;
+		}
+		if(!m && prear[i]<nchannel[i] && channel[i][prear[i]]->type==2) {
+			SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, newrect(tkeyleft[i],30,0,0));
 		}
 	}
 	for(i=(int)top; i>=ibottom; i--) {
-		SDL_FillRect(screen, newrect(0,(int)(530-400*playspeed*adjust_object_position(bottom,i)),tpanel1,1), 0xc0c0c0);
-		if(tpanel2) SDL_FillRect(screen, newrect(tpanel2,(int)(530-400*playspeed*adjust_object_position(bottom,i)),800-tpanel2,1), 0xc0c0c0);
+		j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, i));
+		SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xc0c0c0);
+		if(tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
 	}
 	SDL_SetClipRect(screen, 0);
 	if(bga_updated) {
 		SDL_FillRect(screen, newrect(tbga,172,256,256), 0);
 		for(i=0; i<2; i++)
 			if(bga[i] >= 0 && imgres[bga[i]])
-				SDL_BlitSurface(imgres[bga[i]], 0, screen, newrect(tbga,172,256,256));
+				SDL_BlitSurface(imgres[bga[i]], newrect(0,0,256,256), screen, newrect(tbga,172,0,0));
 		bga_updated = 0;
 	}
 	if((int)SDL_GetTicks() < gradetime) {
@@ -1050,8 +1117,14 @@ int play_process() {
 	}
 
 	SDL_BlitSurface(sprite, newrect(0,0,800,30), screen, newrect(0,0,0,0));
-	sprintf(buf, "%.4f (%d) :: BPM %.2f", bottom, Mix_Playing(-1), bpm);
-	printstr(screen, 10, 8, 1, buf, 0x000000, 0x000000);
+	printstr(screen, 10, 8, 1, "SCORE 0000000", 0, 0);
+	SDL_BlitSurface(sprite, newrect(0,520,800,80), screen, newrect(0,520,0,0));
+	sprintf(buf, "%4.1fx", playspeed);
+	printstr(screen, 5, 522, 2, buf, 0, 0);
+	sprintf(buf, "BPM %6.2f", bpm);
+	printstr(screen, 95, 522, 1, buf, 0, 0);
+	sprintf(buf, "@ %.4f", bottom);
+	printstr(screen, 95, 538, 1, buf, 0, 0);
 
 	SDL_Flip(screen);
 	return 1;
@@ -1077,7 +1150,32 @@ int play() {
 
 int credit() {
 	SDL_Surface *credit;
-	int i, t = -750;
+	char *s[] = {
+		"TokigunStudio Angolmois", "\"the Simple BMS Player\"", version + 24,
+		"Original Character Design from", "Project Angolmois", "by", "Choi Kaya (CHKY)", "[ http://angolmois.net/ ]",
+		"Programmed & Obfuscated by", "Kang Seonghoon (Tokigun)", "[ http://tokigun.net/ ]",
+		"Graphics & Interface Design by", "Kang Seonghoon (Tokigun)",
+		"Special Thanks to", "Park J. K. (mono*)", "Park Jiin (Mithrandir)", "Hye-Shik Chang (perky)",
+		"Greetings", "Kang Junho (MysticMist)", "Joon-cheol Park (exman)",
+		"Jae-kyun Lee (kida)", "Park Byeong-uk (Minan2DJ07)",
+		"Park Jaesong (klutzy)", "HanIRC #tokigun, #perky", "ToEZ2DJ.net",
+		"Powered by", "SDL, SDL_mixer, SDL_image", "gVim, Python", "and",
+		"DemiSoda Apple/Grape", "POCARISWEAT", "Shovel Works",
+		"Copyright (c) 2005, Kang Seonghoon (Tokigun).",
+		"This program is free software; you can redistribute it and/or",
+		"modify it under the terms of the GNU General Public License",
+		"as published by the Free Software Foundation; either version 2",
+		"of the License, or (at your option) any later version.",
+		"for more information, visit http://dev.tokigun.net/angolmois/.",
+	};
+	char f[] = "DNNTITITTITTIQFFFQFFFFFFFQFFEFFFKKKKKW";
+	int y[] = {
+		20, 80, 100, 200, 220, 255, 275, 310, 410, 430, 465, 580, 600, 800,
+		820, 855, 890, 1000, 1020, 1055, 1090, 1125, 1160, 1195, 1230, 1400,
+		1420, 1455, 1490, 1510, 1545, 1580, 2060, 2090, 2110, 2130, 2150, 2180
+	};
+	int c[] = {0x4040c0, 0x408040, 0x808040, 0x808080, 0x8080c0, 0x80c080, 0xc0c080, 0xc0c0c0};
+	int i, j, t = -750;
 
 	opt_fullscreen = 0;
 	if(initialize()) return 1;
@@ -1086,46 +1184,10 @@ int credit() {
 	SDL_FillRect(credit, newrect(0, 1790, 800, 410), 0);
 	for(i=1; i<16; i++)
 		SDL_FillRect(credit, newrect(0, 1850-i*5, 800, 5), i);
-#define printstrc(s, l, y, z, c) printstr(credit, 400-l*z*4, y, z, s, c, 0xffffff)
-	printstrc("TokigunStudio Angolmois", 23, 20, 3, 0x4040c0);
-	printstrc("\"the Simple BMS Player\"", 23, 80, 1, 0x8080c0);
-	printstrc(version + 24, 27, 100, 1, 0x8080c0);
-	printstrc("Original Character Design from", 30, 200, 1, 0xc0c080);
-	printstrc("Project Angolmois", 17, 220, 2, 0x808040);
-	printstrc("by", 2, 255, 1, 0xc0c080);
-	printstrc("Choi Kaya (CHKY)", 16, 275, 2, 0x808040);
-	printstrc("[ http://angolmois.net/ ]", 25, 310, 1, 0xc0c080);
-	printstrc("Programmed & Obfuscated by", 26, 410, 1, 0xc0c080);
-	printstrc("Kang Seonghoon (Tokigun)", 24, 430, 2, 0x808040);
-	printstrc("[ http://tokigun.net/ ]", 23, 465, 1, 0xc0c080);
-	printstrc("Graphics & Interface Design by", 30, 580, 1, 0xc0c080);
-	printstrc("Kang Seonghoon (Tokigun)", 24, 600, 2, 0x808040);
-	printstrc("Special Thanks to", 17, 800, 1, 0x80c080);
-	printstrc("Park J. K. (mono*)", 18, 820, 2, 0x408040);
-	printstrc("Park Jiin (Mithrandir)", 22, 855, 2, 0x408040);
-	printstrc("Hye-Shik Chang (perky)", 22, 890, 2, 0x408040);
-	printstrc("Greetings", 9, 1000, 1, 0x80c080);
-	printstrc("Kang Junho (MysticMist)", 23, 1020, 2, 0x408040);
-	printstrc("Joon-cheol Park (exman)", 23, 1055, 2, 0x408040);
-	printstrc("Jae-kyun Lee (kida)", 19, 1090, 2, 0x408040);
-	printstrc("Park Byeong-uk (Minan2DJ07)", 27, 1125, 2, 0x408040);
-	printstrc("Park Jaesong (klutzy)", 21, 1160, 2, 0x408040);
-	printstrc("HanIRC #tokigun, #perky", 23, 1195, 2, 0x408040);
-	printstrc("ToEZ2DJ.net", 11, 1230, 2, 0x408040);
-	printstrc("Powered by", 10, 1400, 1, 0x80c080);
-	printstrc("SDL, SDL_mixer, SDL_image", 25, 1420, 2, 0x408040);
-	printstrc("gVim, Python", 12, 1455, 2, 0x408040);
-	printstrc("and", 3, 1490, 1, 0x408040);
-	printstrc("DemiSoda Apple/Grape", 20, 1510, 2, 0x408040);
-	printstrc("POCARISWEAT", 11, 1545, 2, 0x408040);
-	printstrc("Shovel Works", 12, 1580, 2, 0x408040);
-	printstrc("Copyright (c) 2005, Kang Seonghoon (Tokigun).", 45, 2060, 1, 0x808080);
-	printstrc("This program is free software; you can redistribute it and/or", 61, 2090, 1, 0x808080);
-	printstrc("modify it under the terms of the GNU General Public License", 59, 2110, 1, 0x808080);
-	printstrc("as published by the Free Software Foundation; either version 2", 62, 2130, 1, 0x808080);
-	printstrc("of the License, or (at your option) any later version.", 54, 2150, 1, 0x808080);
-	printstrc("for more information, visit http://dev.tokigun.net/angolmois/.", 62, 2180, 1, 0xc0c0c0);
-#undef printstrc
+	for(i=0; i<ARRAYSIZE(s); i++) {
+		for(j=0; s[i][j]; j++);
+		printstr(credit, 400-j*(f[i]%3+1)*4, y[i], f[i]%3+1, s[i], c[f[i]/3-22], 0xffffff);
+	}
 
 	SDL_FillRect(screen, 0, 0x000010);
 	while(++t < 1820 && !check_exit()) {
@@ -1148,7 +1210,7 @@ int credit() {
 int main(int argc, char **argv) {
 	char buf[512]={0,};
 	int i, j, k, use_buf;
-	
+
 	if(argc < 2 || !*argv[1]) {
 		use_buf = 1;
 		if(!filedialog(buf)) use_buf = 0;
