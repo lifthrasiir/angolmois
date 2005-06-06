@@ -29,7 +29,7 @@
 /******************************************************************************/
 /* constants, variables */
 
-char version[] = "TokigunStudio Angolmois version 0.1-alpha3-20050517";
+char version[] = "TokigunStudio Angolmois version 0.1-beta1-20050607";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 #define SWAP(x,y,t) {(t)=(x);(x)=(y);(y)=(t);}
@@ -330,13 +330,9 @@ int parse_bms() {
 				if(!is_space(line[j+=2])) { blitcmd[i][0] = -1; break; }
 				while(is_space(line[++j]));
 				blitcmd[i][1] = key2index(line[j], line[j+1]);
-				for(k=2; k<8; k++) {
-					while(line[++j] && !is_space(line[j]));
-					while(is_space(line[++j]));
-					if(!line[j]) break;
-					blitcmd[i][k] = atoi(line+j);
-				}
-				if(k<8) blitcmd[i][0] = -1;
+				if(sscanf(line+j+2, "%d %d %d %d %d %d", blitcmd[i]+2, blitcmd[i]+3,
+						blitcmd[i]+4, blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) < 6)
+					blitcmd[i][0] = -1;
 				if(blitcmd[i][0] >= 0) nblitcmd++;
 				break;
 			case 14: /* stop## */
@@ -659,9 +655,7 @@ void shuffle_bms(int mode, int player) {
 					thru[j] = 2;
 				} else {
 					j = perm[i];
-					while(thru[j]) {
-						j = perm[thrurmap[j]];
-					}
+					while(thru[j]) j = perm[thrurmap[j]];
 					if(temp == 3) {
 						thrumap[i] = j;
 						thrurmap[j] = i;
@@ -671,9 +665,8 @@ void shuffle_bms(int mode, int player) {
 				result[j] = realloc(result[j], sizeof(bmsnote*) * (nresult[j]+1));
 				result[j][nresult[j]++] = channel[map[i]][ptr[map[i]]++];
 			}
-			for(i=0; i<nmap; i++) {
+			for(i=0; i<nmap; i++)
 				if(thru[i] == 2) thru[i] = 0;
-			}
 		}
 		for(i=0; i<nmap; i++) {
 			free(channel[map[i]]);
@@ -706,6 +699,10 @@ SDL_Surface *newsurface(int f, int w, int h)
 	{ return SDL_CreateRGBSurface(f,w,h,32,0xff0000,0xff00,0xff,0); }
 SDL_Rect *newrect(int x, int y, int w, int h)
 	{ SDL_Rect*r=rect+_rect++%8;r->x=x;r->y=y;r->w=w;r->h=h;return r; }
+int lock()
+	{ return SDL_MUSTLOCK(screen)&&SDL_LockSurface(screen)<0; }
+void unlock()
+	{ if(SDL_MUSTLOCK(screen))SDL_UnlockSurface(screen); }
 
 int bicubic_kernel(int x, int y) {
 	if(x < 0) x = -x;
@@ -831,19 +828,19 @@ int printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v) {
 	return 8*z;
 }
 
-void printstr(SDL_Surface *s, int x, int y, int z, char *S, int u, int v)
-	{ while(*S)x+=printchar(s,x,y,z,(Uint8)*S++,u,v); }
+void printstr(SDL_Surface *s, int x, int y, int z, char *c, int u, int v)
+	{ while(*c)x+=printchar(s,x,y,z,(Uint8)*c++,u,v); }
 
 /******************************************************************************/
 /* main routines */
 
-double playspeed=1;
-int starttime, stoptime=0;
+double playspeed=1, targetspeed;
+int starttime, stoptime=0, adjustspeed=0;
 double startoffset, startshorten;
 int xflag, xnnotes, xscore, xduration;
 int pcur[22]={0,}, pfront[22]={0,}, prear[22]={0,}, pcheck[18]={0,}, thru[22]={0,};
 int bga[3]={-1,-1,0}, poorbga=0, bga_updated=1;
-int score=0, scocnt[2]={0,}, scombo=0, gradetime=0, grademode;
+int score=0, scocnt[6]={0,}, scombo=0, gradetime=0, grademode;
 int opt_mode=0, opt_showinfo=1, opt_fullscreen=1, opt_quality=10, opt_random=0;
 
 SDL_Surface *sprite=0;
@@ -991,10 +988,11 @@ void play_prepare() {
 	}
 	if(v_player == 1) {
 		for(i=9; i<18; i++) tkeyleft[i] = -1;
-		tpanel2 = 0;
 	} else if(v_player == 3) {
 		for(i=9; i<18; i++) tkeyleft[i] += tpanel1 - tpanel2;
 		tpanel1 += 801 - tpanel2;
+	}
+	if(v_player % 2) {
 		tpanel2 = 0;
 		tbga = tpanel1 / 2 + 282;
 	}
@@ -1005,8 +1003,10 @@ void play_prepare() {
 		if(tkeyleft[i] < 0) continue;
 		for(j=140; j<520; j++)
 			SDL_FillRect(sprite, newrect(tkeyleft[i],j,tkeywidth[i],1), blend(tkeycolor[i], 0, j-140, 1000));
-		for(j=0; j*2<tkeywidth[i]; j++)
-			SDL_FillRect(sprite, newrect(800+tkeyleft[i]+j,0,tkeywidth[i]-2*j,600), blend(tkeycolor[i], 0xffffff, tkeywidth[i]-j, tkeywidth[i]));
+		if(i < 9) {
+			for(j=0; j*2<tkeywidth[i]; j++)
+				SDL_FillRect(sprite, newrect(800+tkeyleft[i]+j,0,tkeywidth[i]-2*j,600), blend(tkeycolor[i], 0xffffff, tkeywidth[i]-j, tkeywidth[i]));
+		}
 	}
 	for(j=-244; j<556; j++) {
 		for(i=-10; i<20; i++) {
@@ -1039,6 +1039,7 @@ void play_prepare() {
 	starttime = SDL_GetTicks();
 	startoffset = -1;
 	startshorten = 1;
+	targetspeed = playspeed;
 	Mix_AllocateChannels(128);
 }
 
@@ -1063,6 +1064,16 @@ int play_process() {
 	int i, j, k, l, m, t, ibottom;
 	double bottom, top, line, tmp;
 	char buf[30];
+
+	if(adjustspeed) {
+		tmp = targetspeed - playspeed;
+		if(-0.001 < tmp && tmp < 0.001) {
+			adjustspeed = 0; playspeed = targetspeed;
+			for(i=0; i<18; i++) prear[i] = pfront[i];
+		} else {
+			playspeed += tmp * 0.015;
+		}
+	}
 
 	t = SDL_GetTicks();
 	if(t < stoptime) {
@@ -1100,9 +1111,9 @@ int play_process() {
 				tmp = (line - tmp) * shorten[(int)tmp];
 				if(channel[i][pcur[i]-1]->type < 0) {
 					pcheck[i] = 0;
-				} else if(channel[i][pcur[i]-1]->type == 0 && tmp > 0.08) {
-					pcheck[i] = 0; scocnt[1]++; scombo = 0;
-					poorbga = t + 1000; gradetime = t + 700; grademode = 0;
+				} else if(channel[i][pcur[i]-1]->type != 1 && tmp > 0.05) {
+					pcheck[i] = 0; scocnt[0]++; scombo = 0;
+					poorbga = t + 600; gradetime = t + 700; grademode = 0;
 				}
 			}
 		}
@@ -1148,26 +1159,43 @@ int play_process() {
 		} else if(event.type == SDL_KEYUP) {
 			if(event.key.keysym.sym == SDLK_ESCAPE) {
 				k = 1; continue;
-			}
-			for(i=0; i<18; i++)
-				if(event.key.keysym.sym == keymap[i])
-					keypressed[i] = 0;
-		} else if(event.type == SDL_KEYDOWN) {
-			if(event.key.keysym.sym == SDLK_F3) {
-				if(playspeed > 20) playspeed -= 5;
-				else if(playspeed > 10) playspeed -= 1;
-				else if(playspeed > 1) playspeed -= .5;
-				else if(playspeed > .201) playspeed -= .2;
-				else continue;
-				for(i=0; i<18; i++) prear[i] = pfront[i];
-			} else if(event.key.keysym.sym == SDLK_F4) {
-				if(playspeed < 1) playspeed += .2;
-				else if(playspeed < 10) playspeed += .5;
-				else if(playspeed < 20) playspeed += 1;
-				else if(playspeed < 95) playspeed += 5;
 			} else if(!opt_mode) {
 				for(i=0; i<18; i++) {
-					if(tkeyleft[i]>=0 && event.key.keysym.sym==keymap[i]) {
+					if(tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
+						keypressed[i] = 0;
+						if(nchannel[i] && thru[i]) {
+							j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
+							if(channel[i][j]->type != 2) continue;
+							thru[i] = 0;
+							tmp = (channel[i][j]->time - line) * shorten[(int)line];
+							if(-0.05 < tmp && tmp < 0.05) {
+								channel[i][j]->type ^= -1;
+							} else {
+								grademode = 0; scocnt[0]++; scombo = 0;
+								if(gradetime < t) gradetime = t + 700;
+							}
+						}
+					}
+				}
+			}
+		} else if(event.type == SDL_KEYDOWN) {
+			if(event.key.keysym.sym == SDLK_F3) {
+				if(targetspeed > 20) targetspeed -= 5;
+				else if(targetspeed > 10) targetspeed -= 1;
+				else if(targetspeed > 1) targetspeed -= .5;
+				else if(targetspeed > .201) targetspeed -= .2;
+				else continue;
+				adjustspeed = 1;
+			} else if(event.key.keysym.sym == SDLK_F4) {
+				if(targetspeed < 1) targetspeed += .2;
+				else if(targetspeed < 10) targetspeed += .5;
+				else if(targetspeed < 20) targetspeed += 1;
+				else if(targetspeed < 95) targetspeed += 5;
+				else continue;
+				adjustspeed = 1;
+			} else if(!opt_mode) {
+				for(i=0; i<18; i++) {
+					if(tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 1;
 						if(!nchannel[i]) continue;
 						j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
@@ -1175,9 +1203,18 @@ int play_process() {
 							l = Mix_PlayChannel(-1, sndres[channel[i][j]->index], 0);
 							if(l >= 0) Mix_GroupChannel(l, 0);
 						}
+						if(j < pcur[i]) {
+							while(j >= 0 && channel[i][j]->type == 1) j--;
+							if(j < 0) continue;
+						} else {
+							while(j < nchannel[i] && channel[i][j]->type == 1) j++;
+							if(j == nchannel[i]) continue;
+						}
+						if(channel[i][j]->type == 3) thru[i] = 1;
+						else if(channel[i][j]->type == 2) continue;
 						tmp = (channel[i][j]->time - line) * shorten[(int)line];
 						if(channel[i][j]->type >= 0 && -0.05 < tmp && tmp < 0.05) {
-							channel[i][j]->type ^= -1; scocnt[0]++; scombo++;
+							channel[i][j]->type ^= -1; scocnt[1]++; scombo++;
 							gradetime = t + 700; //grademode = 1;
 							grademode = (int)((0.05 - tmp) * 2e4);
 							if(grademode > 1000) grademode = 2000 - grademode;
@@ -1188,8 +1225,10 @@ int play_process() {
 		}
 	}
 	if(k) return -1;
-	if(bottom < -1.01 || bottom > length + 1) {
+	if(bottom > length + 1) {
 		if(opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1) return 0;
+	} else if(bottom < -1.01) {
+		return 0;
 	}
 
 	SDL_FillRect(screen, newrect(0,30,tpanel1,490), 0x404040);
@@ -1250,10 +1289,10 @@ int play_process() {
 	if(t < gradetime) {
 		if(grademode) {
 			sprintf(buf, "%4.1f %%", grademode / 10.);
-			printstr(screen, 63, 292, 2, "GREAT!" /*buf*/, 0x40ff40, 0xc0ffc0);
+			printstr(screen, tpanel1/2-48, 292, 2, "GREAT!" /*buf*/, 0x40ff40, 0xc0ffc0);
 			if(scombo > 1) {
 				i = sprintf(buf, "%d COMBO", scombo);
-				printstr(screen, 111-4*i, 320, 1, buf, 0x808080, 0xffffff);
+				printstr(screen, tpanel1/2-4*i, 320, 1, buf, 0x808080, 0xffffff);
 			}
 		} else {
 			printstr(screen, 79, 292, 2, "MISS", 0xff4040, 0xffc0c0);
@@ -1265,9 +1304,10 @@ int play_process() {
 	}
 
 	SDL_BlitSurface(sprite, newrect(0,0,800,30), screen, newrect(0,0,0,0));
-	printstr(screen, 10, 8, 1, "SCORE 0000000", 0, 0);
+	sprintf(buf, "SCORE %07d", score);
+	printstr(screen, 10, 8, 1, buf, 0, 0);
 	SDL_BlitSurface(sprite, newrect(0,520,800,80), screen, newrect(0,520,0,0));
-	sprintf(buf, "%4.1fx", playspeed);
+	sprintf(buf, "%4.1fx", targetspeed);
 	printstr(screen, 5, 522, 2, buf, 0, 0);
 	sprintf(buf, "BPM %6.2f", bpm);
 	printstr(screen, 95, 522, 1, buf, 0, 0);
@@ -1293,12 +1333,12 @@ int play() {
 		finalize(); SDL_Quit();
 		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
 	}
+	if(v_player == 4) clone_bms();
 	if(opt_random) {
 		if(v_player == 3) {
 			shuffle_bms(opt_random, 0);
 		} else {
 			shuffle_bms(opt_random, 1);
-			if(v_player == 4) clone_bms();
 			if(v_player != 1) shuffle_bms(opt_random, 2);
 		}
 	}
