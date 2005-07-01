@@ -18,7 +18,6 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -29,7 +28,7 @@
 /******************************************************************************/
 /* constants, variables */
 
-char version[] = "TokigunStudio Angolmois version 0.1-beta1-20050607";
+char version[] = "TokigunStudio Angolmois version 0.1-beta2-20050702";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 #define SWAP(x,y,t) {(t)=(x);(x)=(y);(y)=(t);}
@@ -62,14 +61,14 @@ double bpmtab[1296]={0,};
 
 typedef struct { double time; int type, index; } bmsnote;
 bmsnote **channel[22]={0,};
-double _shorten[1001]={1.0,},*shorten=_shorten+1;
+double _shorten[2005],*shorten=_shorten+1;
 int nchannel[22]={0,};
 double length;
 
 /******************************************************************************/
 /* system dependent functions */
 
-char *adjust_path(char*); /* will be removed when obfuscation */
+char *adjust_path(char*); /* DUMMY */
 
 #ifdef WIN32
 #include <windows.h>
@@ -102,11 +101,11 @@ int filedialog(char *buf) { return 0; }
 int errormsg(char *c,char *s)
 	{ return fprintf(stderr,c,s); }
 int lcase(char c)
-	{ return((c|32)-19)/26==3?c|32:c; }
+	{ return((c|32)-19)/26-3?c:c|32; }
 int stricmp(char *a, char *b)
 	{ while(*a&&*b&&lcase(*a)==lcase(*b))a++,b++;return*a==*b; }
 
-char *strcopy(char*); /* will be removed when obfuscation */
+char *strcopy(char*); /* DUMMY */
 void dirinit() {
 	DIR *d; struct dirent *e; int i=0,j=0;
 	for(; bmspath[i]; j=bmspath[i++]-sep?j:i);
@@ -136,11 +135,6 @@ SDL_Surface *load_image(char *file) {
 /******************************************************************************/
 /* general functions */
 
-Uint32 crc32t[256]={0,};
-void crc32_gen()
-	{int i=0;while(i++<2048)crc32t[i/8]=(i%8?crc32t[i/8]/2:0)^(3988292384u*(crc32t[i/8]&1));}
-Uint32 crc32(FILE *f)
-	{Uint32 r=-1;while(!feof(f))r=(r>>8)^crc32t[(r^fgetc(f))&255];return~r;}
 int is_space(int n) { return!(n-9&&n-10&&n-13&&n-32); }
 
 char *adjust_path(char *path) {
@@ -201,8 +195,8 @@ char *strcopy(char *src) {
 
 int getdigit(int n)
 	{ return 47<n&&n<58?n-48:((n|32)-19)/26==3?(n|32)-87:-1296; }
-int key2index(int a, int b)
-	{ return getdigit(a)*36+getdigit(b); }
+int key2index(char*a)
+	{ return getdigit(*a)*36+getdigit(a[1]); }
 
 int compare_bmsline(const void *a, const void *b) {
 	int i, j;
@@ -288,7 +282,7 @@ int parse_bms() {
 				if(is_space(line[j])) {
 					bpm = atof(line+j);
 				} else {
-					i = key2index(line[j], line[j+1]);
+					i = key2index(line+j);
 					if(i < 0 || !is_space(line[j+2])) break;
 					bpmtab[i] = atof(line+j+2);
 				}
@@ -305,10 +299,10 @@ int parse_bms() {
 				if(!is_space(line[j])) break;
 				while(is_space(line[++j]));
 				if(line[j])
-					lnobj = key2index(line[j], line[j+1]);
+					lnobj = key2index(line+j);
 				break;
 			case 11: /* wav## */
-				i = key2index(line[j], line[j+1]);
+				i = key2index(line+j);
 				if(i < 0) break;
 				j += 2;
 				if(!remove_whitespace(line, &j)) break;
@@ -316,7 +310,7 @@ int parse_bms() {
 				sndpath[i] = strcopy(line+j);
 				break;
 			case 12: /* bmp## */
-				i = key2index(line[j], line[j+1]);
+				i = key2index(line+j);
 				if(i < 0) break;
 				j += 2;
 				if(!remove_whitespace(line, &j)) break;
@@ -326,17 +320,17 @@ int parse_bms() {
 			case 13: /* bga## */
 				i = nblitcmd;
 				blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
-				blitcmd[i][0] = key2index(line[j], line[j+1]);
+				blitcmd[i][0] = key2index(line+j);
 				if(!is_space(line[j+=2])) { blitcmd[i][0] = -1; break; }
 				while(is_space(line[++j]));
-				blitcmd[i][1] = key2index(line[j], line[j+1]);
+				blitcmd[i][1] = key2index(line+j);
 				if(sscanf(line+j+2, "%d %d %d %d %d %d", blitcmd[i]+2, blitcmd[i]+3,
 						blitcmd[i]+4, blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) < 6)
 					blitcmd[i][0] = -1;
 				if(blitcmd[i][0] >= 0) nblitcmd++;
 				break;
 			case 14: /* stop## */
-				i = key2index(line[j], line[j+1]);
+				i = key2index(line+j);
 				if(i < 0 || !is_space(line[j+2])) break;
 				stoptab[i] = atoi(line+j+2);
 				break;
@@ -373,7 +367,7 @@ int parse_bms() {
 			for(k=j; bmsline[i][k]; k++);
 			a = (k - j) / 2;
 			for(k=0; k<a; k++,j+=2) {
-				b = key2index(bmsline[i][j], bmsline[i][j+1]);
+				b = key2index(bmsline[i]+j);
 				t = measure + 1. * k / a;
 				if(b) {
 					if(chan == 1) {
@@ -435,13 +429,13 @@ int parse_bms() {
 		free(bmsline[i]);
 	}
 	free(bmsline);
-	length = measure + 1;
+	length = measure + 2;
 	for(i=0; i<20; i++) {
 		if(prev[i]) {
 			if(lntype == 2 && prev[i+20] + 1 < measure) {
 				ADD_LNDONE(i>10, i%10, prev[i+20]+1, 0);
 			} else {
-				ADD_LNDONE(i>10, i%10, length, 0);
+				ADD_LNDONE(i>10, i%10, length - 1, 0);
 			}
 		}
 	}
@@ -496,16 +490,15 @@ int parse_bms() {
 			metadata[i] = malloc(1);
 			*metadata[i] = 0;
 		}
-	for(i=0; i<1000; i++)
-		if(shorten[i] <= 0.001)
-			shorten[i] = 1.0;
+	for(i=0; i<2005; i++)
+		if(_shorten[i] <= .001)
+			_shorten[i] = 1;
 
 	return 0;
 }
 
-/* will be removed when obfuscation */
-SDL_Surface *newsurface(int f, int w, int h);
-SDL_Rect *newrect(int x, int y, int w, int h);
+SDL_Surface *newsurface(int f, int w, int h); /* DUMMY */
+SDL_Rect *newrect(int x, int y, int w, int h); /* DUMMY */
 int load_resource(void (*callback)(char*)) {
 	SDL_Surface *temp;
 	int i;
@@ -553,22 +546,60 @@ bit 0: it uses 7 keys?
 bit 1: it uses long-note?
 bit 2: it uses pedal?
 bit 3: it has bpm variation?
-...
 */
-int get_bms_info(int *flag, int *nnotes, int *score, int *duration) {
+void get_bms_info() {
+	extern int xflag, xnnotes, xscore; /* DUMMY */
 	int i, j;
 	
-	*flag = *nnotes = 0;
-	if(nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]) *flag |= 1;
-	if(nchannel[6] || nchannel[15]) *flag |= 4;
-	if(nchannel[20]) *flag |= 8;
-	for(i=0; i<18; i++)
+	xflag = xnnotes = 0;
+	if(nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]) xflag |= 1;
+	if(nchannel[6] || nchannel[15]) xflag |= 4;
+	if(nchannel[20]) xflag |= 8;
+	for(i=0; i<18; i++) {
 		for(j=0; j<nchannel[i]; j++) {
-			if(channel[i][j]->type > 1) *flag |= 2;
-			if(channel[i][j]->type < 3) ++*nnotes;
+			if(channel[i][j]->type > 1) xflag |= 2;
+			if(channel[i][j]->type < 3) ++xnnotes;
 		}
-	
-	return 0;
+	}
+	for(i=0; i<xnnotes; i++)
+		xscore += (int)(300 * (1 + 1. * i / xnnotes));
+}
+
+double adjust_object_position(double base, double time); /* DUMMY */
+int get_bms_duration() {
+	extern int pcur[22]; /* DUMMY */
+	int i, j, time, rtime, ttime;
+	double pos, xbpm, tmp;
+
+	xbpm = bpm;
+	time = rtime = 0; pos = -1;
+	while(1) {
+		for(i=0,j=-1; i<22; i++)
+			if(pcur[i] < nchannel[i] && (j < 0 || channel[i][pcur[i]]->time < channel[j][pcur[j]]->time)) j = i;
+		if(j < 0) {
+			time += (int)(adjust_object_position(pos, length) * 24e7 / xbpm);
+			break;
+		}
+		time += (int)(adjust_object_position(pos, channel[j][pcur[j]]->time) * 24e7 / xbpm);
+		i = channel[j][pcur[j]]->index; ttime = 0;
+		if(j < 19) {
+			if(sndres[i]) ttime = (int)(sndres[i]->alen / .1764);
+		} else if(j == 20) {
+			tmp = (channel[j][pcur[j]]->type ? bpmtab[i] : i);
+			if(tmp > 0) {
+				xbpm = tmp;
+			} else if(tmp < 0) {
+				time += (int)(adjust_object_position(-1, pos) * 24e7 / xbpm);
+				break;
+			}
+		} else if(j == 21) {
+			if(channel[j][pcur[j]]->type) time += i;
+			else time += (int)(stoptab[i] * 125e4 * shorten[(int)(pos+1)-1] / xbpm);
+		}
+		if(rtime < time + ttime) rtime = time + ttime;
+		pos = channel[j][pcur[j]]->time; pcur[j]++;
+	}
+	return (time > rtime ? time : rtime) / 1000;
 }
 
 void clone_bms() {
@@ -681,7 +712,7 @@ void shuffle_bms(int mode, int player) {
 
 SDL_Surface *screen;
 SDL_Event event;
-SDL_Rect rect[8]; int _rect=0;
+SDL_Rect rect[2]; int _rect=0;
 
 int getpixel(SDL_Surface *s, int x, int y)
 	{ return((Uint32*)s->pixels)[x+y*s->pitch/4]; }
@@ -698,7 +729,7 @@ void putblendedpixel(SDL_Surface *s, int x, int y, int c, int o)
 SDL_Surface *newsurface(int f, int w, int h)
 	{ return SDL_CreateRGBSurface(f,w,h,32,0xff0000,0xff00,0xff,0); }
 SDL_Rect *newrect(int x, int y, int w, int h)
-	{ SDL_Rect*r=rect+_rect++%8;r->x=x;r->y=y;r->w=w;r->h=h;return r; }
+	{ SDL_Rect*r=rect+_rect++%2;r->x=x;r->y=y;r->w=w;r->h=h;return r; }
 int lock()
 	{ return SDL_MUSTLOCK(screen)&&SDL_LockSurface(screen)<0; }
 void unlock()
@@ -717,7 +748,7 @@ int bicubic_kernel(int x, int y) {
 
 int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 	int x, dx, y, dy, ww, hh, w, h;
-	int i, j, k, r, g, b, c, xx, yy, a;
+	int i, j, k, r, g, b, c, xx, yy, a[4][2], d;
 
 	dx = x = 0;
 	ww = src->w - 1; hh = src->h - 1;
@@ -726,12 +757,16 @@ int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 		dy = y = 0;
 		for(j=0; j<=h; j++) {
 			r = g = b = 0;
+			for(k=0; k<4; k++) {
+				a[k][0] = bicubic_kernel((x+k-1)*w-i*ww, w);
+				a[k][1] = bicubic_kernel((y+k-1)*h-j*hh, h);
+			}
 			for(k=0; k<16; k++) {
 				xx = x + k/4 - 1; yy = y + k%4 - 1;
-				if(xx<0 || xx>ww || yy<0 || yy>hh) continue;
-				c = getpixel(src, xx, yy);
-				a = bicubic_kernel(xx*w-i*ww, w) * bicubic_kernel(yy*h-j*hh, h) >> 6;
-				r += (c&255) * a; g += (c>>8&255) * a; b += (c>>16&255) * a;
+				if(xx>=0 && xx<=ww && yy>=0 && yy<=hh) {
+					c = getpixel(src, xx, yy); d = a[k/4][0] * a[k%4][1] >> 6;
+					r += (c&255) * d; g += (c>>8&255) * d; b += (c>>16&255) * d;
+				}
 			}
 			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
 			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
@@ -751,20 +786,20 @@ int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 Uint8 fontmap[]="\0\2\3\6\7\10\13\14\16\20\30\33\34\36$,03678;<>?@ACU]^`acfghkl"
 	"nopsvwx{|~\177\201\202\237\303\333\371\376";
 Uint8 fontinfo[]="\37>',\37==8==M\\\256\211\255K==========MNM{M================"
-	"==>==========K=\26\315&]=]=]=_-=?==]]]``]]=]]]]_]-\20-7";
-Uint8 fontdata[]="\\WWWWWWWWWWWW\\.::::..$...66662'67;O7;O64));IIH;*III;))CDE'+\
-	.4E?&8JJJ9IKFK9+++.-+.444444.+4.++++++.4.ZZT.TZZ....T......4T...%'+.4C=;EEG\
-	LRNEE;0:3++++++<;EEG,08MCU;EE&1&&EE;,16FFFFU''UCCCT&&EE;;EECTEEEE;U&&'+....\
-	.;EEE;EEEE;;EEEE<&EE;...$$$......$$$...4'+.4C4.+'T$$TC4.+'+.4C;EEE'+.$..;>A\
-	@@@@B=;)06EEEUEEETEEETEEEET15ECCCCE51SFEEEEEEFSUCCCTCCCCUUCCCTCCCCC15ECCGEE\
-	51EEEEUEEEEET........T&&&&&&EEE;EFJQMMQJFECCCCCCCCCUEPUUIIEEEEEEENRLGEEE06E\
-	EEEEE60TEEEETCCCC;EEEEEIL;(&TEEEETEEEE;EEC;&&EE;T.........EEEEEEEEE;EEEEEEE\
-	60)EEEEIIIU66>EP;00;PE>VYF:......U&&(,08MCU:44444444:=C4.+'%:++++++++:)06E>\
-	U4.+';&&<EEE<CCCTEEEEET;EECCEE;&&&<EEEEE<;EEEUCE;,//.T.....<EEEE<&EE;CCCTEE\
-	EEEEE..$.......&&$$&&&&EEE;CCEFJQQJFE0+++++++++OUIIIIEETEEEEEEE;EEEEEE;TEEE\
-	EEETCCC<EEEEEE<&&&TEECCCCC;EC;&&E;..T...///,EEEEEEE;EEEEE60)EEEIIIU6>E6006E\
-	>EEEE51+.4CU(,08MCU,....M....,................M....,....MM[X,";
-Uint8 rawfont[16][95]={0,}, (*zoomfont[16])[95]={rawfont,0,};
+	"==>==========K=\26\315&]=]=]=_-=?==]]]``]]=]]]]_]-\20-7\317";
+Uint8 fontdata[]="\\WWWWWWWWWWWW\\.::::..$...66662'67;O7;O64));IIH;*III;))CDE'+"
+	".4E?&8JJJ9IKFK9+++.-+.444444.+4.++++++.4.ZZT.TZZ....T......4T...%'+.4C=;EE"
+	"GLRNEE;0:3++++++<;EEG,08MCU;EE&1&&EE;,16FFFFU''UCCCT&&EE;;EECTEEEE;U&&'+.."
+	"...;EEE;EEEE;;EEEE<&EE;...$$$......$$$...4'+.4C4.+'T$$TC4.+'+.4C;EEE'+.$.."
+	";>A@@@@B=;)06EEEUEEETEEETEEEET15ECCCCE51SFEEEEEEFSUCCCTCCCCUUCCCTCCCCC15EC"
+	"CGEE51EEEEUEEEEET........T&&&&&&EEE;EFJQMMQJFECCCCCCCCCUEPUUIIEEEEEEENRLGE"
+	"EE06EEEEEE60TEEEETCCCC;EEEEEIL;(&TEEEETEEEE;EEC;&&EE;T.........EEEEEEEEE;E"
+	"EEEEEE60)EEEEIIIU66>EP;00;PE>VYF:......U&&(,08MCU:44444444:=C4.+'%:+++++++"
+	"+:)06E>U4.+';&&<EEE<CCCTEEEEET;EECCEE;&&&<EEEEE<;EEEUCE;,//.T.....<EEEE<&E"
+	"E;CCCTEEEEEEE..$.......&&$$&&&&EEE;CCEFJQQJFE0+++++++++OUIIIIEETEEEEEEE;EE"
+	"EEEE;TEEEEEETCCC<EEEEEE<&&&TEECCCCC;EC;&&E;..T...///,EEEEEEE;EEEEE60)EEEII"
+	"IU6>E6006E>EEEE51+.4CU(,08MCU,....M....,................M....,....MM[X,T:.";
+Uint8 rawfont[16][96]={0,}, (*zoomfont[16])[96]={rawfont,0,};
 
 int _fontprocess(int x, int y, int z, int c, int s) {
 	int i, j;
@@ -778,8 +813,8 @@ void fontprocess(int z) {
 	int i, j, k, l;
 	if(z) {
 		if(zoomfont[z-1]) return;
-		zoomfont[z-1] = malloc(95*16*z*z);
-		for(i=0; i<95; i++) {
+		zoomfont[z-1] = malloc(96*16*z*z);
+		for(i=0; i<96; i++) {
 			for(j=0; j<16*z*z; j++)
 				zoomfont[z-1][j][i] = 0;
 			for(j=0; j<16; j++)
@@ -804,7 +839,7 @@ void fontprocess(int z) {
 				}
 		}
 	} else {
-		for(i=k=0; i<95; i++)
+		for(i=k=0; i<96; i++)
 			for(j=--fontinfo[i]/16; j<=fontinfo[i]%16; k++)
 				if(!is_space(fontdata[k])) rawfont[j++][i] = fontmap[fontdata[k]-36];
 	}
@@ -819,7 +854,7 @@ void fontfinalize() {
 int printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v) {
 	int i, j;
 	if(!is_space(c)) {
-		c -= (c<33 || c>126 ? c : 32);
+		c -= (c<0 ? -96 : c<33 || c>126 ? c : 32);
 		for(i=0; i<16*z; i++)
 			for(j=0; j<8*z; j++)
 				if(zoomfont[z-1][i*z+j%z][c]&(1<<(7-j/z)))
@@ -835,13 +870,13 @@ void printstr(SDL_Surface *s, int x, int y, int z, char *c, int u, int v)
 /* main routines */
 
 double playspeed=1, targetspeed;
-int starttime, stoptime=0, adjustspeed=0;
-double startoffset, startshorten;
+int origintime, starttime, stoptime=0, adjustspeed=0;
+double startoffset=-1, startshorten=1;
 int xflag, xnnotes, xscore, xduration;
 int pcur[22]={0,}, pfront[22]={0,}, prear[22]={0,}, pcheck[18]={0,}, thru[22]={0,};
 int bga[3]={-1,-1,0}, poorbga=0, bga_updated=1;
-int score=0, scocnt[6]={0,}, scombo=0, gradetime=0, grademode;
-int opt_mode=0, opt_showinfo=1, opt_fullscreen=1, opt_quality=10, opt_random=0;
+int score=0, scocnt[5]={0,}, scombo=0, smaxcombo=0, gradetime=0, grademode, gauge=256;
+int opt_mode=0, opt_showinfo=1, opt_fullscreen=1, opt_random=0, opt_egg=0;
 
 SDL_Surface *sprite=0;
 int keymap[18]={
@@ -858,6 +893,10 @@ int tkeycolor[18]={
 	WHITE,BLUE,WHITE,BLUE,WHITE,0xff8080,0x80ff80,BLUE,WHITE};
 #undef WHITE
 #undef BLUE
+char *tgradestr[5]={"MISS", "BAD", "GOOD", "GREAT", "COOL"};
+int tgradecolor[5][2]={
+	{0xff4040, 0xffc0c0}, {0xff40ff, 0xffc0ff}, {0xffff40, 0xffffc0},
+	{0x40ff40, 0xc0ffc0}, {0x4040ff, 0xc0c0ff}};
 
 int check_exit() {
 	int i = 0;
@@ -875,7 +914,7 @@ int initialize() {
 	if(!screen)
 		return errormsg("SDL Video Initialization Failure: %s", SDL_GetError());
 	SDL_ShowCursor(SDL_DISABLE);
-	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2<<opt_quality)<0)
+	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0)
 		return errormsg("SDL Mixer Initialization Failure: %s", Mix_GetError());
 	SDL_WM_SetCaption(version, 0);
 
@@ -1031,16 +1070,22 @@ void play_prepare() {
 			}
 		}
 	}
+	if(!tpanel2 && !opt_mode) {
+		SDL_FillRect(sprite, newrect(0,584,368,16), 0x404040);
+		SDL_FillRect(sprite, newrect(4,588,360,8), 0);
+	}
+	SDL_FillRect(sprite, newrect(10,564,tpanel1,1), 0x404040);
 
 	/* screen */
 	SDL_FillRect(screen, 0, 0);
 	SDL_BlitSurface(sprite, newrect(0,0,800,30), screen, newrect(0,0,0,0));
 	SDL_BlitSurface(sprite, newrect(0,520,800,80), screen, newrect(0,520,0,0));
-	starttime = SDL_GetTicks();
-	startoffset = -1;
-	startshorten = 1;
+
+	/* configuration */
+	origintime = starttime = SDL_GetTicks();
 	targetspeed = playspeed;
 	Mix_AllocateChannels(128);
+	for(i=0; i<22; i++) pcur[i] = 0;
 }
 
 double adjust_object_time(double base, double offset) {
@@ -1063,13 +1108,13 @@ double adjust_object_position(double base, double time) {
 int play_process() {
 	int i, j, k, l, m, t, ibottom;
 	double bottom, top, line, tmp;
-	char buf[30];
+	char buf[99];
 
 	if(adjustspeed) {
 		tmp = targetspeed - playspeed;
 		if(-0.001 < tmp && tmp < 0.001) {
 			adjustspeed = 0; playspeed = targetspeed;
-			for(i=0; i<18; i++) prear[i] = pfront[i];
+			for(i=0; i<22; i++) prear[i] = pfront[i];
 		} else {
 			playspeed += tmp * 0.015;
 		}
@@ -1091,34 +1136,11 @@ int play_process() {
 		startoffset = ibottom;
 		startshorten = shorten[ibottom];
 	}
-	line = adjust_object_time(bottom, 0.03/playspeed);
+	line = bottom;//adjust_object_time(bottom, 0.03/playspeed);
 	top = adjust_object_time(bottom, 1.25/playspeed);
-	for(i=0; i<18; i++) {
+	for(i=0; i<22; i++) {
 		while(pfront[i] < nchannel[i] && channel[i][pfront[i]]->time < bottom) pfront[i]++;
 		while(prear[i] < nchannel[i] && channel[i][prear[i]]->time <= top) prear[i]++;
-		k = pcur[i];
-		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time <= line) {
-			if(opt_mode && sndres[channel[i][pcur[i]]->index]) {
-				j = Mix_PlayChannel(-1, sndres[channel[i][pcur[i]]->index], 0);
-				if(j >= 0) Mix_GroupChannel(j, 0);
-			}
-			pcur[i]++;
-		}
-		if(!opt_mode) {
-			if(k < pcur[i]) pcheck[i] = 1;
-			if(pcheck[i]) {
-				tmp = channel[i][pcur[i]-1]->time;
-				tmp = (line - tmp) * shorten[(int)tmp];
-				if(channel[i][pcur[i]-1]->type < 0) {
-					pcheck[i] = 0;
-				} else if(channel[i][pcur[i]-1]->type != 1 && tmp > 0.05) {
-					pcheck[i] = 0; scocnt[0]++; scombo = 0;
-					poorbga = t + 600; gradetime = t + 700; grademode = 0;
-				}
-			}
-		}
-	}
-	for(i=18; i<22; i++) {
 		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time < line) {
 			if(i == 18) {
 				if(sndres[channel[i][pcur[i]]->index]) {
@@ -1129,16 +1151,16 @@ int play_process() {
 				bga[channel[i][pcur[i]]->type] = channel[i][pcur[i]]->index;
 				bga_updated = 1;
 			} else if(i == 20) {
-				if(j >= 0) Mix_GroupChannel(j, 0);
 				if(channel[i][pcur[i]]->type) {
 					tmp = bpmtab[channel[i][pcur[i]]->index];
-					if(tmp == 0) continue;
 				} else {
 					tmp = channel[i][pcur[i]]->index;
 				}
-				starttime += (int)((bottom - startoffset) * 24e4 * startshorten / bpm);
-				startoffset = bottom;
-				bpm = tmp;
+				if(tmp) {
+					starttime = t;
+					startoffset = bottom;
+					bpm = tmp;
+				}
 			} else if(i == 21) {
 				if(t >= stoptime) stoptime = t;
 				if(channel[i][pcur[i]]->type) {
@@ -1147,32 +1169,47 @@ int play_process() {
 					stoptime += (int)(stoptab[channel[i][pcur[i]]->index] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
+			} else if(opt_mode && channel[i][pcur[i]]->type != 1 && sndres[channel[i][pcur[i]]->index]) {
+				j = Mix_PlayChannel(-1, sndres[channel[i][pcur[i]]->index], 0);
+				if(j >= 0) Mix_GroupChannel(j, 0);
 			}
 			pcur[i]++;
 		}
+		if(i<18 && !opt_mode) {
+			for(; pcheck[i] < pcur[i]; pcheck[i]++) {
+				j = channel[i][pcheck[i]]->type;
+				if(j < 0 || j == 1 || (j == 2 && !thru[i])) continue;
+				tmp = channel[i][pcheck[i]]->time;
+				tmp = (line - tmp) * shorten[(int)tmp] / bpm;
+				if(tmp > 6e-4) {
+					scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
+					poorbga = t + 600; gradetime = t + 700;
+				} else {
+					break;
+				}
+			}
+		}
 	}
 
-	k = 0;
 	while(SDL_PollEvent(&event)) {
 		if(event.type == SDL_QUIT) {
-			k = 1;
+			return -1;
 		} else if(event.type == SDL_KEYUP) {
 			if(event.key.keysym.sym == SDLK_ESCAPE) {
-				k = 1; continue;
+				return -1;
 			} else if(!opt_mode) {
 				for(i=0; i<18; i++) {
 					if(tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 0;
 						if(nchannel[i] && thru[i]) {
-							j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
-							if(channel[i][j]->type != 2) continue;
+							for(j=pcur[i]+1; channel[i][j]->type != 2; j--);
 							thru[i] = 0;
-							tmp = (channel[i][j]->time - line) * shorten[(int)line];
-							if(-0.05 < tmp && tmp < 0.05) {
+							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm;
+							if(-6e-4 < tmp && tmp < 6e-4) {
 								channel[i][j]->type ^= -1;
 							} else {
-								grademode = 0; scocnt[0]++; scombo = 0;
-								if(gradetime < t) gradetime = t + 700;
+								scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
+								poorbga = t + 600; gradetime = t + 700;
 							}
 						}
 					}
@@ -1210,24 +1247,37 @@ int play_process() {
 							while(j < nchannel[i] && channel[i][j]->type == 1) j++;
 							if(j == nchannel[i]) continue;
 						}
-						if(channel[i][j]->type == 3) thru[i] = 1;
-						else if(channel[i][j]->type == 2) continue;
-						tmp = (channel[i][j]->time - line) * shorten[(int)line];
-						if(channel[i][j]->type >= 0 && -0.05 < tmp && tmp < 0.05) {
-							channel[i][j]->type ^= -1; scocnt[1]++; scombo++;
-							gradetime = t + 700; //grademode = 1;
-							grademode = (int)((0.05 - tmp) * 2e4);
-							if(grademode > 1000) grademode = 2000 - grademode;
+						if(pcur[i] < nchannel[i] && channel[i][pcur[i]]->type == 2) {
+							scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
+							poorbga = t + 600; gradetime = t + 700;
+						} else if(channel[i][j]->type != 2) {
+							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm;
+							if(tmp < 0) tmp *= -1;
+							if(channel[i][j]->type >= 0 && tmp < 6e-4) {
+								if(channel[i][j]->type == 3) thru[i] = 1;
+								channel[i][j]->type ^= -1;
+								if(tmp < 0.6e-4) grademode = 4;
+								else if(tmp < 2.0e-4) grademode = 3;
+								else if(tmp < 3.5e-4) grademode = 2;
+								else grademode = 1;
+								scocnt[grademode]++; gradetime = t + 700;
+								score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
+								if(grademode > 2) {
+									scombo++; gauge += (grademode<4 ? 3 : 5) + scombo / 100;
+								} else if(grademode < 2) {
+									scombo = 0; gauge -= 5;
+								}
+								if(scombo > smaxcombo) smaxcombo = scombo;
+							}
 						}
 					}
 				}
 			}
 		}
 	}
-	if(k) return -1;
-	if(bottom > length + 1) {
+	if(bottom > length) {
 		if(opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1) return 0;
-	} else if(bottom < -1.01) {
+	} else if(bottom < -1) {
 		return 0;
 	}
 
@@ -1267,18 +1317,38 @@ int play_process() {
 			SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, newrect(tkeyleft[i],30,0,0));
 		}
 	}
-	for(i=(int)top; i>=ibottom; i--) {
+	for(i=ibottom; i<top; i++) {
 		j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, i));
 		SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xc0c0c0);
 		if(tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
 	}
+	if(opt_egg) {
+		for(i=pfront[20]; i<prear[20]; i++) {
+			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[20][i]->time));
+			SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xffff00);
+		}
+		for(i=pfront[21]; i<prear[21]; i++) {
+			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[21][i]->time));
+			SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0x00ff00);
+		}
+	}
+	if(t < gradetime) {
+		for(i=0; tgradestr[grademode][i]; i++);
+		printstr(screen, tpanel1/2-8*i, 292, 2, tgradestr[grademode],
+				tgradecolor[grademode][0], tgradecolor[grademode][1]);
+		if(scombo > 1) {
+			i = sprintf(buf, "%d COMBO", scombo);
+			printstr(screen, tpanel1/2-4*i, 320, 1, buf, 0x808080, 0xffffff);
+		}
+		if(!grademode) bga_updated = 1;
+	}
 	SDL_SetClipRect(screen, 0);
-	if(bga_updated==1 || (bga_updated==2 && t>=poorbga)) {
+	if(bga_updated > 0 || (bga_updated < 0 && t >= poorbga)) {
 		SDL_FillRect(screen, newrect(tbga,172,256,256), 0);
 		if(t < poorbga) {
 			if(bga[2] >= 0 && imgres[bga[2]])
 				SDL_BlitSurface(imgres[bga[2]], newrect(0,0,256,256), screen, newrect(tbga,172,0,0));
-			bga_updated = 2;
+			bga_updated = -1;
 		} else {
 			for(i=0; i<2; i++)
 				if(bga[i] >= 0 && imgres[bga[i]])
@@ -1286,34 +1356,24 @@ int play_process() {
 			bga_updated = 0;
 		}
 	}
-	if(t < gradetime) {
-		if(grademode) {
-			sprintf(buf, "%4.1f %%", grademode / 10.);
-			printstr(screen, tpanel1/2-48, 292, 2, "GREAT!" /*buf*/, 0x40ff40, 0xc0ffc0);
-			if(scombo > 1) {
-				i = sprintf(buf, "%d COMBO", scombo);
-				printstr(screen, tpanel1/2-4*i, 320, 1, buf, 0x808080, 0xffffff);
-			}
-		} else {
-			printstr(screen, 79, 292, 2, "MISS", 0xff4040, 0xffc0c0);
-			if(bga[2] >= 0 && imgres[bga[2]]) {
-				SDL_FillRect(screen, newrect(tbga,172,256,256), 0);
-				SDL_BlitSurface(imgres[bga[2]], newrect(0,0,256,256), screen, newrect(tbga,172,0,0));
-			}
-		}
+
+	i = (t - origintime) / 1000; j = xduration / 1000;
+	sprintf(buf, "SCORE %07d%c%4.1fx%c%02d:%02d / %02d:%02d%c@%9.4f%cBPM %6.2f",
+			score, 0, targetspeed, 0, i/60, i%60, j/60, j%60, 0, bottom, 0, bpm);
+	SDL_BlitSurface(sprite, newrect(0,0,800,30), screen, newrect(0,0,0,0));
+	SDL_BlitSurface(sprite, newrect(0,520,800,80), screen, newrect(0,520,0,0));
+	printstr(screen, 10, 8, 1, buf, 0, 0);
+	printstr(screen, 5, 522, 2, buf+14, 0, 0);
+	printstr(screen, tpanel1-94, 565, 1, buf+20, 0, 0x404040);
+	printstr(screen, 95, 538, 1, buf+34, 0, 0);
+	printstr(screen, 95, 522, 1, buf+45, 0, 0);
+	printchar(screen, 6+(t-origintime)*tpanel1/xduration, 549, 1, -1, 0x404040, 0x404040);
+	if(!tpanel2 && !opt_mode) {
+		if(gauge > 512) gauge = 512;
+		i = (gauge<0 ? 0 : (gauge*400>>9) - (int)(160*startshorten*(1+bottom)) % 40);
+		SDL_FillRect(screen, newrect(4,588,i>360?360:i<5?5:i,8), 0xc00000);
 	}
 
-	SDL_BlitSurface(sprite, newrect(0,0,800,30), screen, newrect(0,0,0,0));
-	sprintf(buf, "SCORE %07d", score);
-	printstr(screen, 10, 8, 1, buf, 0, 0);
-	SDL_BlitSurface(sprite, newrect(0,520,800,80), screen, newrect(0,520,0,0));
-	sprintf(buf, "%4.1fx", targetspeed);
-	printstr(screen, 5, 522, 2, buf, 0, 0);
-	sprintf(buf, "BPM %6.2f", bpm);
-	printstr(screen, 95, 522, 1, buf, 0, 0);
-	sprintf(buf, "@ %.4f", bottom);
-	printstr(screen, 95, 538, 1, buf, 0, 0);
-	
 	SDL_Flip(screen);
 	return 1;
 }
@@ -1321,13 +1381,8 @@ int play_process() {
 /******************************************************************************/
 /* entry point */
 
-const char *arglist[] = {
-	"viewer", "showinfo", "hideinfo", "window", "fullscreen", "quality",
-	"x", "speed", "lntype", "mirror", "shuffle", "sshuffle", "random", "srandom"
-};
-
 int play() {
-	int t;
+	int i;
 	if(initialize()) return 1;
 	if(parse_bms()) {
 		finalize(); SDL_Quit();
@@ -1342,12 +1397,23 @@ int play() {
 			if(v_player != 1) shuffle_bms(opt_random, 2);
 		}
 	}
-	get_bms_info(&xflag, &xnnotes, &xscore, &xduration);
+	get_bms_info();
 	play_show_stagefile();
+	xduration = get_bms_duration();
 	play_prepare();
-	while((t = play_process())>0);
+	while((i = play_process())>0);
 	finalize();
-	return t;
+	if(!opt_mode && i == 0) {
+		if(gauge > 150) {
+			printf("*** CLEARED! ***\n");
+			for(i=4; i>=0; i--)
+				printf("%-5s %4d    %s", tgradestr[i], scocnt[i], "\n"+(i!=2));
+			printf("MAX COMBO %d\nSCORE %07d (max %07d)\n", smaxcombo, score, xscore);
+		} else {
+			printf("YOU FAILED!\n");
+		}
+	}
+	return 0;
 }
 
 int credit() {
@@ -1411,7 +1477,7 @@ int credit() {
 
 int main(int argc, char **argv) {
 	char buf[512]={0,};
-	int i, j, k, use_buf;
+	int i, j, use_buf;
 
 	if(argc < 2 || !*argv[1]) {
 		use_buf = 1;
@@ -1419,49 +1485,27 @@ int main(int argc, char **argv) {
 	} else {
 		use_buf = 0;
 	}
-	for(i=2; i<argc; i++) {
-		for(j=0; j<ARRAYSIZE(arglist); j++) {
-			for(k=0; arglist[j][k] && argv[i][k]; k++)
-				if((arglist[j][k]|32) != (argv[i][k]|32)) break;
-			if(!arglist[j][k]) break;
-		}
-		switch(j) {
-		case 0: /* viewer */
-			opt_mode = 1;
-			break;
-		case 1: /* showinfo */
-		case 2: /* hideinfo */
-			opt_showinfo = (j==1);
-			break;
-		case 3: /* window */
-		case 4: /* fullscreen */
-			opt_fullscreen = (j==4);
-			break;
-		case 5: /* quality */
-			opt_quality = atoi(argv[i]+k) + 7;
-			break;
-		case 6: /* x<speed> */
-		case 7: /* speed<speed> */
-			playspeed = atof(argv[i]+k);
-			break;
-		case 8: /* lntype<#> */
-			lntype = atoi(argv[i]+k);
-			break;
-		case 9: /* mirror */
-		case 10: /* shuffle */
-		case 11: /* sshuffle */
-		case 12: /* random */
-		case 13: /* srandom */
-			opt_random = j - 8;
-			break;
+	if(argc > 2) {
+		playspeed = atof(argv[2]);
+		if(playspeed <= 0) playspeed = 1;
+		if(playspeed < .1) playspeed = .1;
+		if(playspeed > 99) playspeed = 99;
+	}
+	if(argc > 3) {
+		for(j=0; i=argv[3][j]; j++) {
+			if((i|32) == 'v') opt_mode = 1;
+			else if((i|32) == 'i') opt_showinfo = i&32;
+			else if((i|32) == 'w') opt_fullscreen = !(i&32);
+			else if((i|32) == 'm') opt_random = 1;
+			else if((i|32) == 's') opt_random = (i=='s' ? 2 : 3);
+			else if((i|32) == 'r') opt_random = (i=='r' ? 4 : 5);
+			else if(j == 42 && i == '*') opt_egg = 1;
 		}
 	}
+	while(--argc > 3) {
+		if(argc < 22 && (i = atoi(argv[argc]))) keymap[argc-4] = i;
+	}
 	if(argc > 1 || use_buf) {
-		if(playspeed <= 0) playspeed = 1.0;
-		if(playspeed < 0.1) playspeed = 0.1;
-		if(playspeed > 99.0) playspeed = 99.0;
-		if(opt_quality < 8) opt_quality = 8;
-		if(opt_quality > 12) opt_quality = 12;
 		bmspath = use_buf ? buf : argv[1];
 		return play();
 	} else {
