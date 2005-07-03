@@ -18,8 +18,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  *
  *
- * phase 1 (2005-07-04)
- * removed preprocessor directives, optimized some routines.
+ * phase 2 (2005-07-04)
+ * optimized some routines, especially key2index(), panel position and #BGA directive.
  */
 
 #include <stdio.h>
@@ -33,7 +33,7 @@
 /******************************************************************************/
 /* constants, variables */
 
-char *version = "TokigunStudio Angolmois version 0.1 final (phase 1)";
+char *version = "TokigunStudio Angolmois version 0.1 final (phase 2)";
 
 #define SWAP(x,y,t) {(t)=(x);(x)=(y);(y)=(t);}
 
@@ -50,7 +50,7 @@ Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 SMPEG *mpeg=0;
 
-typedef struct { double time; int type, index; } bmsnote;
+typedef struct { double t; int m,i; } bmsnote;
 bmsnote **channel[22]={0,};
 double shorten[2005], length;
 int nchannel[22]={0,};
@@ -81,20 +81,11 @@ int score, scocnt[5], scombo, smaxcombo, gradetime, grademode, gauge=256;
 int opt_mode, opt_showinfo=1, opt_fullscreen=1, opt_random, opt_egg;
 
 SDL_AudioSpec aformat;
-int keymap[18]={
-	SDLK_z, SDLK_s, SDLK_x, SDLK_d, SDLK_c, SDLK_LSHIFT, SDLK_LALT, SDLK_f, SDLK_v,
-	SDLK_m, SDLK_k, SDLK_COMMA, SDLK_l, SDLK_PERIOD, SDLK_RSHIFT, SDLK_RALT, SDLK_SEMICOLON, SDLK_SLASH};
-int keypressed[18]={0,};
-int tkeyleft[18]={41,67,93,119,145,0,223,171,197, 578,604,630,656,682,760,537,708,734};
-int tkeywidth[18]={25,25,25,25,25,40,40,25,25, 25,25,25,25,25,40,40,25,25};
-int tpanel1=264, tpanel2=536, tbga=272;
-#define WHITE 0x808080
-#define BLUE 0x8080ff
+int keymap[18]={122,115,120,100,99,304,308,102,118,109,107,44,108,46,303,307,59,47};
+int keypressed[18], tkeyleft[18], tkeywidth[18], tpanel1, tpanel2, tbga;
 int tkeycolor[18]={
-	WHITE,BLUE,WHITE,BLUE,WHITE,0xff8080,0x80ff80,BLUE,WHITE,
-	WHITE,BLUE,WHITE,BLUE,WHITE,0xff8080,0x80ff80,BLUE,WHITE};
-#undef WHITE
-#undef BLUE
+	0x808080,0x8080ff,0x808080,0x8080ff,0x808080,0xff8080,0x80ff80,0x8080ff,0x808080,
+	0x808080,0x8080ff,0x808080,0x8080ff,0x808080,0xff8080,0x80ff80,0x8080ff,0x808080};
 char *tgradestr[5]={"MISS", "BAD", "GOOD", "GREAT", "COOL"};
 int tgradecolor[5][2]={
 	{0xff4040, 0xffc0c0}, {0xff40ff, 0xffc0ff}, {0xffff40, 0xffffc0},
@@ -196,21 +187,22 @@ int remove_whitespace(char *s, int *i) {
 	return 1;
 }
 
-char *strcopy(char *src) {
-	char *dest; int i=0;
-	while(src[i++]);
-	dest = malloc(i);
-	for(i=0; dest[i]=src[i]; i++);
-	return dest;
+char *strcopy(char *s) {
+	char *t; int i=0;
+	while(s[i++]);
+	t = malloc(i);
+	for(i=0; t[i]=s[i]; i++);
+	return t;
 }
 
 /******************************************************************************/
 /* bms parser */
 
-int getdigit(int n)
-	{ return 47<n&&n<58?n-48:((n|32)-19)/26==3?(n|32)-87:-1296; }
-int key2index(char*a)
-	{ return getdigit(*a)*36+getdigit(a[1]); }
+int key2index(char*s){
+	char a[3]={0,}; int b;
+	*a=*s; a[1]=s[1]; b=strtol(a,&s,36);
+	return *s?-1:b;
+}
 
 int compare_bmsline(const void *a, const void *b) {
 	int i, j;
@@ -221,24 +213,23 @@ int compare_bmsline(const void *a, const void *b) {
 
 int compare_bmsnote(const void *a, const void *b) {
 	bmsnote *A=*(bmsnote**)a, *B=*(bmsnote**)b;
-	return (A->time > B->time ? 1 : A->time < B->time ? -1 : A->type - B->type);
+	return (A->t > B->t ? 1 : A->t < B->t ? -1 : A->m - B->m);
 }
 
-void add_note(int chan, double time, int type, int index) {
-	bmsnote *temp;
-	temp = malloc(sizeof(bmsnote));
-	temp->time = time; temp->type = type; temp->index = index;
-	channel[chan] = realloc(channel[chan], sizeof(bmsnote*) * (nchannel[chan]+1));
-	channel[chan][nchannel[chan]++] = temp;
+void add_note(int i, double t, int m, int j) {
+	bmsnote *x = malloc(sizeof(bmsnote));
+	x->t = t; x->m = m; x->i = j;
+	channel[i] = realloc(channel[i], sizeof(bmsnote*) * (nchannel[i]+1));
+	channel[i][nchannel[i]++] = x;
 }
 
-void remove_note(int chan, int index) {
-	if(channel[chan][index]) {
-		if(chan < 18 && channel[chan][index]->index) {
-			add_note(18, channel[chan][index]->time, 0, channel[chan][index]->index);
+void remove_note(int i, int j) {
+	if(channel[i][j]) {
+		if(i < 18 && channel[i][j]->i) {
+			add_note(18, channel[i][j]->t, 0, channel[i][j]->i);
 		}
-		free(channel[chan][index]);
-		channel[chan][index] = 0;
+		free(channel[i][j]);
+		channel[i][j] = 0;
 	}
 }
 
@@ -249,241 +240,234 @@ int parse_bms() {
 	int r=1, ignore=0;
 	int measure, chan;
 	double t;
-	char *line=malloc(1024);
+	char *s, *z;
 	
-	fp = fopen(bmspath, "r");
-	if(!fp) return 1;
-	dirinit();
-
-	while(fgets(line, 1024, fp)) {
-		if(*line == 35) {
-			line++;
-
-			for(i=0; i<19; i++) {
-				for(j=0; bmsheader[i][j]; j++)
-					if((bmsheader[i][j]|32) != (line[j]|32)) break;
-				if(!bmsheader[i][j]) break;
-			}
-			if(i == 15) {
-				if(is_space(line[j]))
-					if(j = abs(atoi(line+j)))
-						r = rand() % j + 1;
-			} else if(i == 16) {
-				if(is_space(line[j]))
-					ignore = (r != atoi(line+j));
-			} else if(i == 17) {
-				ignore = !ignore;
-			} else if(i == 18) {
-				ignore = 0;
-			}
-			
-			if(!ignore) {
-				if(i < 4) {
-					if(remove_whitespace(line, &j)) {
-						if(metadata[i]) free(metadata[i]);
-						metadata[i] = strcopy(line+j);
-					}
-				} else if(i < 5) {
-					if(is_space(line[j])) {
-						bpm = atof(line+j);
-					} else {
-						i = key2index(line+j);
-						if(i >= 0 && is_space(line[j+2]))
-							bpmtab[i] = atof(line+j+2);
-					}
-				} else if(i < 9) {
-					if(is_space(line[j]))
-						value[i-5] = atoi(line+j);
-				} else if(i < 10) {
-					if(is_space(line[j])) {
-						while(is_space(line[++j]));
-						if(line[j]) value[4] = key2index(line+j);
-					}
-				} else if(i < 11) {
-					i = key2index(line+j);
-					if(i >= 0) {
-						j += 2;
-						if(remove_whitespace(line, &j)) {
-							if(sndpath[i]) { free(sndpath[i]); sndpath[i] = 0; }
-							sndpath[i] = strcopy(line+j);
-						}
-					}
-				} else if(i < 12) {
-					i = key2index(line+j);
-					if(i >= 0) {
-						j += 2;
-						if(remove_whitespace(line, &j)) {
-							if(imgpath[i]) { free(imgpath[i]); imgpath[i] = 0; }
-							imgpath[i] = strcopy(line+j);
-						}
-					}
-				} else if(i < 13) {
-					i = nblitcmd;
-					blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
-					blitcmd[i][0] = key2index(line+j);
-					if(is_space(line[j+=2])) {
-						while(is_space(line[++j]));
-						blitcmd[i][1] = key2index(line+j);
-						if(sscanf(line+j+2, "%d %d %d %d %d %d", blitcmd[i]+2, blitcmd[i]+3,
-								blitcmd[i]+4, blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) < 6)
-							blitcmd[i][0] = -1;
-						if(blitcmd[i][0] >= 0) nblitcmd++;
-					} else {
-						blitcmd[i][0] = -1;
-					}
-				} else if(i < 14) {
-					i = key2index(line+j);
-					if(i >= 0 && is_space(line[j+2]))
-						stoptab[i] = atoi(line+j+2);
-				} else if(i < 15) {
-					if(sscanf(line+j, "%d.%d %d", &i, &j, &k) > 2)
-						add_note(21, i+j/1e3, 1, k);
+	if(fp = fopen(bmspath, "r")) {
+		dirinit();
+		for(s = malloc(1024); fgets(s, 1024, fp); s--) {
+			if(*s++ == 35) {
+				for(i=0; i<19; i++) {
+					for(j=0; bmsheader[i][j]; j++)
+						if((bmsheader[i][j]|32) != (s[j]|32)) break;
+					if(!bmsheader[i][j]) break;
+				}
+				if(i == 15) {
+					if(is_space(s[j]))
+						if(j = abs(atoi(s+j)))
+							r = rand() % j + 1;
+				} else if(i == 16) {
+					if(is_space(s[j]))
+						ignore = (r != atoi(s+j));
+				} else if(i == 17) {
+					ignore = !ignore;
+				} else if(i == 18) {
+					ignore = 0;
 				}
 				
-				for(i=0; i<5; i++)
-					if((line[i]-8)/10 != 4) break;
-				if(i>4 && line[5]==58 && line[6]) {
-					bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
-					bmsline[nbmsline] = strcopy(line);
-					nbmsline++;
-				}
-			}
-			line--;
-		}
-	}
-	free(line);
-	fclose(fp);
-
-	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
-	for(i=0; i<nbmsline; i++) {
-		j = 0;
-		for(k=0; k<5; k++)
-			j = j * 10 + bmsline[i][k] - 48;
-		measure = j / 100; chan = j % 100;
-		if(chan == 2) {
-			shorten[measure+1] = atof(bmsline[i]+6);
-		} else {
-			j = 6;
-			remove_whitespace(bmsline[i], &j);
-			for(k=j; bmsline[i][k]; k++);
-			a = (k - j) / 2;
-			for(k=0; k<a; k++,j+=2) {
-				b = key2index(bmsline[i]+j);
-				c = 8 + chan%10 - chan/10%2*9;
-				t = measure + 1. * k / a;
-				if(b) {
-					if(chan == 1) {
-						add_note(18, t, 0, b);
-					} else if(chan == 3 && (b/36<16 && b%36<16)) {
-						add_note(20, t, 0, b/36*16+b%36);
-					} else if(chan == 4) {
-						add_note(19, t, 0, b);
-					} else if(chan == 6) {
-						add_note(19, t, 2, b);
-					} else if(chan == 7) {
-						add_note(19, t, 1, b);
-					} else if(chan == 8) {
-						add_note(20, t, 1, b);
-					} else if(chan == 9) {
-						add_note(21, t, 0, b);
-					} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
-						if(value[4] && b == value[4]) {
-							if(nchannel[c] && channel[c][nchannel[c]-1]->type==0) {
-								channel[c][nchannel[c]-1]->type = 3;
-								add_note(c, t, 2, b);
-							}
-						} else {
-							add_note(c, t, 0, b);
+				if(!ignore) {
+					if(i < 4) {
+						if(remove_whitespace(s, &j)) {
+							if(metadata[i]) free(metadata[i]);
+							metadata[i] = strcopy(s+j);
 						}
-					} else if(chan % 10 != 0 && chan > 29 && chan < 50) {
-						add_note(c, t, 1, b);
+					} else if(i < 5) {
+						if(is_space(s[j])) {
+							bpm = atof(s+j);
+						} else {
+							if((i = key2index(s+j)) + 1 && is_space(s[j+2]))
+								bpmtab[i] = atof(s+j+2);
+						}
+					} else if(i < 9) {
+						if(is_space(s[j]))
+							value[i-5] = atoi(s+j);
+					} else if(i < 10) {
+						if(is_space(s[j])) {
+							while(is_space(s[++j]));
+							if(s[j]) value[4] = key2index(s+j);
+						}
+					} else if(i < 11) {
+						if((i = key2index(s+j)) + 1) {
+							j += 2;
+							if(remove_whitespace(s, &j)) {
+								if(sndpath[i]) { free(sndpath[i]); sndpath[i] = 0; }
+								sndpath[i] = strcopy(s+j);
+							}
+						}
+					} else if(i < 12) {
+						if((i = key2index(s+j)) + 1) {
+							j += 2;
+							if(remove_whitespace(s, &j)) {
+								if(imgpath[i]) { free(imgpath[i]); imgpath[i] = 0; }
+								imgpath[i] = strcopy(s+j);
+							}
+						}
+					} else if(i < 13) {
+						i = nblitcmd;
+						blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
+						blitcmd[i][0] = key2index(s+j);
+						if(is_space(s[j+=2]) && remove_whitespace(s, &j)) {
+							blitcmd[i][1] = key2index(s+j);
+							z = s + j + 2;
+							for(j=2; *z && j<8; j++)
+								blitcmd[i][j] = strtol(z, &z, 10);
+							if(j < 8) blitcmd[i][0] = -1; else nblitcmd++;
+						} else {
+							blitcmd[i][0] = -1;
+						}
+					} else if(i < 14) {
+						if((i = key2index(s+j)) + 1 && is_space(s[j+2]))
+							stoptab[i] = atoi(s+j+2);
+					} else if(i < 15) {
+						if(sscanf(s+j, "%d.%d %d", &i, &j, &k) > 2)
+							add_note(21, i+j/1e3, 1, k);
+					}
+					
+					for(i=0; i<5; i++)
+						if((s[i]-8)/10 != 4) break;
+					if(i>4 && s[5]==58 && s[6]) {
+						bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
+						bmsline[nbmsline] = strcopy(s);
+						nbmsline++;
 					}
 				}
-				if(chan % 10 != 0 && chan > 49 && chan < 70) {
-					if(value[3] == 1 && b) {
-						if(prev[c]) {
-							prev[c] = 0;
-							add_note(c, t, 2, 0);
-						} else {
-							prev[c] = b;
-							add_note(c, t, 3, b);
-						}
-					} else if(value[3] == 2) {
-						if(prev[c] || prev[c] != b) {
-							if(prev[c]) {
-								if(prev[c+18] + 1 < measure) {
-									add_note(c, prev[c+18]+1, 2, 0);
-								} else if(prev[c] != b) {
-									add_note(c, t, 2, 0);
+			}
+		}
+		free(s);
+		fclose(fp);
+
+		qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
+		for(i=0; i<nbmsline; i++) {
+			j = 0;
+			for(k=0; k<5; k++)
+				j = j * 10 + bmsline[i][k] - 48;
+			measure = j / 100; chan = j % 100;
+			if(chan == 2) {
+				shorten[measure+1] = atof(bmsline[i]+6);
+			} else {
+				j = 6;
+				remove_whitespace(bmsline[i], &j);
+				for(k=j; bmsline[i][k]; k++);
+				a = (k - j) / 2;
+				for(k=0; k<a; k++,j+=2) {
+					b = key2index(bmsline[i]+j);
+					c = 8 + chan%10 - chan/10%2*9;
+					t = measure + 1. * k / a;
+					if(b) {
+						if(chan == 1) {
+							add_note(18, t, 0, b);
+						} else if(chan == 3 && (b/36<16 && b%36<16)) {
+							add_note(20, t, 0, b/36*16+b%36);
+						} else if(chan == 4) {
+							add_note(19, t, 0, b);
+						} else if(chan == 6) {
+							add_note(19, t, 2, b);
+						} else if(chan == 7) {
+							add_note(19, t, 1, b);
+						} else if(chan == 8) {
+							add_note(20, t, 1, b);
+						} else if(chan == 9) {
+							add_note(21, t, 0, b);
+						} else if(chan % 10 != 0 && chan > 9 && chan < 30) {
+							if(value[4] && b == value[4]) {
+								if(nchannel[c] && channel[c][nchannel[c]-1]->m==0) {
+									channel[c][nchannel[c]-1]->m = 3;
+									add_note(c, t, 2, b);
 								}
+							} else {
+								add_note(c, t, 0, b);
 							}
-							if(b && (prev[c]!=b || prev[c+18]+1<measure)) {
+						} else if(chan % 10 != 0 && chan > 29 && chan < 50) {
+							add_note(c, t, 1, b);
+						}
+					}
+					if(chan % 10 != 0 && chan > 49 && chan < 70) {
+						if(value[3] == 1 && b) {
+							if(prev[c]) {
+								prev[c] = 0;
+								add_note(c, t, 2, 0);
+							} else {
+								prev[c] = b;
 								add_note(c, t, 3, b);
 							}
-							prev[c+18] = measure;
-							prev[c] = b;
-						}
-					}
-				}
-			}
-		}
-		free(bmsline[i]);
-	}
-	free(bmsline);
-	length = measure + 2;
-	for(i=0; i<18; i++) {
-		if(prev[i]) {
-			t = (value[3] == 2 && prev[i+18]+1 < measure ? prev[i+18]+1 : length-1);
-			add_note(i/10*9+i%10, t, 2, 0);
-		}
-	}
-	
-	for(i=0; i<22; i++) {
-		if(channel[i]) {
-			qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
-			if(i != 18 && i < 21) {
-				b = 0; t = -1;
-				for(j=0; j<=nchannel[i]; j++) {
-					if(j == nchannel[i] || channel[i][j]->time > t) {
-						if(t >= 0) {
-							c = 0;
-							for(; k<j; k++) {
-								r = channel[i][k]->type;
-								if(i<18 ? (c & 1<<r) || (b ? (a&4)==0 || r<2 : r != ((a&12)==8 ? 3 : a&1 ? 0 : 1)) : i==19 ? c & 1<<r : c) {
-									remove_note(i, k);
-								} else {
-									c |= 1 << r;
+						} else if(value[3] == 2) {
+							if(prev[c] || prev[c] != b) {
+								if(prev[c]) {
+									if(prev[c+18] + 1 < measure) {
+										add_note(c, prev[c+18]+1, 2, 0);
+									} else if(prev[c] != b) {
+										add_note(c, t, 2, 0);
+									}
 								}
+								if(b && (prev[c]!=b || prev[c+18]+1<measure)) {
+									add_note(c, t, 3, b);
+								}
+								prev[c+18] = measure;
+								prev[c] = b;
 							}
-							b = (b ? (a&12)!=4 : (a&12)==8);
 						}
-						if(j < nchannel[i]) break;
-						a = 0;
-						k = j;
-						t = channel[i][j]->time;
 					}
-					a |= 1 << channel[i][j]->type;
-				}
-				if(i<18 && b) {
-					while(j >= 0 && !channel[i][--j]);
-					if(j >= 0 && channel[i][j]->type == 3) remove_note(i, j);
 				}
 			}
-			for(j=k=0; j<nchannel[i]; j++)
-				if(channel[i][j]) channel[i][j-k] = channel[i][j]; else k++;
-			nchannel[i] -= k;
+			free(bmsline[i]);
 		}
+		free(bmsline);
+		length = measure + 2;
+		for(i=0; i<18; i++) {
+			if(prev[i]) {
+				t = (value[3] == 2 && prev[i+18]+1 < measure ? prev[i+18]+1 : length-1);
+				add_note(i/10*9+i%10, t, 2, 0);
+			}
+		}
+		
+		for(i=0; i<22; i++) {
+			if(channel[i]) {
+				qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
+				if(i != 18 && i < 21) {
+					b = 0; t = -1;
+					for(j=0; j<=nchannel[i]; j++) {
+						if(j == nchannel[i] || channel[i][j]->t > t) {
+							if(t >= 0) {
+								c = 0;
+								for(; k<j; k++) {
+									r = channel[i][k]->m;
+									if(i<18 ? (c & 1<<r) || (b ? (a&4)==0 || r<2 : r != ((a&12)==8 ? 3 : a&1 ? 0 : 1)) : i==19 ? c & 1<<r : c) {
+										remove_note(i, k);
+									} else {
+										c |= 1 << r;
+									}
+								}
+								b = (b ? (a&12)!=4 : (a&12)==8);
+							}
+							if(j < nchannel[i]) break;
+							a = 0;
+							k = j;
+							t = channel[i][j]->t;
+						}
+						a |= 1 << channel[i][j]->m;
+					}
+					if(i<18 && b) {
+						while(j >= 0 && !channel[i][--j]);
+						if(j >= 0 && channel[i][j]->m == 3) remove_note(i, j);
+					}
+				}
+				for(j=k=0; j<nchannel[i]; j++)
+					if(channel[i][j]) channel[i][j-k] = channel[i][j]; else k++;
+				nchannel[i] -= k;
+			}
+		}
+
+		for(i=0; i<4; i++)
+			if(!metadata[i]) {
+				metadata[i] = malloc(1);
+				*metadata[i] = 0;
+			}
+		for(i=0; i<2005; i++)
+			if(shorten[i] <= .001) shorten[i] = 1;
+
+		return 0;
+	} else {
+		return 1;
 	}
-
-	for(i=0; i<4; i++)
-		if(!metadata[i]) {
-			metadata[i] = malloc(1);
-			*metadata[i] = 0;
-		}
-	for(i=0; i<2005; i++)
-		if(shorten[i] <= .001) shorten[i] = 1;
-
-	return 0;
 }
 
 SDL_Surface *newsurface(int f, int w, int h); /* DUMMY */
@@ -513,6 +497,7 @@ int load_resource(void (*callback)(char*)) {
 		}
 	}
 	
+	callback("processing...");
 	for(i=0; i<nblitcmd; i++) {
 		if(blitcmd[i][0]>=0 && blitcmd[i][1]>=0 && imgres[blitcmd[i][1]]) {
 			temp = imgres[blitcmd[i][0]];
@@ -550,8 +535,8 @@ void get_bms_info() {
 	if(nchannel[20]) xflag |= 8;
 	for(i=0; i<18; i++) {
 		for(j=0; j<nchannel[i]; j++) {
-			if(channel[i][j]->type > 1) xflag |= 2;
-			if(channel[i][j]->type < 3) ++xnnotes;
+			if(channel[i][j]->m > 1) xflag |= 2;
+			if(channel[i][j]->m < 3) ++xnnotes;
 		}
 	}
 	for(i=0; i<xnnotes; i++)
@@ -567,17 +552,17 @@ int get_bms_duration() {
 	time = rtime = 0; pos = -1;
 	while(1) {
 		for(i=-1,j=0; j<22; j++)
-			if(pcur[j] < nchannel[j] && (i < 0 || channel[j][pcur[j]]->time < channel[i][pcur[i]]->time)) i = j;
+			if(pcur[j] < nchannel[j] && (i < 0 || channel[j][pcur[j]]->t < channel[i][pcur[i]]->t)) i = j;
 		if(i < 0) {
 			time += (int)(adjust_object_position(pos, length) * 24e7 / xbpm);
 			break;
 		}
-		time += (int)(adjust_object_position(pos, channel[i][pcur[i]]->time) * 24e7 / xbpm);
-		j = channel[i][pcur[i]]->index; ttime = 0;
+		time += (int)(adjust_object_position(pos, channel[i][pcur[i]]->t) * 24e7 / xbpm);
+		j = channel[i][pcur[i]]->i; ttime = 0;
 		if(i < 19) {
 			if(sndres[j]) ttime = (int)(sndres[j]->alen / .1764);
 		} else if(i == 20) {
-			tmp = (channel[i][pcur[i]]->type ? bpmtab[j] : j);
+			tmp = (channel[i][pcur[i]]->m ? bpmtab[j] : j);
 			if(tmp > 0) {
 				xbpm = tmp;
 			} else if(tmp < 0) {
@@ -585,11 +570,11 @@ int get_bms_duration() {
 				break;
 			}
 		} else if(i == 21) {
-			if(channel[i][pcur[i]]->type) time += j;
+			if(channel[i][pcur[i]]->m) time += j;
 			else time += (int)(stoptab[j] * 125e4 * shorten[(int)(pos+1)] / xbpm);
 		}
 		if(rtime < time + ttime) rtime = time + ttime;
-		pos = channel[i][pcur[i]]->time; pcur[i]++;
+		pos = channel[i][pcur[i]]->t; pcur[i]++;
 	}
 	return (time > rtime ? time : rtime) / 1000;
 }
@@ -604,9 +589,9 @@ void clone_bms() {
 		channel[i+9] = malloc(sizeof(bmsnote*) * nchannel[i]);
 		for(j=0; j<nchannel[i]; j++) {
 			channel[i+9][j] = ptr = malloc(sizeof(bmsnote));
-			ptr->time = channel[i][j]->time;
-			ptr->type = channel[i][j]->type;
-			ptr->index = channel[i][j]->index;
+			ptr->t = channel[i][j]->t;
+			ptr->m = channel[i][j]->m;
+			ptr->i = channel[i][j]->i;
 		}
 	}
 }
@@ -658,20 +643,20 @@ void shuffle_bms(int mode, int player) {
 			for(i=0; i<nmap; i++) {
 				if(ptr[map[i]] < nchannel[map[i]]) {
 					flag = 1; target[i] = 1;
-					if(t > channel[map[i]][ptr[map[i]]]->time)
-						t = channel[map[i]][ptr[map[i]]]->time - 1e-4;
+					if(t > channel[map[i]][ptr[map[i]]]->t)
+						t = channel[map[i]][ptr[map[i]]]->t - 1e-4;
 				} else {
 					target[i] = 0;
 				}
 			}
 			t += 2e-4;
 			for(i=0; i<nmap; i++) {
-				if(target[i] && channel[map[i]][ptr[map[i]]]->time > t)
+				if(target[i] && channel[map[i]][ptr[map[i]]]->t > t)
 					target[i] = 0;
 			}
 			for(i=0; i<nmap; i++) {
 				if(target[i]) {
-					temp = channel[map[i]][ptr[map[i]]]->type;
+					temp = channel[map[i]][ptr[map[i]]]->m;
 					if(temp == 2) {
 						j = thrumap[i];
 						thru[j] = 2;
@@ -947,33 +932,30 @@ void play_show_stagefile() {
 
 void play_prepare() {
 	int i, j, c;
-	
+
 	/* panel position */
-	if((xflag&4) == 0) {
-		tkeyleft[6] = tkeyleft[15] = -1;
-		tpanel1 -= tkeywidth[6] + 1;
-		tpanel2 += tkeywidth[15] + 1;
+	for(i=0; i<18; i++) {
+		tkeyleft[i] = -1;
+		tkeywidth[i] = ((i+2)%9>6 ? 40 : 25);
 	}
-	if((xflag&1) == 0) {
-		tkeyleft[7] = tkeyleft[8] = tkeyleft[16] = tkeyleft[17] = -1;
-		for(i=9; i<16; i++)
-			if(i!=14 && tkeyleft[i]>=0)
-				tkeyleft[i] += tkeywidth[16] + tkeywidth[17] + 2;
-		if(tkeyleft[6] > 0)
-			tkeyleft[6] -= tkeywidth[7] + tkeywidth[8] + 2;
-		tpanel1 -= tkeywidth[7] + tkeywidth[8] + 2;
-		tpanel2 += tkeywidth[16] + tkeywidth[17] + 2;
+	for(i=0; i<5; i++) tkeyleft[i] = 41 + 26 * i;
+	tkeyleft[5] = 0; tpanel1 = 171; tpanel2 = 0;
+	if(xflag & 1) { tkeyleft[7] = 171; tkeyleft[8] = 197; tpanel1 += 52; }
+	if(xflag & 4) { tkeyleft[6] = tpanel1; tpanel1 += 41; }
+	if(value[0] > 1) {
+		for(i=0; i<9; i++)
+			if(tkeyleft[i] >= 0) {
+				if(i == 5) tkeyleft[14] = 760;
+				else if(i == 6) tkeyleft[15] = 760 - tkeyleft[6];
+				else tkeyleft[i+9] = tkeyleft[i] + (xflag&1 ? 537 : 589);
+			}
+		tpanel2 = 800 - tpanel1;
+		if(value[0] == 3) {
+			for(i=9; i<18; i++) tkeyleft[i] += tpanel1 - tpanel2;
+			tpanel1 += 801 - tpanel2; tpanel2 = 0;
+		}
 	}
-	if(value[0] == 1) {
-		for(i=9; i<18; i++) tkeyleft[i] = -1;
-	} else if(value[0] == 3) {
-		for(i=9; i<18; i++) tkeyleft[i] += tpanel1 - tpanel2;
-		tpanel1 += 801 - tpanel2;
-	}
-	if(value[0] % 2) {
-		tpanel2 = 0;
-		tbga = tpanel1 / 2 + 282;
-	}
+	tbga = ((tpanel2 ? tpanel2 : 800) - tpanel1) / 2;
 	
 	/* sprite */
 	sprite = newsurface(SDL_SWSURFACE, 1200, 600);
@@ -1079,9 +1061,9 @@ int play_process() {
 	}
 	top = adjust_object_time(bottom, 1.25/playspeed);
 	for(i=0; i<22; i++) {
-		while(prear[i] < nchannel[i] && channel[i][prear[i]]->time <= top) prear[i]++;
-		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time < bottom) {
-			j = channel[i][pcur[i]]->index;
+		while(prear[i] < nchannel[i] && channel[i][prear[i]]->t <= top) prear[i]++;
+		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->t < bottom) {
+			j = channel[i][pcur[i]]->i;
 			if(i == 18) {
 				if(sndres[j]) {
 					j = Mix_PlayChannel(-1, sndres[j], 0);
@@ -1101,23 +1083,23 @@ int play_process() {
 					}
 				}
 			} else if(i == 19) {
-				bga[channel[i][pcur[i]]->type] = j;
+				bga[channel[i][pcur[i]]->m] = j;
 				bga_updated = 1;
 			} else if(i == 20) {
-				if(tmp = (channel[i][pcur[i]]->type ? bpmtab[j] : j)) {
+				if(tmp = (channel[i][pcur[i]]->m ? bpmtab[j] : j)) {
 					starttime = t;
 					startoffset = bottom;
 					bpm = tmp;
 				}
 			} else if(i == 21) {
 				if(t >= stoptime) stoptime = t;
-				if(channel[i][pcur[i]]->type) {
+				if(channel[i][pcur[i]]->m) {
 					stoptime += j;
 				} else {
 					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
-			} else if(opt_mode && channel[i][pcur[i]]->type != 1 && sndres[j]) {
+			} else if(opt_mode && channel[i][pcur[i]]->m != 1 && sndres[j]) {
 				j = Mix_PlayChannel(-1, sndres[j], 0);
 				if(j >= 0) Mix_GroupChannel(j, 0);
 			}
@@ -1125,9 +1107,9 @@ int play_process() {
 		}
 		if(i<18 && !opt_mode) {
 			for(; pcheck[i] < pcur[i]; pcheck[i]++) {
-				j = channel[i][pcheck[i]]->type;
+				j = channel[i][pcheck[i]]->m;
 				if(j >= 0 && j - 1 && (j - 2 || thru[i])) {
-					tmp = channel[i][pcheck[i]]->time;
+					tmp = channel[i][pcheck[i]]->t;
 					tmp = (bottom - tmp) * shorten[(int)(tmp+1)] / bpm * gradefactor;
 					if(tmp > 6e-4) {
 						scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
@@ -1151,11 +1133,11 @@ int play_process() {
 					if(tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 0;
 						if(nchannel[i] && thru[i]) {
-							for(j=pcur[i]+1; channel[i][j]->type != 2; j--);
+							for(j=pcur[i]+1; channel[i][j]->m != 2; j--);
 							thru[i] = 0;
-							tmp = (channel[i][j]->time - bottom) * shorten[ibottom] / bpm * gradefactor;
+							tmp = (channel[i][j]->t - bottom) * shorten[ibottom] / bpm * gradefactor;
 							if(-6e-4 < tmp && tmp < 6e-4) {
-								channel[i][j]->type ^= -1;
+								channel[i][j]->m ^= -1;
 							} else {
 								scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
 								poorbga = t + 600; gradetime = t + 700;
@@ -1184,27 +1166,27 @@ int play_process() {
 					if(tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 1;
 						if(nchannel[i]) {
-							j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*bottom) ? pcur[i] : pcur[i]-1);
-							if(sndres[channel[i][j]->index]) {
-								l = Mix_PlayChannel(-1, sndres[channel[i][j]->index], 0);
+							j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->t + channel[i][pcur[i]]->t < 2*bottom) ? pcur[i] : pcur[i]-1);
+							if(sndres[channel[i][j]->i]) {
+								l = Mix_PlayChannel(-1, sndres[channel[i][j]->i], 0);
 								if(l >= 0) Mix_GroupChannel(l, 0);
 							}
 							if(j < pcur[i]) {
-								while(j >= 0 && channel[i][j]->type == 1) j--;
+								while(j >= 0 && channel[i][j]->m == 1) j--;
 								if(j < 0) continue;
 							} else {
-								while(j < nchannel[i] && channel[i][j]->type == 1) j++;
+								while(j < nchannel[i] && channel[i][j]->m == 1) j++;
 								if(j == nchannel[i]) continue;
 							}
-							if(pcur[i] < nchannel[i] && channel[i][pcur[i]]->type == 2) {
+							if(pcur[i] < nchannel[i] && channel[i][pcur[i]]->m == 2) {
 								scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
 								poorbga = t + 600; gradetime = t + 700;
-							} else if(channel[i][j]->type != 2) {
-								tmp = (channel[i][j]->time - bottom) * shorten[ibottom] / bpm * gradefactor;
+							} else if(channel[i][j]->m != 2) {
+								tmp = (channel[i][j]->t - bottom) * shorten[ibottom] / bpm * gradefactor;
 								if(tmp < 0) tmp *= -1;
-								if(channel[i][j]->type >= 0 && tmp < 6e-4) {
-									if(channel[i][j]->type == 3) thru[i] = 1;
-									channel[i][j]->type ^= -1;
+								if(channel[i][j]->m >= 0 && tmp < 6e-4) {
+									if(channel[i][j]->m == 3) thru[i] = 1;
+									channel[i][j]->m ^= -1;
 									if(tmp < 0.6e-4) grademode = 4;
 									else if(tmp < 2.0e-4) grademode = 3;
 									else if(tmp < 3.5e-4) grademode = 2;
@@ -1248,15 +1230,15 @@ int play_process() {
 		if(tkeyleft[i] >= 0) {
 			m = 0;
 			for(j=pcur[i]; j<prear[i]; j++) {
-				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j]->time));
-				if(channel[i][j]->type == 3) {
+				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j]->t));
+				if(channel[i][j]->m == 3) {
 					l = k + 5;
-					k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j]->time));
+					k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j]->t));
 					if(k < 30) k = 30;
-				} else if(channel[i][j]->type == 2) {
+				} else if(channel[i][j]->m == 2) {
 					k += 5;
 					l = 520;
-				} else if(channel[i][j]->type == 0) {
+				} else if(channel[i][j]->m == 0) {
 					l = k + 5;
 				} else {
 					continue;
@@ -1266,7 +1248,7 @@ int play_process() {
 				}
 				m++;
 			}
-			if(!m && prear[i]<nchannel[i] && channel[i][prear[i]]->type==2) {
+			if(!m && prear[i]<nchannel[i] && channel[i][prear[i]]->m==2) {
 				SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, newrect(tkeyleft[i],30,0,0));
 			}
 		}
@@ -1278,11 +1260,11 @@ int play_process() {
 	}
 	if(opt_egg) {
 		for(i=pcur[20]; i<prear[20]; i++) {
-			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[20][i]->time));
+			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[20][i]->t));
 			SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xffff00);
 		}
 		for(i=pcur[21]; i<prear[21]; i++) {
-			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[21][i]->time));
+			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[21][i]->t));
 			SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0x00ff00);
 		}
 	}
@@ -1430,12 +1412,7 @@ int main(int argc, char **argv) {
 	char buf[512]={0,};
 	int i, j, use_buf;
 
-	if(argc < 2 || !*argv[1]) {
-		use_buf = 1;
-		if(!filedialog(buf)) use_buf = 0;
-	} else {
-		use_buf = 0;
-	}
+	use_buf = (argc<2 || !*argv[1] ? !!filedialog(buf) : 0);
 	if(argc > 2) {
 		playspeed = atof(argv[2]);
 		if(playspeed <= 0) playspeed = 1;
