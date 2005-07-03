@@ -24,19 +24,20 @@
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <SDL_image.h>
+#include <smpeg.h>
 
 /******************************************************************************/
 /* constants, variables */
 
-char version[] = "TokigunStudio Angolmois version 0.1-beta2-20050702";
+char *version = "TokigunStudio Angolmois version 0.1-beta2a-20050704";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 #define SWAP(x,y,t) {(t)=(x);(x)=(y);(y)=(t);}
 
 const char *bmsheader[] = {
-	"title", "genre", "artist", "stagefile",
-	"bpm", "player", "playlevel", "rank", "total",
-	"lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp",
+	"title", "genre", "artist", "stagefile", "bpm",
+	"player", "playlevel", "rank", "lntype", "lnobj",
+	"wav", "bmp", "bga", "stop", "stp",
 	"random", "if", "else", "endif"
 };
 char *bmspath, respath[512];
@@ -44,13 +45,12 @@ char **bmsline=0; int nbmsline=0;
 
 char *metadata[4]={0,};
 double bpm=130;
-int value[6]={1,0,3,100,1,0};
+int value[5]={1,0,2,1,0};
 #define v_player value[0]
 #define v_playlevel value[1]
 #define v_rank value[2]
-#define v_total value[3]
-#define lntype value[4]
-#define lnobj value[5]
+#define lntype value[3]
+#define lnobj value[4]
 
 char *sndpath[1296]={0,}, *imgpath[1296]={0,};
 int (*blitcmd)[8]=0, nblitcmd=0;
@@ -58,6 +58,7 @@ Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
 double bpmtab[1296]={0,};
+SMPEG *mpeg=0;
 
 typedef struct { double time; int type, index; } bmsnote;
 bmsnote **channel[22]={0,};
@@ -252,19 +253,19 @@ int parse_bms() {
 			if(!bmsheader[i][j]) break;
 		}
 		switch(i) {
-		case 16: /* random */
+		case 15: /* random */
 			if(is_space(line[j]))
 				if(j = abs(atoi(line+j)))
 					rnd = rand() % j + 1;
 			break;
-		case 17: /* if */
+		case 16: /* if */
 			if(is_space(line[j]))
 				ignore = (rnd != atoi(line+j));
 			break;
-		case 18: /* else */
+		case 17: /* else */
 			ignore = !ignore;
 			break;
-		case 19: /* endif */
+		case 18: /* endif */
 			ignore = 0;
 			break;
 		}
@@ -290,18 +291,17 @@ int parse_bms() {
 			case 5: /* player */
 			case 6: /* playlevel */
 			case 7: /* rank */
-			case 8: /* total */
-			case 9: /* lntype */
+			case 8: /* lntype */
 				if(is_space(line[j]))
 					value[i-5] = atoi(line+j);
 				break;
-			case 10: /* lnobj */
+			case 9: /* lnobj */
 				if(!is_space(line[j])) break;
 				while(is_space(line[++j]));
 				if(line[j])
 					lnobj = key2index(line+j);
 				break;
-			case 11: /* wav## */
+			case 10: /* wav## */
 				i = key2index(line+j);
 				if(i < 0) break;
 				j += 2;
@@ -309,7 +309,7 @@ int parse_bms() {
 				if(sndpath[i]) { free(sndpath[i]); sndpath[i] = 0; }
 				sndpath[i] = strcopy(line+j);
 				break;
-			case 12: /* bmp## */
+			case 11: /* bmp## */
 				i = key2index(line+j);
 				if(i < 0) break;
 				j += 2;
@@ -317,7 +317,7 @@ int parse_bms() {
 				if(imgpath[i]) { free(imgpath[i]); imgpath[i] = 0; }
 				imgpath[i] = strcopy(line+j);
 				break;
-			case 13: /* bga## */
+			case 12: /* bga## */
 				i = nblitcmd;
 				blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
 				blitcmd[i][0] = key2index(line+j);
@@ -329,12 +329,12 @@ int parse_bms() {
 					blitcmd[i][0] = -1;
 				if(blitcmd[i][0] >= 0) nblitcmd++;
 				break;
-			case 14: /* stop## */
+			case 13: /* stop## */
 				i = key2index(line+j);
 				if(i < 0 || !is_space(line[j+2])) break;
 				stoptab[i] = atoi(line+j+2);
 				break;
-			case 15: /* stp## */
+			case 14: /* stp## */
 				if(sscanf(line+j, "%d.%d %d", &i, &j, &k) < 3) break;
 				ADD_STP(i+j/1e3, k);
 				break;
@@ -501,13 +501,17 @@ SDL_Surface *newsurface(int f, int w, int h); /* DUMMY */
 SDL_Rect *newrect(int x, int y, int w, int h); /* DUMMY */
 int load_resource(void (*callback)(char*)) {
 	SDL_Surface *temp;
-	int i;
+	int i, j;
 	
 	for(i=0; i<1296; i++) {
 		if(sndpath[i]) {
 			if(callback) callback(sndpath[i]);
 			sndres[i] = load_wav(sndpath[i]);
-			free(sndpath[i]); sndpath[i] = 0;
+			for(j=0; sndpath[i][j]; j++);
+			j = (j>3 ? *(int*)(sndpath[i]+j-4) : 0) | 0x20202020;
+			if(j != 0x33706d2e && j != 0x2e6d7033) {
+				free(sndpath[i]); sndpath[i] = 0;
+			}
 		}
 		if(imgpath[i]) {
 			if(callback) callback(imgpath[i]);
@@ -718,10 +722,6 @@ int getpixel(SDL_Surface *s, int x, int y)
 	{ return((Uint32*)s->pixels)[x+y*s->pitch/4]; }
 int putpixel(SDL_Surface *s, int x, int y, int c)
 	{ return((Uint32*)s->pixels)[x+y*s->pitch/4]=c; }
-void drawhline(SDL_Surface *s, int x1, int x2, int y, int c)
-	{ while(x1<x2) putpixel(s, x1++, y, c); }
-void drawvline(SDL_Surface *s, int x, int y1, int y2, int c)
-	{ while(y1<y2) putpixel(s, x, y1++, c); }
 int blend(int x, int y, int a, int b)
 	{ int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y; }
 void putblendedpixel(SDL_Surface *s, int x, int y, int c, int o)
@@ -783,23 +783,20 @@ int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 /******************************************************************************/
 /* font functions */
 
-Uint8 fontmap[]="\0\2\3\6\7\10\13\14\16\20\30\33\34\36$,03678;<>?@ACU]^`acfghkl"
-	"nopsvwx{|~\177\201\202\237\303\333\371\376";
-Uint8 fontinfo[]="\37>',\37==8==M\\\256\211\255K==========MNM{M================"
-	"==>==========K=\26\315&]=]=]=_-=?==]]]``]]=]]]]_]-\20-7\317";
-Uint8 fontdata[]="\\WWWWWWWWWWWW\\.::::..$...66662'67;O7;O64));IIH;*III;))CDE'+"
-	".4E?&8JJJ9IKFK9+++.-+.444444.+4.++++++.4.ZZT.TZZ....T......4T...%'+.4C=;EE"
-	"GLRNEE;0:3++++++<;EEG,08MCU;EE&1&&EE;,16FFFFU''UCCCT&&EE;;EECTEEEE;U&&'+.."
-	"...;EEE;EEEE;;EEEE<&EE;...$$$......$$$...4'+.4C4.+'T$$TC4.+'+.4C;EEE'+.$.."
-	";>A@@@@B=;)06EEEUEEETEEETEEEET15ECCCCE51SFEEEEEEFSUCCCTCCCCUUCCCTCCCCC15EC"
-	"CGEE51EEEEUEEEEET........T&&&&&&EEE;EFJQMMQJFECCCCCCCCCUEPUUIIEEEEEEENRLGE"
-	"EE06EEEEEE60TEEEETCCCC;EEEEEIL;(&TEEEETEEEE;EEC;&&EE;T.........EEEEEEEEE;E"
-	"EEEEEE60)EEEEIIIU66>EP;00;PE>VYF:......U&&(,08MCU:44444444:=C4.+'%:+++++++"
-	"+:)06E>U4.+';&&<EEE<CCCTEEEEET;EECCEE;&&&<EEEEE<;EEEUCE;,//.T.....<EEEE<&E"
-	"E;CCCTEEEEEEE..$.......&&$$&&&&EEE;CCEFJQQJFE0+++++++++OUIIIIEETEEEEEEE;EE"
-	"EEEE;TEEEEEETCCC<EEEEEE<&&&TEECCCCC;EC;&&E;..T...///,EEEEEEE;EEEEE60)EEEII"
-	"IU6>E6006E>EEEE51+.4CU(,08MCU,....M....,................M....,....MM[X,T:.";
-Uint8 rawfont[16][96]={0,}, (*zoomfont[16])[96]={rawfont,0,};
+char*fontdata="#[RCm#a&#e#;S&e#;C$#;#e&e2Y#e#G#f:i&);V0a;*e%Y#&g7+CC2NP)=aOS=NP"
+	"I2+C#fbC(Y;)S#)S/Y3&#hX[S)>OPV=Q<I>^#hh/S#&;#$mseNg#;S#hRe+g#;#&iG;O`YaDDB"
+	">R0)jW;C$)a$e&mfh7jSe~a$p?hWir%;#e~C$'jpa/Y;J`YAV0Y;a#hs?S&./#g#b#lB1S$1S$"
+	"YBkR&[T#&#kR1[D0I$e#b<C$htb$);C\\*mBebC\\Z;e#iRb0S#)S#)f#krF$f&mRF0Y2lb##h"
+	"LkRl2S#hsepS#)/;SC$iReya$g%ibg>fFhra/Y;F$eUeyi2$X88e#A$G2hq+SD0eDb$eHineRf"
+	"&F$itA/V;C$e#F0F*hr_<)f?F0I<_$hrb$e@a$fDb$q2C$mbJ0)kbf}b$gehraD$i#a$hr&#g#"
+	"eHa#iRIT)AS$*AO<)iRg}f'b$irZ`ZBNP)lre}VPZ>J$k2?;&f>F0I0?#hra$fMa$fhhra#gAN"
+	"`I2*/#mBlreBC\\V#&/Y;a#ib;#j#hrgafviBi2YS$%lBNPY=b<F0hr$0Y@aS$*a?Z;$$hr$1O"
+	"<_#nrb0S#*[#*[#*;b$hr_#&i#_#hr##';SC$&)+#i0#S&&i#gB+SD0j{r(hrf^qBa/S#b/Y;F"
+	"`&htC$);a$e0F0IBkBF0);C0Y;a#hy&#hPkRgBF`*;jB1OT);[*)f#jbgQb/#hdC$);a$gaF0)"
+	"hreJgPjR&/#f&&#eQhtC$Y;IT)A[TI<iR?S#j#hb##C@bP)e#jr##CBe~f%jBa#h2gpmBa$);C"
+	"$gub#hRb/S#&#jbe=i?gbC\\V#&#jb;CDB;C$)>OT)1#jrhqjBi2YS$%mBNPY=b<&jr$$e??;V"
+	";$$nbV[$&;#&;htb@C&?C&?C`*gr1C$e#S$f'1#e~f/n&###h=gGhrSHbJfLu%aT&)";
+Uint8 rawfont[16][96], (*zoomfont[16])[96]={rawfont,0,};
 
 int _fontprocess(int x, int y, int z, int c, int s) {
 	int i, j;
@@ -810,7 +807,7 @@ int _fontprocess(int x, int y, int z, int c, int s) {
 }
 
 void fontprocess(int z) {
-	int i, j, k, l;
+	int i, j, k, l, t[1596];
 	if(z) {
 		if(zoomfont[z-1]) return;
 		zoomfont[z-1] = malloc(96*16*z*z);
@@ -839,9 +836,15 @@ void fontprocess(int z) {
 				}
 		}
 	} else {
-		for(i=k=0; i<96; i++)
-			for(j=--fontinfo[i]/16; j<=fontinfo[i]%16; k++)
-				if(!is_space(fontdata[k])) rawfont[j++][i] = fontmap[fontdata[k]-36];
+		for(i=j=k=0; i<1536; fontdata++) {
+			if(*fontdata > 98) {
+				for(k=*fontdata++-97; --k; i++) t[i] = t[i-*fontdata+34];
+			} else if(*fontdata > 34) {
+				j |= (*fontdata - 35) << k*6%8;
+				if(k++&3) { t[i++] = j & 0xff; j >>= 8; }
+			}
+		}
+		for(i=0; i<1536; i++) rawfont[i%16][i/16] = t[i];
 	}
 }
 
@@ -875,9 +878,11 @@ double startoffset=-1, startshorten=1;
 int xflag, xnnotes, xscore, xduration;
 int pcur[22]={0,}, pfront[22]={0,}, prear[22]={0,}, pcheck[18]={0,}, thru[22]={0,};
 int bga[3]={-1,-1,0}, poorbga=0, bga_updated=1;
-int score=0, scocnt[5]={0,}, scombo=0, smaxcombo=0, gradetime=0, grademode, gauge=256;
+int score=0, scocnt[5]={0,}, scombo=0, smaxcombo=0;
+double gradefactor; int gradetime=0, grademode, gauge=256;
 int opt_mode=0, opt_showinfo=1, opt_fullscreen=1, opt_random=0, opt_egg=0;
 
+SDL_AudioSpec aformat;
 SDL_Surface *sprite=0;
 int keymap[18]={
 	SDLK_z, SDLK_s, SDLK_x, SDLK_d, SDLK_c, SDLK_LSHIFT, SDLK_LALT, SDLK_f, SDLK_v,
@@ -914,7 +919,7 @@ int initialize() {
 	if(!screen)
 		return errormsg("SDL Video Initialization Failure: %s", SDL_GetError());
 	SDL_ShowCursor(SDL_DISABLE);
-	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0)
+	if(Mix_OpenAudio(aformat.freq=44100, aformat.format=MIX_DEFAULT_FORMAT, aformat.channels=2, 2048)<0)
 		return errormsg("SDL Mixer Initialization Failure: %s", Mix_GetError());
 	SDL_WM_SetCaption(version, 0);
 
@@ -946,6 +951,8 @@ void finalize() {
 	free(blitcmd);
 
 	if(sprite) SDL_FreeSurface(sprite);
+	if(mpeg) { SMPEG_stop(mpeg); SMPEG_delete(mpeg); }
+	Mix_HookMusic(0, 0);
 	Mix_CloseAudio();
 	fontfinalize();
 	dirfinal();
@@ -1086,6 +1093,7 @@ void play_prepare() {
 	targetspeed = playspeed;
 	Mix_AllocateChannels(128);
 	for(i=0; i<22; i++) pcur[i] = 0;
+	gradefactor = 1.5 - v_rank * .25;
 }
 
 double adjust_object_time(double base, double offset) {
@@ -1142,21 +1150,30 @@ int play_process() {
 		while(pfront[i] < nchannel[i] && channel[i][pfront[i]]->time < bottom) pfront[i]++;
 		while(prear[i] < nchannel[i] && channel[i][prear[i]]->time <= top) prear[i]++;
 		while(pcur[i] < nchannel[i] && channel[i][pcur[i]]->time < line) {
+			j = channel[i][pcur[i]]->index;
 			if(i == 18) {
-				if(sndres[channel[i][pcur[i]]->index]) {
-					j = Mix_PlayChannel(-1, sndres[channel[i][pcur[i]]->index], 0);
+				if(sndres[j]) {
+					j = Mix_PlayChannel(-1, sndres[j], 0);
 					if(j >= 0) { Mix_Volume(j, 96); Mix_GroupChannel(j, 1); }
+				} else if(sndpath[j]) {
+					if(!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING) {
+						if(mpeg) {
+							Mix_HookMusic(0, 0);
+							SMPEG_delete(mpeg);
+						}
+						if(mpeg = SMPEG_new(sndpath[j], 0, 0)) {
+							SMPEG_actualSpec(mpeg, &aformat);
+							Mix_HookMusic(SMPEG_playAudioSDL, mpeg);
+							SMPEG_enableaudio(mpeg, 1);
+							SMPEG_play(mpeg);
+						}
+					}
 				}
 			} else if(i == 19) {
-				bga[channel[i][pcur[i]]->type] = channel[i][pcur[i]]->index;
+				bga[channel[i][pcur[i]]->type] = j;
 				bga_updated = 1;
 			} else if(i == 20) {
-				if(channel[i][pcur[i]]->type) {
-					tmp = bpmtab[channel[i][pcur[i]]->index];
-				} else {
-					tmp = channel[i][pcur[i]]->index;
-				}
-				if(tmp) {
+				if(tmp = (channel[i][pcur[i]]->type ? bpmtab[j] : j)) {
 					starttime = t;
 					startoffset = bottom;
 					bpm = tmp;
@@ -1164,13 +1181,13 @@ int play_process() {
 			} else if(i == 21) {
 				if(t >= stoptime) stoptime = t;
 				if(channel[i][pcur[i]]->type) {
-					stoptime += channel[i][pcur[i]]->index;
+					stoptime += j;
 				} else {
-					stoptime += (int)(stoptab[channel[i][pcur[i]]->index] * 1250 * startshorten / bpm);
+					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
-			} else if(opt_mode && channel[i][pcur[i]]->type != 1 && sndres[channel[i][pcur[i]]->index]) {
-				j = Mix_PlayChannel(-1, sndres[channel[i][pcur[i]]->index], 0);
+			} else if(opt_mode && channel[i][pcur[i]]->type != 1 && sndres[j]) {
+				j = Mix_PlayChannel(-1, sndres[j], 0);
 				if(j >= 0) Mix_GroupChannel(j, 0);
 			}
 			pcur[i]++;
@@ -1180,7 +1197,7 @@ int play_process() {
 				j = channel[i][pcheck[i]]->type;
 				if(j < 0 || j == 1 || (j == 2 && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]]->time;
-				tmp = (line - tmp) * shorten[(int)tmp] / bpm;
+				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
 				if(tmp > 6e-4) {
 					scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
 					poorbga = t + 600; gradetime = t + 700;
@@ -1204,7 +1221,7 @@ int play_process() {
 						if(nchannel[i] && thru[i]) {
 							for(j=pcur[i]+1; channel[i][j]->type != 2; j--);
 							thru[i] = 0;
-							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm;
+							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
 							if(-6e-4 < tmp && tmp < 6e-4) {
 								channel[i][j]->type ^= -1;
 							} else {
@@ -1251,7 +1268,7 @@ int play_process() {
 							scocnt[0]++; scombo = 0; grademode = 0; gauge -= 12;
 							poorbga = t + 600; gradetime = t + 700;
 						} else if(channel[i][j]->type != 2) {
-							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm;
+							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
 							if(tmp < 0) tmp *= -1;
 							if(channel[i][j]->type >= 0 && tmp < 6e-4) {
 								if(channel[i][j]->type == 3) thru[i] = 1;
@@ -1276,7 +1293,9 @@ int play_process() {
 		}
 	}
 	if(bottom > length) {
-		if(opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1) return 0;
+		i = (!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING);
+		j = (opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1);
+		if(i && j) return 0;
 	} else if(bottom < -1) {
 		return 0;
 	}
@@ -1367,7 +1386,8 @@ int play_process() {
 	printstr(screen, tpanel1-94, 565, 1, buf+20, 0, 0x404040);
 	printstr(screen, 95, 538, 1, buf+34, 0, 0);
 	printstr(screen, 95, 522, 1, buf+45, 0, 0);
-	printchar(screen, 6+(t-origintime)*tpanel1/xduration, 549, 1, -1, 0x404040, 0x404040);
+	i = (t - origintime) * tpanel1 / xduration;
+	printchar(screen, 6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
 	if(!tpanel2 && !opt_mode) {
 		if(gauge > 512) gauge = 512;
 		i = (gauge<0 ? 0 : (gauge*400>>9) - (int)(160*startshorten*(1+bottom)) % 40);
