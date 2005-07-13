@@ -18,8 +18,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  *
  *
- * phase 8 (2005-07-14)
- * fixed some bugs (especially bga position), optimized common routines
+ * phase 9 (2005-07-14)
+ * credit scene was removed. optimized a lot.
  */
 
 #include <stdio.h>
@@ -33,7 +33,7 @@
 /******************************************************************************/
 /* constants, variables */
 
-char *v = "TokigunStudio Angolmois version 0.1 final (phase 8)";
+char *v = "TokigunStudio Angolmois version 0.1 final (phase 9)";
 
 typedef struct { double t; int m,i; } b_;
 typedef int i_[22];
@@ -118,12 +118,11 @@ int Bp() {
 						bm[i] = sc(s+j);
 					}
 					if(i/4==1 && x) bv[i-4] = atoi(s+j);
-					if(i==8) {
+					if(i==8)
 						if(x)
 							bb = atof(s+j);
 						else if((k=ki(s+j))+1 && is(s[j+2]))
 							bB[k] = atof(s+j+2);
-					}
 					if(i==9 && x) {
 						while(is(s[++j]));
 						if(s[j]) bv[4] = ki(s+j);
@@ -164,18 +163,15 @@ int Bp() {
 		qsort(bl, bn, sizeof(char*), BL);
 		for(i=0; i<bn; i++) {
 			x = atoi(bl[i]); y = x % 100; x /= 100;
-			if(y == 2) {
-				T[x+1] = atof(bl[i]+6);
-			} else {
+			if(y - 2) {
 				j = 6;
 				rs(bl[i], &j);
 				for(k=j; bl[i][k]; k++);
 				a = (k - j) / 2;
 				for(k=0; k<a; k++,j+=2) {
-					b = ki(bl[i]+j);
 					c = 8 + y%10 - y/10%2*9;
 					t = x + 1. * k / a;
-					if(b) {
+					if(b = ki(bl[i]+j)) {
 						if(y==1) B(18, t, 0, b);
 						if(y==3 && b/36<16 && b%36<16) B(20, t, 0, b/36*16+b%36);
 						if(y==4) B(19, t, 0, b);
@@ -185,13 +181,9 @@ int Bp() {
 						if(y==9) B(21, t, 0, b);
 						if(y%10 && y>9 && y<30) {
 							if(bv[4] && b==bv[4]) {
-								if(N[c] && !C[c][N[c]-1].m) {
-									C[c][N[c]-1].m = 3;
-									B(c, t, 2, b);
-								}
-							} else {
-								B(c, t, 0, b);
-							}
+								if(N[c] && !C[c][N[c]-1].m)
+									C[c][N[c]-1].m = 3, B(c, t, 2, b);
+							} else B(c, t, 0, b);
 						}
 						if(y%10 && y>29 && y<50) B(c, t, 1, b);
 					}
@@ -199,19 +191,17 @@ int Bp() {
 						if(bv[3] == 1 && b) {
 							B(c, t, 2 + !p[c], b *= !p[c]);
 							p[c] = b;
-						} else if(bv[3] == 2) {
-							if(p[c] || p[c]-b) {
-								if(p[c]) {
-									if(q[c]+1 < x) B(c, q[c]+1, 2, 0);
-									else if(p[c] - b) B(c, t, 2, 0);
-								}
-								if(b && (p[c]-b || q[c]+1<x)) B(c, t, 3, b);
-								q[c] = x; p[c] = b;
-							}
+						}
+						if(bv[3] == 2 && (p[c] || p[c]-b)) {
+							if(p[c])
+								if(q[c]+1 < x) B(c, q[c]+1, 2, 0);
+								else if(p[c] - b) B(c, t, 2, 0);
+							if(b && (p[c]-b || q[c]+1<x)) B(c, t, 3, b);
+							q[c] = x; p[c] = b;
 						}
 					}
 				}
-			}
+			} else T[x+1] = atof(bl[i]+6);
 			free(bl[i]);
 		}
 		free(bl);
@@ -222,20 +212,19 @@ int Bp() {
 		for(i=0; i<22; i++)
 			if(C[i]) {
 				qsort(C[i], N[i], sizeof(b_), BN);
-				if(i != 18 && i < 21) {
-					b = 0; t = -1;
-					for(j=0; j<=N[i]; j++) {
+				if(i-18 && i<21) {
+					t = -1;
+					for(b=j=0; j<=N[i]; j++) {
 						if(j == N[i] || C[i][j].t > t) {
 							if(t >= 0) {
-								c = 0;
-								for(; k<j; k++) {
+								for(c=0; k<j; k++) {
 									r = 1<<C[i][k].m;
-									if(i<18 ? (c & r) || (b ? !(a&4) || r<4 : r != ((a&12)-8 ? a&1 ? 1 : 2 : 8)) : i-19 ? c : c & r)
+									if(i<18 ? (c&r) || (b ? !(a&4) || r<4 : r-((a&12)-8 ? a&1 ? 1 : 2 : 8)) : i-19 ? c : c&r)
 										Br(i, k);
 									else
 										c |= r;
 								}
-								b = b ? (a&12)!=4 : (a&12)==8;
+								b = b ? (a&12)-4 : (a&12)==8;
 							}
 							if(j == N[i]) break;
 							a = 0;
@@ -274,7 +263,7 @@ Bs(int x, int y) {
 	b_ *s, *r[18]={0,};
 	i_ n={0,}, m, p, q={0,}, u={0,}, g, v, w;
 	int o, i, j, k, f=1;
-	double t;
+	double t, z;
 
 	for(i=0; i<18; i++)
 		m[i] = (!y||i/9+y-2) && (i%9>6 ? N[7]+N[8]+N[16]+N[17] : i%9-6 ? x==3 || x==5 || (i+2)%9<7 : N[6]+N[15]) ? i : -1, p[i] = i;
@@ -287,42 +276,32 @@ Bs(int x, int y) {
 			s = C[m[i]]; C[m[i]] = C[m[j = x<2 ? o-i-1 : rand()%i]]; C[m[j]] = s;
 			k = N[m[i]]; N[m[i]] = N[m[j]]; N[m[j]] = k;
 		}
-	else {
+	else
 		while(f) {
-			for(i=o-1; i>0; i--) {
-				k = p[i]; p[i] = p[j=rand()%i]; p[j] = k;
-			}
-			t = 9e9;
-			for(f=i=0; i<o; i++)
-				if(g[i] = q[m[i]] < N[m[i]]) {
-					f = 1;
-					if(t > C[m[i]][q[m[i]]].t)
-						t = C[m[i]][q[m[i]]].t - 1e-9;
+			t = 9e9; f = 0;
+			for(i=o-1; i>=0; i--) {
+				if(i) {
+					k = p[i]; p[i] = p[j=rand()%i]; p[j] = k;
 				}
-			t += 2e-9;
+				if(g[i] = q[m[i]] < N[m[i]]) {
+					f = 1; z = C[m[i]][q[m[i]]].t;
+					t = t>z ? z : t;
+				}
+			}
 			for(i=0; i<o; i++)
-				g[i] &= C[m[i]][q[m[i]]].t <= t;
-			for(i=0; i<o; i++) {
-				if(g[i]) {
+				if(g[i] && C[m[i]][q[m[i]]].t < t + 1e-9) {
 					k = C[m[i]][q[m[i]]].m;
-					if(k == 2)
-						u[j = v[i]] = 2;
-					else {
+					if(k-2) {
 						for(j=p[i]; u[j]; j=p[w[j]]);
 						if(k == 3) v[i]=j, w[j]=i, u[j]=1;
-					}
+					} else u[j = v[i]] = 2;
 					r[j] = realloc(r[j], sizeof(b_) * (n[j]+1));
 					r[j][n[j]++] = C[m[i]][q[m[i]]++];
 				}
-			}
-			for(i=0; i<o; i++) u[i] *= u[i] != 2;
+			for(i=0; i<o; i++)
+				if(f) u[i] *= u[i] != 2;
+				else { free(C[m[i]]); C[m[i]] = r[i]; N[m[i]] = n[i]; }
 		}
-		for(i=0; i<o; i++) {
-			free(C[m[i]]);
-			C[m[i]] = r[i];
-			N[m[i]] = n[i];
-		}
-	}
 }
 
 /******************************************************************************/
@@ -332,10 +311,7 @@ Uint32*gg(SDL_Surface*s,int x,int y){return(Uint32*)s->pixels+x+y*s->pitch/4;}
 int gb(int x,int y,int a,int b){int i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y;}
 SDL_Surface*gs(int f,int w,int h){return SDL_CreateRGBSurface(f,w,h,32,255<<16,65280,255,0);}
 SDL_Rect*R(int x,int y,int w,int h){SDL_Rect*r=gR+gr++%2;r->x=x;r->y=y;r->w=w;r->h=h;return r;}
-
-int gI(int x, int y) {
-	return (x<y ? ((y*y - 2*x*x + x*x/y*x) << 11)/y/y : x<y*2 ?  ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << 11)/y/y : 0);
-}
+int gI(int x,int y){return x<y?((y*y-2*x*x+x*x/y*x)<<11)/y/y:x<y*2?((4*y*y-8*x*y+5*x*x-x*x/y*x)<<11)/y/y:0;}
 
 /******************************************************************************/
 /* font functions */
@@ -393,11 +369,10 @@ int mi() {
 					l = 0;
 					for(m=j-1; m<j+2; m++)
 						l = (l<<3) | (m>>4?0:Fr[m][i]<<k>>6&7);
-					if((i==3 || i==20) && (k+6)&4)
-						l |= ((l&146)>>1)*5;
-					if(l & 16) {
+					l |= (i==3 || i==20) && (k+6)&4 ? ((l&146)>>1)*5 : 0;
+					if(l & 16)
 						FP(k, j, z, i, 1);
-					} else {
+					else {
 						FP(k, j, z, i, ((l&218)==10 || (l&63)==11) * 2);
 						FP(k, j, z, i, ((l&434)==34 || (l&63)==38) * 3);
 						FP(k, j, z, i, ((l&155)==136 || (l&504)==200) * 4);
@@ -489,7 +464,7 @@ int ms() {
 	char c[256];
 	int i, j, t;
 
-	sprintf(c, "%s: %s - %s", v, bm[2], bm[0]);
+	sprintf(c, "%s: %s - %s", v, bm[2], *bm);
 	SDL_WM_SetCaption(c, 0);
 	F(s, 248, 284, 2, "loading bms file...", 0x202020, 0x808080);
 	SDL_Flip(s);
@@ -501,10 +476,9 @@ int ms() {
 		d = SDL_DisplayFormat(e);
 		w = s->w - 1; h = s->h - 1;
 		for(i=u=x=0; i<=w; i++) {
-			v = y = 0;
 			for(k=x; k<x+4; k++)
 				p[k-x] = gI(abs(k*w+i-w-i*d->w), w);
-			for(j=0; j<=h; j++) {
+			for(j=v=y=0; j<=h; j++) {
 				r = g = b = 0;
 				for(l=y; l<y+4; l++)
 					q[l-y] = gI(abs(l*h+j-h-j*d->h), h);
@@ -530,7 +504,7 @@ int ms() {
 			for(j=0; j<600; j++)
 				if(j<42 || j>579)
 					*gg(s, i, j) = 0xc0c0c + ((*gg(s, i, j) & 0xfcfcfc) >> 2);
-		F(s, 6, 4, 2, bm[0], 0x808080, 0xffffff);
+		F(s, 6, 4, 2, *bm, 0x808080, 0xffffff);
 		for(i=0; bm[1][i]; i++);
 		for(j=0; bm[2][j]; j++);
 		F(s, 792-8*i, 4, 1, bm[1], 0x808080, 0xffffff);
@@ -591,11 +565,10 @@ int mP() {
 		for(; Pr[i]<N[i] && C[i][Pr[i]].t<=y; Pr[i]++);
 		for(; P[i]<N[i] && C[i][P[i]].t<x; P[i]++) {
 			j = C[i][P[i]].i;
-			if(i == 18)
-				if(bS[j]) {
-					if((j = Mix_PlayChannel(-1, bS[j], 0)) >= 0)
-						Mix_Volume(j, 96), Mix_GroupChannel(j, 1);
-				} else if(bs[j] && (!bM || SMPEG_status(bM) != SMPEG_PLAYING)) {
+			if(i == 18) {
+				if(bS[j] && (j = Mix_PlayChannel(-1, bS[j], 0)) >= 0)
+					Mix_Volume(j, 96), Mix_GroupChannel(j, 1);
+				if(bs[j] && (!bM || SMPEG_status(bM) != SMPEG_PLAYING)) {
 					if(bM) {
 						Mix_HookMusic(0, 0);
 						SMPEG_delete(bM);
@@ -607,6 +580,7 @@ int mP() {
 						SMPEG_play(bM);
 					}
 				}
+			}
 			if(i == 19)
 				Pb[C[i][P[i]].m] = j, Pv = 1;
 			if(i == 20 && (u = (C[i][P[i]].m ? bB[j] : j)))
@@ -632,13 +606,12 @@ int mP() {
 			if(k == SDLK_ESCAPE) return 2;
 			for(i=0; !*o && i<18; i++)
 				if(tl[i] >= 0 && k == tK[i]) {
-					tk[i] = 0;
 					if(N[i] && Pu[i]) {
 						for(j=P[i]+1; C[i][j].m-2; j--);
-						Pu[i] = 0;
 						u = (C[i][j].t - x) * T[z] / bb * Sf * 1e4;
 						if(-6 < u && u < 6) C[i][j].m ^= -1; else mg(0);
 					}
+					tk[i] = Pu[i] = 0;
 				}
 		}
 		if(V.type == SDL_KEYDOWN) {
@@ -652,22 +625,18 @@ int mP() {
 					if(N[i]) {
 						j = P[i] - !(P[i]<1 || (P[i]<N[i] && C[i][P[i]-1].t+C[i][P[i]].t<2*x));
 						if(bS[C[i][j].i] && (l = Mix_PlayChannel(-1, bS[C[i][j].i], 0)) >= 0) Mix_GroupChannel(l, 0);
-						if(j < P[i]) {
-							while(j>=0 && C[i][j].m==1) j--;
-							if(j < 0) continue;
-						} else {
-							while(j<N[i] && C[i][j].m==1) j++;
-							if(j == N[i]) continue;
-						}
-						if(P[i]<N[i] && C[i][P[i]].m==2) mg(0);
-						if(C[i][j].m - 2) {
-							u = (C[i][j].t - x) * T[z] / bb * Sf * 1e5;
-							if(C[i][j].m >= 0 && (u = u<0 ? -u : u) < 60) {
-								l && Mix_GroupChannel(l, 1);
-								Pu[i] = C[i][j].m == 3;
-								C[i][j].m ^= -1;
-								mg(u<6 ? 4 : u<20 ? 3 : u<35 ? 2 : 1);
-								Sc += (int)((60 - u) * (5 + 5. * So / xn));
+						for(l=k=j<P[i]?-1:1; l && C[i][j].m==1; l=j>=0&&j<N[i]) j += k;
+						if(l) {
+							if(P[i]<N[i] && C[i][P[i]].m==2) mg(0);
+							if(C[i][j].m - 2) {
+								u = (C[i][j].t - x) * T[z] / bb * Sf * 1e5;
+								if(C[i][j].m >= 0 && (u = u<0 ? -u : u) < 60) {
+									l && Mix_GroupChannel(l, 1);
+									Pu[i] = C[i][j].m == 3;
+									C[i][j].m ^= -1;
+									mg(u<6 ? 4 : u<20 ? 3 : u<35 ? 2 : 1);
+									Sc += (int)((60 - u) * (5 + 5. * So / xn));
+								}
 							}
 						}
 					}
@@ -678,14 +647,11 @@ int mP() {
 
 	SDL_FillRect(s, R(0,30,t1,490), 0x404040);
 	if(t2) SDL_FillRect(s, R(t2,30,800-t2,490), 0x404040);
+	SDL_SetClipRect(s, R(0,30,800,490));
 	for(i=0; i<18; i++)
 		if(tl[i] >= 0) {
 			SDL_FillRect(s, R(tl[i],30,tw[i],490), 0);
 			if(tk[i]) SDL_BlitSurface(S, R(tl[i],140,tw[i],380), s, R(tl[i],140,0,0));
-		}
-	SDL_SetClipRect(s, R(0,30,800,490));
-	for(i=0; i<18; i++)
-		if(tl[i] >= 0) {
 			for(j=P[i]; j<Pr[i]; j++) {
 				k = (int)(525 - 400 * ps * jp(x, C[i][j].t));
 				m = C[i][j].m; m ^= -(m<0);
@@ -704,15 +670,8 @@ int mP() {
 				SDL_BlitSurface(S, R(800+tl[i%9],0,tw[i%9],490), s, R(tl[i],30,0,0));
 		}
 	for(i=z-1; i<y; i++) {
-		j = (int)(530 - 400 * ps * jp(x, i));
-		SDL_FillRect(s, R(0,j,t1,1), 0xc0c0c0);
+		SDL_FillRect(s, R(0, j = (int)(530 - 400 * ps * jp(x,i)), t1, 1), 0xc0c0c0);
 		if(t2) SDL_FillRect(s, R(t2,j,800-t2,1), 0xc0c0c0);
-	}
-	if(o[4]) {
-		for(i=P[20]; i<Pr[20]; i++)
-			SDL_FillRect(s, R(0,(int)(530-400*ps*jp(x,C[20][i].t)),t1,1), 0xffff00);
-		for(i=P[21]; i<Pr[21]; i++)
-			SDL_FillRect(s, R(0,(int)(530-400*ps*jp(x,C[21][i].t)),t1,1), 0x00ff00);
 	}
 	if(t < ST) {
 		for(i=0; tS[SM][i]; i++);
@@ -752,65 +711,6 @@ int mP() {
 /******************************************************************************/
 /* entry point */
 
-int mc() {
-	SDL_Surface *r;
-	char *d[] = {
-		"TokigunStudio Angolmois", "\"the Simple BMS Player\"", v + 24,
-		"Original Character Design from", "Project Angolmois", "by", "Choi Kaya (CHKY)", "[ http://angolmois.net/ ]",
-		"Programmed & Obfuscated by", "Kang Seonghoon (Tokigun)", "[ http://tokigun.net/ ]",
-		"Graphics & Interface Design by", "Kang Seonghoon (Tokigun)",
-		"Special Thanks to", "Park J. K. (mono*)", "Park Jiin (Mithrandir)", "Hye-Shik Chang (perky)",
-		"Greetings", "Kang Junho (MysticMist)", "Joon-cheol Park (exman)",
-		"Jae-kyun Lee (kida)", "Park Byeong-uk (Minan2DJ07)",
-		"Park Jaesong (klutzy)", "HanIRC #tokigun, #perky", "ToEZ2DJ.net",
-		"Powered by", "SDL, SDL_mixer, SDL_image", "gVim, Python", "and",
-		"DemiSoda Apple/Grape", "POCARISWEAT", "Shovel Works",
-		"Copyright (c) 2005, Kang Seonghoon (Tokigun).",
-		"This program is free software; you can redistribute it and/or",
-		"modify it under the terms of the GNU General Public License",
-		"as published by the Free Software Foundation; either version 2",
-		"of the License, or (at your option) any later version.",
-		"for more information, visit http://dev.tokigun.net/angolmois/.",
-	};
-	char f[] = "DNNTITITTITTIQFFFQFFFFFFFQFFEFFFKKKKKW";
-	int y[] = {
-		20, 80, 100, 200, 220, 255, 275, 310, 410, 430, 465, 580, 600, 800,
-		820, 855, 890, 1000, 1020, 1055, 1090, 1125, 1160, 1195, 1230, 1400,
-		1420, 1455, 1490, 1510, 1545, 1580, 2060, 2090, 2110, 2130, 2150, 2180
-	};
-	int c[] = {0x4040c0, 0x408040, 0x808040, 0x808080, 0x8080c0, 0x80c080, 0xc0c080, 0xc0c0c0};
-	int i, j, t = -750;
-
-	o[2] = 0;
-	if(mi()) return 1;
-	r = gs(SDL_SWSURFACE, 800, 2200);
-	SDL_FillRect(r, 0, 0x000010);
-	SDL_FillRect(r, R(0, 1790, 800, 410), 0);
-	for(i=1; i<16; i++)
-		SDL_FillRect(r, R(0, 1850-i*5, 800, 5), i);
-	for(i=0; i<38; i++) {
-		for(j=0; d[i][j]; j++);
-		F(r, 400-j*(f[i]%3+1)*4, y[i], f[i]%3+1, d[i], c[f[i]/3-22], 0xffffff);
-	}
-
-	SDL_FillRect(s, 0, 0x000010);
-	while(++t < 1820 && !xx()) {
-		SDL_BlitSurface(r, R(0,t,800,600), s, 0);
-		SDL_Flip(s);
-		SDL_Delay(20);
-	}
-	if(t == 1820) {
-		SDL_FillRect(s, R(0, 0, 800, 100), 0);
-		SDL_Flip(s);
-		t = SDL_GetTicks() + 8000;
-		while((int)SDL_GetTicks() < t && !xx());
-	}
-	
-	SDL_FreeSurface(r);
-	mf();
-	return 0;
-}
-
 int main(int c, char **v) {
 	char b[512]={0,};
 	int i, j, t, r, d;
@@ -830,7 +730,7 @@ int main(int c, char **v) {
 		}
 	for(t=r=0; --c>3; )
 		if(i = (c<22) * atoi(v[c])) tK[c-4] = i;
-	if(o[4]) return mc();
+	if(o[4]) return 2;
 
 	srand(time(0));
 	if(c > 1 || *b) {
@@ -884,11 +784,11 @@ int main(int c, char **v) {
 			tl[5] = t2 = 0; t1 = 171;
 			if(xf & 1) tl[7] = 171, tl[8] = 197, t1 += 52;
 			if(xf & 4) { tl[6] = t1; t1 += 41; }
-			if(bv[0] > 1) {
+			if(*bv > 1) {
 				for(i=0; i<9; i++)
 					tl[i+9] = tl[i] < 0 ? -1 : i-5 ? i-6 ? tl[i] + (xf&1 ? 537 : 589) : 760 - tl[6] : 760;
 				t2 = 800 - t1;
-				if(bv[0] == 3) {
+				if(*bv == 3) {
 					for(i=9; i<18; i++) tl[i] += t1 - t2;
 					t1 += 801 - t2; t2 = 0;
 				}
@@ -896,15 +796,13 @@ int main(int c, char **v) {
 			ta = ((t2 ? t2 : 800) + t1 - 256) / 2;
 			
 			S = gs(SDL_SWSURFACE, 1200, 600);
-			for(i=0; i<18; i++) {
+			for(i=0; i<18; i++)
 				if(tl[i] >= 0) {
 					for(j=140; j<520; j++)
 						SDL_FillRect(S, R(tl[i],j,tw[i],1), gb(tc[i], 0, j-140, 1000));
-					if(i < 9)
-						for(j=0; j*2<tw[i]; j++)
-							SDL_FillRect(S, R(800+tl[i]+j,0,tw[i]-2*j,600), gb(tc[i], 0xffffff, tw[i]-j, tw[i]));
+					for(j=0; i<9 && j*2<tw[i]; j++)
+						SDL_FillRect(S, R(800+tl[i]+j,0,tw[i]-2*j,600), gb(tc[i], 0xffffff, tw[i]-j, tw[i]));
 				}
-			}
 			for(j=-244; j<556; j++) {
 				for(i=-10; i<20; i++)
 					*gg(S, j+244, i+10) = gb(0xc0c0c0, 0x606060, 850 - abs((i*2+j*3+750) % 2000 - 1000), 700);
