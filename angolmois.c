@@ -18,8 +18,8 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  *
  *
- * phase 14 (2005-07-20)
- * variables were renamed, optimized under 15,000 bytes.
+ * phase 15 (2005-08-13)
+ * added simple credit page, finishing.
  */
 
 #include <stdio.h>
@@ -31,34 +31,34 @@
 #define Z(n)for(i=0;i<n;i++)
 
 /******************************************************************************/
-/* constants, variables */
 
 typedef int _;
 typedef struct { double t; _ m,i; } b_;
 typedef _ i_[22];
 typedef Uint8 *c_;
-typedef SDL_Rect *R_;
+typedef SDL_Rect R_;
 typedef SDL_Surface *S_;
 
 S_ IMG_Load(c_);
 size_t time(size_t*);
 
 c_ L, D[4], A[1296], bi[1296], tS[]={"MISS", "BAD", "GOOD", "GREAT", "COOL"}, _F[2600];
-char b[1536], bR[512], Fr[16][96], (*Fz[4])[96]={0,Fr};
+char b[4096], bR[512], Fr[16][96], (*Fz[4])[96]={0,Fr};
 double f=130, bb[1296], T[2005], ln, ps=1, E, po=-1, ph=1, Sf;
 _ (*bc)[8], bC, bt[1296], pT, pt, pp, pa, xf, xn, xs, xl, gr, PB, Pv=1, Sc, So, SO, ST, SM, Sg=256, t, J, _N, v, V, X, Y;
 i_ U={1,0,2,1}, _n, N, P, Q, Pc, Pu, Pb={-1,-1,0,-1}, Sn, o={0,1,1}, I, W, tc, tk,
 	tk={122,115,120,100,99,304,308,102,118,109,107,44,108,46,303,307,59,47},
-	tC={~0xffff, ~0xff00, ~0x00ff, 0xff00, 0x00ff}, K;
+	tC={~0xffff, ~0xff00, ~0x00ff, 0xff00, 0x00ff}, K,
+	Fa={218,63,434,63,155,504,182,504,16},
+	Fb={10,11,34,38,136,200,160,416,16};
 Mix_Chunk *bS[1296];
 S_ bI[1296], s, S, ss;
 SMPEG *M;
 b_ *C[22];
-SDL_Rect gR[2];
+R_ gR[2];
 SDL_AudioSpec AS={44100, MIX_DEFAULT_FORMAT, 2};
 
 /******************************************************************************/
-/* general functions */
 
 _ is(_ n){return!(n-9&&n-10&&n-13&&n-32);}
 _ sl(c_ s){_ i=0;while(*s++)i++;return i;}
@@ -68,7 +68,6 @@ sd(c_ s,c_ t){_ i=0,j=0;for(;*s;s++)if(*s>98)for(j=*s++-97;--j;t++)*t=t[34-*s];e
 H(void**x){if(*x)free(*x);*x=0;}
 
 /******************************************************************************/
-/* system dependent functions */
 
 c_ jP(c_);
 
@@ -85,143 +84,11 @@ c_ _j(c_ p){_ i;Z(_N){c_ a=_F[i],b=p;while(*a&&*b&&(64<*a&&*a<91?*a|32:*a)==(64<
 
 c_ jP(c_ p){_ i=0,j=0;for(;*p-47&&*p-92&&L[i];i++)j=(bR[i]=L[i])==__?i+1:j;for(;*p;p++)bR[j++]=*p-47&&*p-92?*p:__;bR[j]=0;return bR;}
 
-/******************************************************************************/
-/* bms parser */
-
-_ ki(c_ s){_ a;sprintf(b,"%.2s",s);a=strtol(b,&s,36);return*s?-1:a;}
+_ ki(c_ s){_ a;char b[4];sprintf(b,"%.2s",s);a=strtol(b,&s,36);return*s?-1:a;}
 _ BL(const void*a,const void*b){c_ A=*(c_*)a,B=*(c_*)b;_ i=0,j;for(;*A&&*B;i++)if(j=*A++-*B++)return i<6?j:-j;return*B-*A;}
 _ BN(const void*a,const void*b){b_*A=(b_*)a,*B=(b_*)b;return A->t>B->t?1:A->t<B->t?-1:A->m-B->m;}
 B(_ i,double t,_ m,_ j){b_ x={t,m,j};N[i]++[C[i]=realloc(C[i],sizeof(b_)*(N[i]+2))]=x;}
 Br(_ i,_ j){if(i<18&&C[i][j].i)B(18,C[i][j].t,0,C[i][j].i);C[i][j].m=-1;}
-
-_ Bp() {
-	FILE* o = fopen(L, "r");
-	_ i, j, k, a, b, c, r=1, g=1, x, y, n=0;
-	i_ p={0}, q={0};
-	double t;
-	char d[4096];
-	c_ *m=0, s=d+1, z, h[]={"title", "genre", "artist", "stagefile", "player", "playlevel", "rank", "lntype", "bpm", "lnobj", "wav", "bmp", "bga", "stop", "stp", "random", "if", "else", "endif"};
-	
-	Z(4) *(D[i]=malloc(1))=0;
-
-	if(!o) return 1;
-	for(_i(); fgets(d, 4096, o); )
-		if(*d == 35) {
-			Z(19) {
-				for(j=0; h[i][j] && (h[i][j]|32)==(s[j]|32); j++);
-				if(!h[i][j]) break;
-			}
-			x = is(s[j]);
-			r = i==15 && x && (j=abs(atoi(s+j))) ? rand()%j+1 : r;
-			if(g = i-16 || !x ? i-17 ? i-18 ? g : 1 : !g : r==atoi(s+j)) {
-				if(i<4 && rs(s, &j)) { H(D+i); D[i] = sc(s+j); }
-				if(i/4==1 && x) U[i-4] = atoi(s+j);
-				if(i==8) *(x ? &f : (k=ki(s+j))+1 && is(s[j+=2]) ? bb+k : &t) = atof(s+j);
-				if(i==9 && x && rs(s, &j)) U[4] = ki(s+j);
-				if(i/2==5 && (k=ki(s+j))+1) {
-					j += 2;
-					if(rs(s, &j)) {
-						c_ *x = k + (i%2 ? bi : A);
-						H(x); *x = sc(s+j);
-					}
-				}
-				if(i==12) {
-					k = bC;
-					k[bc = realloc(bc, sizeof(_) * 8 * (k+1))][0] = ki(s+j);
-					if(is(s[j+=2]) && rs(s, &j)) {
-						bc[k][1] = ki(s+j);
-						z = s + j + 2;
-						for(j=2; *z && j<8; k+=++j>7)
-							bc[k][j] = strtol(z, &z, 10);
-					}
-					bC-k ? (bC = k) : (bc[k][0] = -1);
-				}
-				if(i==13 && (k=ki(s+j))+1 && is(s[j+=2])) bt[k] = atoi(s+j);
-				if(i==14 && sscanf(s+j, "%d.%d %d", &i, &j, &k)>2) B(21, i+j/1e3, 1, k);
-				
-				strtol(s, &z, 10);
-				if(s+5==z && s[5]==58 && s[6])
-					n++[m = realloc(m, sizeof(c_) * (n+1))] = sc(s);
-			}
-		}
-	fclose(o);
-
-	qsort(m, n, sizeof(c_), BL);
-	Z(n) {
-		x = atoi(*m); y = x % 100; x /= 100;
-		if(y - 2) {
-			j = 6;
-			rs(*m, &j);
-			a = (sl(*m) - j) / 2;
-			for(k=0; k<a; k++,j+=2) {
-				c = 8 + y%10 - y/10%2*9;
-				t = x + 1. * k / a;
-				b = ki(*m+j);
-				if(b > 0) {
-					if(y<10 && !is(c=" 6 <9 ;:=?"[y]))
-						B(c/3, t, c%3, y-3 ? b : b/36*16+b%36);
-					if(y%10 && y>9 && y<30)
-						if(!U[4] || b-U[4])
-							B(c, t, 0, b);
-						else if(N[c] && !C[c][N[c]-1].m)
-							C[c][N[c]-1].m = 3, B(c, t, 2, b);
-					if(y%10 && y>29 && y<50) B(c, t, 1, b);
-				}
-				if(y%10 && y>49 && y<70) {
-					if(U[3] == 1 && b) {
-						B(c, t, 2 + !p[c], b *= !p[c]);
-						p[c] = b;
-					}
-					if(U[3] == 2 && (p[c] || p[c]-b)) {
-						if(p[c])
-							if(q[c]+1 < x) B(c, q[c]+1, 2, 0);
-							else if(p[c] - b) B(c, t, 2, 0);
-						if(b && (p[c]-b || q[c]+1<x)) B(c, t, 3, b);
-						q[c] = x; p[c] = b;
-					}
-				}
-			}
-		} else T[x+1] = atof(*m+6);
-		H(m++);
-	}
-	free(m-n);
-	ln = x + 2;
-	Z(18) if(p[i]) B(i, U[3]==2 && q[i]+1<x ? q[i]+1 : ln-1, 2, 0);
-	
-	Z(22)
-		if(C[i]) {
-			qsort(C[i], N[i], sizeof(b_), BN);
-			if(i-18 && i<21) {
-				t = -1;
-				for(b=j=0; j<=N[i]; a|=1<<C[i][j++].m)
-					if(j == N[i] || C[i][j].t > t) {
-						if(t >= 0) {
-							for(c=0; k<j; k++) {
-								r = 1<<C[i][k].m;
-								if(i<18 ? (c&r) || (b ? !(a&4) || r<4 : r-((a&12)-8 ? a&1 ? 1 : 2 : 8)) : i-19 ? c : c&r)
-									Br(i, k);
-								else
-									c |= r;
-							}
-							b = b ? (a&12)-4 : (a&12)==8;
-						}
-						a = 0;
-						t = C[i][k=j].t;
-					}
-				if(i<18 && b) {
-					while(j >= 0 && C[i][--j].t<0);
-					if(j >= 0 && C[i][j].m == 3) Br(i, j);
-				}
-				for(j=k=0; j<N[i]; j++)
-					if(C[i][j].m<0) k++; else C[i][j-k] = C[i][j];
-				N[i] -= k;
-			}
-		}
-
-	Z(2005) if(T[i] < .01) T[i] = 1;
-
-	return 0;
-}
 
 _ jp(double t, double u) {
 	_ i=(_)(t+1), j=(_)(u+1);
@@ -230,13 +97,12 @@ _ jp(double t, double u) {
 }
 
 /******************************************************************************/
-/* general graphic functions */
 
 Uint32*gg(S_ s,_ x,_ y){return(Uint32*)s->pixels+x+y*s->pitch/4;}
 _ gb(_ x,_ y,_ a,_ b){_ i=0;for(;i<24;i+=8)y+=((x>>i&255)-(y>>i&255))*a/b<<i;return y;}
 S_ gs(_ w,_ h){return SDL_CreateRGBSurface(0,w,h,32,255<<16,65280,255,0);}
-R_ R(_ x,_ y,_ w,_ h){R_ r=gR+gr++%2;r->x=x;r->y=y;r->w=w;r->h=h;return r;}
-G(S_ c,R_ r,S_ d,_ x,_ y){d?SDL_BlitSurface(c,r,d,R(x,y,0,0)):c?y?SDL_SetColorKey(c,20480,0):SDL_FillRect(c,r,x):SDL_SetClipRect(s,r);}
+R_*R(_ x,_ y,_ w,_ h){R_*r=gR+gr++%2;r->x=x;r->y=y;r->w=w;r->h=h;return r;}
+G(S_ c,R_*r,S_ d,_ x,_ y){d?SDL_BlitSurface(c,r,d,R(x,y,0,0)):c?y?SDL_SetColorKey(c,20480,0):SDL_FillRect(c,r,x):SDL_SetClipRect(s,r);}
 _ gi(_ x,_ y){return((x<y?y*y-2*x*x+x*x/y*x:x<y*2?4*y*y-8*x*y+5*x*x-x*x/y*x:0)<<11)/y/y;}
 gf(S_ x){if(x)SDL_FreeSurface(x);}
 _ O(_ n){return n?n>1?!M||SMPEG_status(M)>0:SDL_Flip(s):SDL_GetTicks();}
@@ -289,36 +155,6 @@ void mf(void) {
 	SDL_Quit();
 }
 
-_ mi() {
-	_ z, i, j, k, l, m, n, p;
-	i_ a={218,63,434,63,155,504,182,504,16},c={10,11,34,38,136,200,160,416,16};
-
-	if(SDL_Init(48)<0 || !(s = SDL_SetVideoMode(800, 600, 32, o[2]<<31)) || Mix_OpenAudio(44100, AS.format, 2, 2048)<0) return 1;
-	SDL_ShowCursor(0);
-	SDL_WM_SetCaption("TokigunStudio Angolmois", 0);
-	atexit(mf);
-
-	sd("##k#;C$)i/%;#&;#&;#$l=jBS#lPa$n<>RPB;[ZY>&jbfma$lqeog#;S#hte+g#jq[S)>OPV=Q<I>^#iRe=3#j~#C#%aOY=K\\V%NPY=aC#%fuC(Y;)#evF0W#grY#e#G#kQ##C$Y?F2Y$e%Y#&gqb('m#b$fy;S&e#;C$#;#e&gdC$&)/#ftC$hha/Y;F$e1eBjtf>fFi2eza$g%iBhkkql2S#krfvF\\&hrg.b/#n2C\\*mBb0S#)S#evjr1[D0I$e#b<C$iBC$);a0#obJ\\#*[#*;b$kr&[$qBRPZ?kR?S&./#g#b#hrF0Y;VPZ>J$e)iBY#e4e7YS$hrC$j#b$iRZ`ZBNP)fFhr&#g#eha#irIT)AS$*AO<)irfpb$guhraD$i#a$hrb$e~a$e&C$)hrA/V;C$Y<F0Y/A#hr_<)g_F<)BqRb$ire~f&F$irgbC$)kba'7:8$e#A$G2hr+SD0esb$ewj0$$h{r(b$i9#$)/;SC$%#jG_S#i#_#iI&/S$1S$1S$)iR_#&i#iB$0Y@aS$*a?Z;$$h~$1O<_C$g#htF$h#YS$%l2NPY=b<F0hra$hOrRF0I2iBfcg'hra/Y;C\\V#&#qBC$e#kBeeN`I2*/#hshdkbjDjb?S#j#jBY`Z=e#jR&#ei&#e#jTC$Y;IT)A[TI<hrC$);a$hriR;C$e%g$hr1OT);[*m2##S2fRb#esgre~g3F`&jBa#erb$)h@###;C$IBgBa$mBC$)i`##&)/;#j{jbhtirSHbJ1#qCikaT&)r#eQf61#f;S$jyb@C&?C&?C`*grh=gGjx$0I0?SD0F('j~F$e#V[$&;#&;l2eE+#mBNPY=b<&hb;CDBeu>OT)krgRF0I2jra0Y;C$f#jba/);a/S#oBfUa$jEb#hcb/S#&#", b);
-	Z(1536) Fr[i%16][i/16^14] = b[i];
-	for(z=2; z<4; z++) {
-		Fz[z] = malloc(1536*z*z);
-		Z(1536*z*z) i[(c_)Fz[z]] = 0;
-		Z(96)
-			for(j=0; j<16; j++)
-				for(k=0; k<8; k++) {
-					l = 0;
-					for(m=j-1; m<j+2; m++)
-						l = l<<3 | (m>>4 ? 0 : Fr[m][i]<<k>>6&7);
-					l |= !(i-3 && i-20) && (k+6)&4 ? (l&146)/2*5 : 0;
-					for(m=0; m<9; m++)
-						for(n=0; (l&a[m])==c[m] && n<z; n++)
-							for(p=m/2?m/2-2?0:n+1:z-n; p<(m/2-1?m/2-3?z:z-n-1:n); p++)
-								Fz[z][(j*z+n)*z+p][i] |= 1<<(7-k);
-				}
-	}
-	return 0;
-}
-
 mS(c_ p) {
 	if(o[1]) {
 		G(ss, R(0,0,800,20), s, 0, 580);
@@ -343,17 +179,16 @@ _ mp(_ x, _ y){
 }
 
 /******************************************************************************/
-/* entry point */
 
 _ main(_ c, char **cc) {
 	S_ n;
-	char b[512]="";
-	_ *h, i, j, k, l, m, q, r, d, x, z;
+	char BB[999]="";
+	_ *h, i, j, k, l, m, q, r, d, x, y, z;
 	double p=-1, e, g;
 
 	Z(8) K[i] = i * 0x202020;
 
-	if(c < 2 || !*cc[1]) _o(b);
+	if(c < 2 || !*cc[1]) _o(BB);
 	ps = c>2 && (e=atof(cc[2]))>0 ? e<.1 ? .1 : e>99 ? 99 : e : 1;
 	if(c > 3)
 		for(j=0; i=cc[3][j]; j++) {
@@ -363,16 +198,164 @@ _ main(_ c, char **cc) {
 			if(q == 'w') o[2] = !r;
 			o[3] = q-'m' ? q-'s' ? q-'r' ? o[3] : 4+!r : 2+!r : 1;
 			if(i/3 == 16) U[3] = i - 48;
-			o[4] |= j == 42 && i == 42;
 		}
 	for(q=r=0; --c>3; )
 		if(i = (c<22) * atoi(cc[c])) tk[c-4] = i;
-	if(o[4]) return 2;
 
 	srand(time(0));
-	if(c < 2 && !*b) return 0;
-	L = *b ? b : cc[1];
-	if(mi() || Bp()) return 1;
+	if(c < 2 && !*BB) {
+		sd("7`Y=L@9@Q0(@X49=R$53Q@Y>OXY>L0*+PW%+WD9<C/8=P$*>H$E300(+3T9;\\8I?-KS6UHY<L\\9;O$U3K(I?D0)@H,*+'8Y?L@I>C;I?RXI%C#e#3,Z>M8Y;W$mqEH*eQRH)+.(9AD$%-&DW5<HE%eHJ,:;PX9<G$E,C_G;I8Z?F()@e/EH*gg.(I>J$U7H`I>JDY>R\\)+K3X>NHY<X\\9--38<V$mI3(I?N$E5D8Y?eKCCU=O8*@]H:-lc-8J>K`)+KW7AV4:=FX7=V4:--KS7S8Y;L()>C3(=D\\Y=V$%@R$mkQ#U5Q#%-P`I>RL%hhh9LHI>egL4*=U(I>GHI?h=+H:<P/(=LP)+&$ekJ$%-S8I?NH:--?G?H8)@L\\Y<V$gy-`Y>QXU;K8Y>O$hmK7)AP(I>h~-(9<PO9AX\\)+/89<CCU=L49;h{gK%H:<R\\Y<P7*eU0HI>D\\I/'L'/Z#iBXLJAO8)@C/'=X\\Y<glF3Z>NHY<elD4*++(I>,,X3Q_I?h=7`94=$e^Q[9<WLC%)`I?CWY>U8)+L\\I<R,:>D4:=R\\).C;:=VH)@CC)@W$J1R_%<H<J.ipfVR'I>J`)>P`9=V`E.##",b);
+		puts(b);
+		return 0;
+	}
+	L = *BB ? BB : cc[1];
+	if(SDL_Init(48)<0 || !(s = SDL_SetVideoMode(800, 600, 32, o[2]<<31)) || Mix_OpenAudio(44100, AS.format, 2, 2048)<0) return 1;
+	SDL_ShowCursor(0);
+	SDL_WM_SetCaption("TokigunStudio Angolmois", 0);
+	atexit(mf);
+
+	sd("##k#;C$)i/%;#&;#&;#$l=jBS#lPa$n<>RPB;[ZY>&jbfma$lqeog#;S#hte+g#jq[S)>OPV=Q<I>^#iRe=3#j~#C#%aOY=K\\V%NPY=aC#%fuC(Y;)#evF0W#grY#e#G#kQ##C$Y?F2Y$e%Y#&gqb('m#b$fy;S&e#;C$#;#e&gdC$&)/#ftC$hha/Y;F$e1eBjtf>fFi2eza$g%iBhkkql2S#krfvF\\&hrg.b/#n2C\\*mBb0S#)S#evjr1[D0I$e#b<C$iBC$);a0#obJ\\#*[#*;b$kr&[$qBRPZ?kR?S&./#g#b#hrF0Y;VPZ>J$e)iBY#e4e7YS$hrC$j#b$iRZ`ZBNP)fFhr&#g#eha#irIT)AS$*AO<)irfpb$guhraD$i#a$hrb$e~a$e&C$)hrA/V;C$Y<F0Y/A#hr_<)g_F<)BqRb$ire~f&F$irgbC$)kba'7:8$e#A$G2hr+SD0esb$ewj0$$h{r(b$i9#$)/;SC$%#jG_S#i#_#iI&/S$1S$1S$)iR_#&i#iB$0Y@aS$*a?Z;$$h~$1O<_C$g#htF$h#YS$%l2NPY=b<F0hra$hOrRF0I2iBfcg'hra/Y;C\\V#&#qBC$e#kBeeN`I2*/#hshdkbjDjb?S#j#jBY`Z=e#jR&#ei&#e#jTC$Y;IT)A[TI<hrC$);a$hriR;C$e%g$hr1OT);[*m2##S2fRb#esgre~g3F`&jBa#erb$)h@###;C$IBgBa$mBC$)i`##&)/;#j{jbhtirSHbJ1#qCikaT&)r#eQf61#f;S$jyb@C&?C&?C`*grh=gGjx$0I0?SD0F('j~F$e#V[$&;#&;l2eE+#mBNPY=b<&hb;CDBeu>OT)krgRF0I2jra0Y;C$f#jba/);a/S#oBfUa$jEb#hcb/S#&#", b);
+	Z(1536) Fr[i%16][i/16^14] = b[i];
+	for(z=2; z<4; z++) {
+		Fz[z] = malloc(1536*z*z);
+		Z(1536*z*z) i[(c_)Fz[z]] = 0;
+		Z(96)
+			for(j=0; j<16; j++)
+				for(k=0; k<8; k++) {
+					l = 0;
+					for(m=j-1; m<j+2; m++)
+						l = l<<3 | (m>>4 ? 0 : Fr[m][i]<<k>>6&7);
+					l |= !(i-3 && i-20) && (k+6)&4 ? (l&146)/2*5 : 0;
+					for(m=0; m<9; m++)
+						for(r=0; (l&Fa[m])==Fb[m] && r<z; r++)
+							for(q=m/2?m/2-2?0:r+1:z-r; q<(m/2-1?m/2-3?z:z-r-1:r); q++)
+								Fz[z][(j*z+r)*z+q][i] |= 1<<(7-k);
+				}
+	}
+	{	
+		FILE* o = fopen(L, "r");
+		i_ a={0}, c={0};
+		c_ *n=0, s=b+1, t, h[]={"title", "genre", "artist", "stagefile", "player", "playlevel", "rank", "lntype", "bpm", "lnobj", "wav", "bmp", "bga", "stop", "stp", "random", "if", "else", "endif"};
+		
+		Z(4) *(D[i]=malloc(1))=0;
+		r = d = 1; z = 0;
+
+		if(!o) return 1;
+		for(_i(); fgets(b, 4096, o); )
+			if(*b == 35) {
+				Z(19) {
+					for(j=0; h[i][j] && (h[i][j]|32)==(s[j]|32); j++);
+					if(!h[i][j]) break;
+				}
+				x = is(s[j]);
+				r = i==15 && x && (j=abs(atoi(s+j))) ? rand()%j+1 : r;
+				if(d = i-16 || !x ? i-17 ? i-18 ? d : 1 : !d : r==atoi(s+j)) {
+					if(i<4 && rs(s, &j)) { H(D+i); D[i] = sc(s+j); }
+					if(i/4==1 && x) U[i-4] = atoi(s+j);
+					if(i==8) *(x ? &f : (k=ki(s+j))+1 && is(s[j+=2]) ? bb+k : &e) = atof(s+j);
+					if(i==9 && x && rs(s, &j)) U[4] = ki(s+j);
+					if(i/2==5 && (k=ki(s+j))+1) {
+						j += 2;
+						if(rs(s, &j)) {
+							c_ *x = k + (i%2 ? bi : A);
+							H(x); *x = sc(s+j);
+						}
+					}
+					if(i==12) {
+						k = bC;
+						k[bc = realloc(bc, sizeof(_) * 8 * (k+1))][0] = ki(s+j);
+						if(is(s[j+=2]) && rs(s, &j)) {
+							bc[k][1] = ki(s+j);
+							t = s + j + 2;
+							for(j=2; *t && j<8; k+=++j>7)
+								bc[k][j] = strtol(t, &t, 10);
+						}
+						bC-k ? (bC = k) : (bc[k][0] = -1);
+					}
+					if(i==13 && (k=ki(s+j))+1 && is(s[j+=2])) bt[k] = atoi(s+j);
+					if(i==14 && sscanf(s+j, "%d.%d %d", &i, &j, &k)>2) B(21, i+j/1e3, 1, k);
+					
+					strtol(s, &t, 10);
+					if(s+5==t && s[5]==58 && s[6])
+						z++[n = realloc(n, sizeof(c_) * (z+1))] = sc(s);
+				}
+			}
+		fclose(o);
+
+		qsort(n, z, sizeof(c_), BL);
+		Z(z) {
+			x = atoi(*n); y = x % 100; x /= 100;
+			if(y - 2) {
+				j = 6;
+				rs(*n, &j);
+				l = (sl(*n) - j) / 2;
+				for(k=0; k<l; k++,j+=2) {
+					q = 8 + y%10 - y/10%2*9;
+					e = x + 1. * k / l;
+					m = ki(*n+j);
+					if(m > 0) {
+						if(y<10 && !is(q=" 6 <9 ;:=?"[y]))
+							B(q/3, e, q%3, y-3 ? m : m/36*16+m%36);
+						if(y%10 && y>9 && y<30)
+							if(!U[4] || m-U[4])
+								B(q, e, 0, m);
+							else if(N[q] && !C[q][N[q]-1].m)
+								C[q][N[q]-1].m = 3, B(q, e, 2, m);
+						if(y%10 && y>29 && y<50) B(q, e, 1, m);
+					}
+					if(y%10 && y>49 && y<70) {
+						if(U[3] == 1 && m) {
+							B(q, e, 2 + !a[q], m *= !a[q]);
+							a[q] = m;
+						}
+						if(U[3] == 2 && (a[q] || a[q]-m)) {
+							if(a[q])
+								if(c[q]+1 < x) B(q, c[q]+1, 2, 0);
+								else if(a[q] - m) B(q, e, 2, 0);
+							if(m && (a[q]-m || c[q]+1<x)) B(q, e, 3, m);
+							c[q] = x; a[q] = m;
+						}
+					}
+				}
+			} else T[x+1] = atof(*n+6);
+			H(n++);
+		}
+		free(n-z);
+		ln = x + 2;
+		Z(18) if(a[i]) B(i, U[3]==2 && c[i]+1<x ? c[i]+1 : ln-1, 2, 0);
+		
+		Z(22)
+			if(C[i]) {
+				qsort(C[i], N[i], sizeof(b_), BN);
+				if(i-18 && i<21) {
+					e = -1;
+					for(m=j=0; j<=N[i]; l|=1<<C[i][j++].m)
+						if(j == N[i] || C[i][j].t > e) {
+							if(e >= 0) {
+								for(q=0; k<j; k++) {
+									r = 1<<C[i][k].m;
+									if(i<18 ? (q&r) || (m ? !(l&4) || r<4 : r-((l&12)-8 ? l&1 ? 1 : 2 : 8)) : i-19 ? q : q&r)
+										Br(i, k);
+									else
+										q |= r;
+								}
+								m = m ? (l&12)-4 : (l&12)==8;
+							}
+							l = 0;
+							e = C[i][k=j].t;
+						}
+					if(i<18 && m) {
+						while(j >= 0 && C[i][--j].t<0);
+						if(j >= 0 && C[i][j].m == 3) Br(i, j);
+					}
+					for(j=k=0; j<N[i]; j++)
+						if(C[i][j].m<0) k++; else C[i][j-k] = C[i][j];
+					N[i] -= k;
+				}
+			}
+
+		Z(2005) if(T[i] < .01) T[i] = 1;
+	}
 
 	xf = 13 - !(N[7]+N[8]+N[16]+N[17]) - 4*!(N[6]+N[15]) - 8*!N[20];
 	Z(18)
@@ -405,7 +388,7 @@ _ main(_ c, char **cc) {
 				k = N[m[i]]; N[m[i]] = N[m[j]]; N[m[j]] = k;
 			}
 		else
-			for(r=1; r; ) {
+			do {
 				e = 9e9; r = 0;
 				for(i=x-1; i>=0; i--) {
 					if(i) {
@@ -427,7 +410,7 @@ _ main(_ c, char **cc) {
 				Z(x)
 					if(r) u[i] *= u[i] != 2;
 					else { H(C+m[i]); C[m[i]] = l[i]; N[m[i]] = n[i]; }
-			}
+			} while(r);
 	}
 
 	X = K[1]; Y = K[4];
@@ -436,7 +419,7 @@ _ main(_ c, char **cc) {
 
 	ss = gs(800, 20);
 	if(*(D[3]) && (n = gl(D[3]))) {
-		_ x, y, u, v, w=s->w-1, h=s->h-1, l, r, g, b, a, c, p[4], q;
+		_ u, v, w=s->w-1, h=s->h-1, l, r, g, b, a, c, p[4], q;
 
 		for(i=u=x=0; i<=w; i++) {
 			for(k=x; k<x+4; k++)
@@ -546,9 +529,8 @@ _ main(_ c, char **cc) {
 	E = ps;
 	Mix_AllocateChannels(128);
 	Z(22) P[i]=0;
-	Sf = 15e4 - U[2] / 25e3;
 
-	for(;; O(1)) {
+	for(Sf = 15e4 - U[2] / 25e3;; O(1)) {
 		double x, y, u;
 
 		if(pa) {
