@@ -1,7 +1,7 @@
 /*
- * Angolmois -- the Simple BMS Player
- * Copyright (c) 2005, Kang Seonghoon (Tokigun).
- * Project Angolmois is copyright (c) 2003-2005, Choi Kaya (CHKY).
+ * Angolmois -- the simple BMS player
+ * Copyright (c) 2005, 2007, 2009, Kang Seonghoon.
+ * Project Angolmois is copyright (c) 2003-2007, Choi Kaya (CHKY).
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,12 +24,14 @@
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <SDL_image.h>
+#ifdef USE_SMPEG
 #include <smpeg.h>
+#endif
+
+static const char VERSION[] = "Angolmois 2.0.0 alpha 0";
 
 /******************************************************************************/
 /* constants, variables */
-
-char *version = "TokigunStudio Angolmois version 0.1-beta2a-20050704";
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 #define SWAP(x,y,t) {(t)=(x);(x)=(y);(y)=(t);}
@@ -58,7 +60,9 @@ Mix_Chunk *sndres[1296]={0,};
 SDL_Surface *imgres[1296]={0,};
 int stoptab[1296]={0,};
 double bpmtab[1296]={0,};
+#ifdef USE_SMPEG
 SMPEG *mpeg=0;
+#endif
 
 typedef struct { double time; int type, index; } bmsnote;
 bmsnote **channel[22]={0,};
@@ -86,7 +90,7 @@ int filedialog(char *buf) {
 	return GetOpenFileName(&ofn);
 }
 int errormsg(char *c,char *s)
-	{ char b[512];sprintf(b,c,s);return MessageBox(0,b,version,0); }
+	{ char b[512];sprintf(b,c,s);return MessageBox(0,b,VERSION,0); }
 
 void dirinit() {}
 void dirfinal() {}
@@ -921,7 +925,7 @@ int initialize() {
 	SDL_ShowCursor(SDL_DISABLE);
 	if(Mix_OpenAudio(aformat.freq=44100, aformat.format=MIX_DEFAULT_FORMAT, aformat.channels=2, 2048)<0)
 		return errormsg("SDL Mixer Initialization Failure: %s", Mix_GetError());
-	SDL_WM_SetCaption(version, 0);
+	SDL_WM_SetCaption(VERSION, 0);
 
 	fontprocess(0);
 	fontprocess(2);
@@ -951,7 +955,9 @@ void finalize() {
 	free(blitcmd);
 
 	if(sprite) SDL_FreeSurface(sprite);
+#ifdef USE_SMPEG
 	if(mpeg) { SMPEG_stop(mpeg); SMPEG_delete(mpeg); }
+#endif
 	Mix_HookMusic(0, 0);
 	Mix_CloseAudio();
 	fontfinalize();
@@ -974,7 +980,7 @@ void play_show_stagefile() {
 	char buf[256];
 	int i, j, t;
 
-	sprintf(buf, "%s: %s - %s", version, metadata[2], metadata[0]);
+	sprintf(buf, "%s: %s - %s", VERSION, metadata[2], metadata[0]);
 	SDL_WM_SetCaption(buf, 0);
 	printstr(screen, 248, 284, 2, "loading bms file...", 0x202020, 0x808080);
 	SDL_Flip(screen);
@@ -1156,6 +1162,7 @@ int play_process() {
 					j = Mix_PlayChannel(-1, sndres[j], 0);
 					if(j >= 0) { Mix_Volume(j, 96); Mix_GroupChannel(j, 1); }
 				} else if(sndpath[j]) {
+#ifdef USE_SMPEG
 					if(!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING) {
 						if(mpeg) {
 							Mix_HookMusic(0, 0);
@@ -1168,6 +1175,7 @@ int play_process() {
 							SMPEG_play(mpeg);
 						}
 					}
+#endif
 				}
 			} else if(i == 19) {
 				bga[channel[i][pcur[i]]->type] = j;
@@ -1293,7 +1301,11 @@ int play_process() {
 		}
 	}
 	if(bottom > length) {
+#ifdef SMPEG
 		i = (!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING);
+#else
+		i = 1;
+#endif
 		j = (opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1);
 		if(i && j) return 0;
 	} else if(bottom < -1) {
@@ -1439,7 +1451,7 @@ int play() {
 int credit() {
 	SDL_Surface *credit;
 	char *s[] = {
-		"TokigunStudio Angolmois", "\"the Simple BMS Player\"", version + 24,
+		"TokigunStudio Angolmois", "\"the Simple BMS Player\"", VERSION + 10,
 		"Original Character Design from", "Project Angolmois", "by", "Choi Kaya (CHKY)", "[ http://angolmois.net/ ]",
 		"Programmed & Obfuscated by", "Kang Seonghoon (Tokigun)", "[ http://tokigun.net/ ]",
 		"Graphics & Interface Design by", "Kang Seonghoon (Tokigun)",
