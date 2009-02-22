@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
@@ -39,7 +40,7 @@ static const char VERSION[] = "Angolmois 2.0.0 alpha 0";
 static const char *bmsheader[] = {
 	"title", "genre", "artist", "stagefile", "bpm", "player", "playlevel",
 	"rank", "lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp", "random",
-	"if", "else", "endif"};
+	"if", "else", "endif", 0};
 static char *bmspath, respath[512];
 static char **bmsline = NULL;
 static int nbmsline = 0;
@@ -79,18 +80,21 @@ static char *adjust_path(char*); /* DUMMY */
 #include <windows.h>
 
 static const char sep = '\\';
-static char _ofnfilter[] =
-	"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
-	"Be-Music Source File (*.bms)\0*.bms\0"
-	"Extended Be-Music Source File (*.bme)\0*.bme\0"
-	"Longnote Be-Music Source File (*.bml)\0*.bml\0"
-	"All Files (*.*)\0*.*\0";
-static char _ofntitle[] = "Choose a file to play";
 
 static int filedialog(char *buf)
 {
-	OPENFILENAME ofn = {76, 0, 0, _ofnfilter, 0, 0, 0, buf, 512, 0, 0, 0,
-		_ofntitle, OFN_HIDEREADONLY, 0, 0, 0, 0, 0, 0};
+	OPENFILENAME ofn = {
+		.lStructSize = 76,
+		.lpstrFilter =
+			"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
+			"Be-Music Source File (*.bms)\0*.bms\0"
+			"Extended Be-Music Source File (*.bme)\0*.bme\0"
+			"Longnote Be-Music Source File (*.bml)\0*.bml\0"
+			"All Files (*.*)\0*.*\0",
+		.lpstrFile = buf,
+		.nMaxFile = 512,
+		.lpstrTitle = "Choose a file to play",
+		.Flags = OFN_HIDEREADONLY};
 	return GetOpenFileName(&ofn);
 }
 
@@ -195,14 +199,14 @@ static char *adjust_path(char *path)
 {
 	int i = 0, j = 0;
  
-	if (*path != 47 && *path != 92) {
+	if (*path != '/' && *path != '\\') {
 		while (bmspath[i]) {
 			respath[i] = bmspath[i];
 			if (respath[i++] == sep) j = i;
 		}
 	}
 	for (i = 0; *path; ++path) {
-		respath[j++] = (*path==47 || *path==92 ? sep : *path);
+		respath[j++] = (*path=='/' || *path=='\\' ? sep : *path);
 	}
 	respath[j] = 0;
 	return respath;
@@ -320,20 +324,21 @@ static int parse_bms(void)
 	int rnd = 1, ignore = 0;
 	int measure, chan;
 	double t;
-	char *line = malloc(1024);
+	char linebuf[1024];
+	char *line = linebuf;
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
 	dirinit();
 
 	srand(time(0));
-	while (fgets(line, 1024, fp)) {
+	while (fgets(line = linebuf, 1024, fp)) {
 		if (line[0] != '#') continue;
 		++line;
 
-		for (i = 0; i < ARRAYSIZE(bmsheader); ++i) {
+		for (i = 0; bmsheader[i]; ++i) {
 			for (j = 0; bmsheader[i][j]; ++j)
-				if ((bmsheader[i][j]|32) != (line[j]|32)) break;
+				if (((bmsheader[i][j] ^ line[j]) | 32) != 32) break;
 			if (!bmsheader[i][j]) break;
 		}
 
@@ -456,9 +461,7 @@ static int parse_bms(void)
 				++nbmsline;
 			}
 		}
-		--line;
 	}
-	free(line);
 	fclose(fp);
 
 	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
@@ -1758,6 +1761,26 @@ static int credit(void)
 
 int main(int argc, char **argv)
 {
+#if 0
+	char buf[512] = {0};
+	int i, j;
+
+	for (i = 1; i < argc; ++i) {
+		if (argv[i][0] != '-') {
+			break;
+		}
+		if (argv[i][1] == '-') {
+			fprintf(stderr, "%s: Unrecognized option: %s\n", argv[0], argv[i]);
+			return 1;
+		}
+
+		for (j = 1; argv[i][j]; ++j) {
+			switch (argv[i][j]) {
+			case 'v': /* viewer mode */
+			}
+	}
+#endif
+
 	char buf[512]={0};
 	int i, j, use_buf;
 
