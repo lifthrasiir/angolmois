@@ -45,7 +45,7 @@ static char *bmspath, respath[512];
 static char **bmsline = NULL;
 static int nbmsline = 0;
 
-static char *metadata[4] = {0};
+static char metadata[4][1024];
 static double bpm = 130;
 static int value[5] = {1, 0, 2, 1, 0};
 #define v_player value[0]
@@ -316,6 +316,8 @@ static void remove_note(int chan, int index)
 	}
 }
 
+#define KEY_PATTERN "%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]"
+
 static int parse_bms(void)
 {
 	FILE *fp;
@@ -324,7 +326,7 @@ static int parse_bms(void)
 	int rnd = 1, ignore = 0;
 	int measure, chan;
 	double t;
-	char linebuf[1024];
+	char linebuf[1024], buf1[1024], buf2[1024];
 	char *line = linebuf;
 
 	fp = fopen(bmspath, "r");
@@ -344,15 +346,15 @@ static int parse_bms(void)
 
 		switch (i) {
 		case 15: /* random */
-			if (is_space(line[j])) {
-				if (j = abs(atoi(line+j)))
-					rnd = rand() % j + 1;
+			if (sscanf(line+j, "%*[ ]%d", &j) >= 1) {
+				rnd = rand() % abs(j) + 1;
 			}
 			break;
 
 		case 16: /* if */
-			if (is_space(line[j]))
-				ignore = (rnd != atoi(line+j));
+			if (sscanf(line+j, "%*[ ]%d", &j) >= 1) {
+				ignore = (rnd != j);
+			}
 			break;
 
 		case 17: /* else */
@@ -363,24 +365,22 @@ static int parse_bms(void)
 			ignore = 0;
 			break;
 		}
-		
+
 		if (!ignore) {
 			switch (i) {
 			case 0: /* title */
 			case 1: /* genre */
 			case 2: /* artist */
 			case 3: /* stagefile */
-				if (!remove_whitespace(line, &j)) break;
-				metadata[i] = strcopy(line+j);
+				sscanf(line+j, "%*[ ]%s", metadata[i]);
 				break;
 
 			case 4: /* bpm */
-				if (is_space(line[j])) {
-					bpm = atof(line+j);
-				} else {
-					i = key2index(line+j);
-					if (i < 0 || !is_space(line[j+2])) break;
-					bpmtab[i] = atof(line+j+2);
+				if (sscanf(line+j, "%*[ ]%lf", &bpm) >= 1) {
+					/* do nothing, bpm is set */
+				} else if (sscanf(line+j, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2) {
+					i = key2index(buf1);
+					if (i >= 0) bpmtab[i] = t;
 				}
 				break;
 
@@ -388,77 +388,73 @@ static int parse_bms(void)
 			case 6: /* playlevel */
 			case 7: /* rank */
 			case 8: /* lntype */
-				if (is_space(line[j]))
-					value[i-5] = atoi(line+j);
+				sscanf(line+j, "%*[ ]%d", &value[i-5]);
 				break;
 
 			case 9: /* lnobj */
-				if (!is_space(line[j])) break;
-				while (is_space(line[++j]));
-				if (line[j])
-					lnobj = key2index(line+j);
+				if (sscanf(line+j, "%*[ ]" KEY_PATTERN, buf1) >= 1) {
+					lnobj = key2index(buf1);
+				}
 				break;
 
 			case 10: /* wav## */
-				i = key2index(line+j);
-				if (i < 0) break;
-				j += 2;
-				if (!remove_whitespace(line, &j)) break;
-				if (sndpath[i]) {
-					free(sndpath[i]);
-					sndpath[i] = 0;
+				if (sscanf(line+j, KEY_PATTERN "%*[ ]%s", buf1, buf2) >= 2) {
+					i = key2index(buf1);
+					if (i >= 0) {
+						if (sndpath[i]) {
+							free(sndpath[i]);
+							sndpath[i] = 0;
+						}
+						sndpath[i] = strcopy(buf2);
+					}
 				}
-				sndpath[i] = strcopy(line+j);
 				break;
 
 			case 11: /* bmp## */
-				i = key2index(line+j);
-				if (i < 0) break;
-				j += 2;
-				if (!remove_whitespace(line, &j)) break;
-				if (imgpath[i]) {
-					free(imgpath[i]);
-					imgpath[i] = 0;
+				if (sscanf(line+j, KEY_PATTERN "%*[ ]%s", buf1, buf2) >= 2) {
+					i = key2index(buf1);
+					if (i >= 0) {
+						if (imgpath[i]) {
+							free(imgpath[i]);
+							imgpath[i] = 0;
+						}
+						imgpath[i] = strcopy(buf2);
+					}
 				}
-				imgpath[i] = strcopy(line+j);
 				break;
 
 			case 12: /* bga## */
 				i = nblitcmd;
 				blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
-				blitcmd[i][0] = key2index(line+j);
-				if (!is_space(line[j += 2])) {
-					blitcmd[i][0] = -1;
-					break;
+				if (sscanf(line+j, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d%*[ ]%d%*[ ]%d%*[ ]%d%*[ ]%d%*[ ]%d",
+							buf1, buf2, blitcmd[i]+2, blitcmd[i]+3, blitcmd[i]+4,
+							blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) >= 8) {
+					blitcmd[i][0] = key2index(buf1);
+					blitcmd[i][1] = key2index(buf2);
+					if (blitcmd[i][0] >= 0 && blitcmd[i][1] >= 0) ++nblitcmd;
 				}
-				while (is_space(line[++j]));
-				blitcmd[i][1] = key2index(line+j);
-				if (sscanf(line+j+2, "%d %d %d %d %d %d", blitcmd[i]+2, blitcmd[i]+3,
-						blitcmd[i]+4, blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) < 6) {
-					blitcmd[i][0] = -1;
-				}
-				if (blitcmd[i][0] >= 0) ++nblitcmd;
 				break;
 
 			case 13: /* stop## */
-				i = key2index(line+j);
-				if (i < 0 || !is_space(line[j+2])) break;
-				stoptab[i] = atoi(line+j+2);
+				if (sscanf(line+j, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2) {
+					i = key2index(buf1);
+					if (i >= 0) stoptab[i] = j;
+				}
 				break;
 
 			case 14: /* stp## */
-				if (sscanf(line+j, "%d.%d %d", &i, &j, &k) < 3) break;
-				ADD_STP(i+j/1e3, k);
+				if (sscanf(line+j, "%d.%d%*[ ]%d", &i, &j, &k) >= 3) {
+					ADD_STP(i+j/1e3, k);
+				}
 				break;
-			}
 
-			for (i = 0; i < 5; ++i) {
-				if ((line[i]-8)/10 != 4) break;
-			}
-			if (i>4 && line[5]==58 && line[6]) {
-				bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
-				bmsline[nbmsline] = strcopy(line);
-				++nbmsline;
+			case 19: /* #####:... */
+				/* only check validity, do not store them yet */
+				if (sscanf(line+j, "%*5c:%c", buf1) >= 1) {
+					bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
+					bmsline[nbmsline] = strcopy(line);
+					++nbmsline;
+				}
 			}
 		}
 	}
@@ -603,12 +599,6 @@ static int parse_bms(void)
 		nchannel[i] -= k;
 	}
 
-	for (i = 0; i < 4; ++i) {
-		if (!metadata[i]) {
-			metadata[i] = malloc(1);
-			*metadata[i] = 0;
-		}
-	}
 	for (i = 0; i < 2005; ++i) {
 		if (_shorten[i] <= .001)
 			_shorten[i] = 1;
@@ -1149,9 +1139,6 @@ static void finalize(void)
 {
 	int i, j;
  
-	for (i = 0; i < 4; ++i) {
-		if (metadata[i]) free(metadata[i]);
-	}
 	for (i = 0; i < 1296; ++i) {
 		if (sndpath[i]) free(sndpath[i]);
 		if (imgpath[i]) free(imgpath[i]);
