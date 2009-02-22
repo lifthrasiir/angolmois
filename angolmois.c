@@ -197,34 +197,15 @@ static int is_space(int n)
 
 static char *adjust_path(char *path)
 {
-	int i = 0, j = 0;
- 
-	if (*path != '/' && *path != '\\') {
-		while (bmspath[i]) {
-			respath[i] = bmspath[i];
-			if (respath[i++] == sep) j = i;
-		}
-	}
-	for (i = 0; *path; ++path) {
-		respath[j++] = (*path=='/' || *path=='\\' ? sep : *path);
-	}
-	respath[j] = 0;
+	const char *pos1 = strrchr(bmspath, '/');
+	const char *pos2 = strrchr(bmspath, '\\');
+	int len1 = pos1 ? (pos1 - bmspath) + 1 : 0;
+	int len2 = pos2 ? (pos2 - bmspath) + 1 : 0;
+	int len = len1 > len2 ? len1 : len2;
+
+	memcpy(respath, bmspath, len);
+	strcpy(respath + len, path); /* XXX could be overflow */
 	return respath;
-}
-
-static int remove_whitespace(char *str, int *i)
-{
-	int j;
-
-	if (is_space(str[*i])) {
-		while (is_space(str[++*i]));
-		if (!str[*i]) return 0;
-	}
-
-	for (j = *i; str[j]; ++j);
-	while (is_space(str[--j]));
-	str[++j] = 0;
-	return 1;
 }
 
 static char *strcopy(const char *src)
@@ -321,10 +302,8 @@ static void remove_note(int chan, int index)
 static int parse_bms(void)
 {
 	FILE *fp;
-	int i, j, k, a, b, c;
-	int prev[40] = {0};
+	int i, j, k;
 	int rnd = 1, ignore = 0;
-	int measure, chan;
 	double t;
 	char linebuf[1024], buf1[1024], buf2[1024];
 	char *line = linebuf;
@@ -460,21 +439,27 @@ static int parse_bms(void)
 	}
 	fclose(fp);
 
-	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
-	for (i = 0; i < nbmsline; ++i) {
-		j = 0;
-		for (k = 0; k < 5; ++k)
-			j = j * 10 + bmsline[i][k] - 48;
+	return 0;
+}
 
+static int parse_bmsline(void)
+{
+	int prev[40] = {0};
+	int i, j, k, a, b, c;
+	int measure, chan;
+	double t;
+
+	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
+
+	for (i = 0; i < nbmsline; ++i) {
+		j = atoi(bmsline[i]);
 		measure = j / 100;
 		chan = j % 100;
 		if (chan == 2) {
 			shorten[measure] = atof(bmsline[i]+6);
 		} else {
-			j = 6;
-			remove_whitespace(bmsline[i], &j);
-			for (k = j; bmsline[i][k]; ++k);
-			a = (k - j) / 2;
+			j = 6 + strspn(bmsline[i]+6, " \t\r\n");
+			a = strcspn(bmsline[i]+j, " \t\r\n") / 2;
 			for (k = 0; k < a; ++k, j+=2) {
 				b = key2index(bmsline[i]+j);
 				t = measure + 1. * k / a;
@@ -549,6 +534,14 @@ static int parse_bms(void)
 		}
 	}
 
+	return 0;
+}
+
+static int sanitize_bmsline(void)
+{
+	int i, j, k, a, b, c;
+	double t;
+
 	for (i = 0; i < 22; ++i) {
 		if (!channel[i]) continue;
 		qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
@@ -603,6 +596,15 @@ static int parse_bms(void)
 		if (_shorten[i] <= .001)
 			_shorten[i] = 1;
 	}
+
+	return 0;
+}
+
+static int read_bms(void)
+{
+	if (parse_bms()) return 1;
+	if (parse_bmsline()) return 1;
+	if (sanitize_bmsline()) return 1;
 
 	return 0;
 }
@@ -1649,7 +1651,7 @@ static int play(void)
 
 	if (initialize()) return 1;
 
-	if (parse_bms()) {
+	if (read_bms()) {
 		finalize();
 		SDL_Quit();
 		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
