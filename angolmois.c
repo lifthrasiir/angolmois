@@ -426,7 +426,7 @@ static int parse_bms(void)
 			case 12: /* bga## */
 				i = nblitcmd;
 				blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
-				if (sscanf(line+j, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d%*[ ]%d%*[ ]%d%*[ ]%d%*[ ]%d%*[ ]%d",
+				if (sscanf(line+j, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
 							buf1, buf2, blitcmd[i]+2, blitcmd[i]+3, blitcmd[i]+4,
 							blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) >= 8) {
 					blitcmd[i][0] = key2index(buf1);
@@ -443,7 +443,7 @@ static int parse_bms(void)
 				break;
 
 			case 14: /* stp## */
-				if (sscanf(line+j, "%d.%d%*[ ]%d", &i, &j, &k) >= 3) {
+				if (sscanf(line+j, "%d.%d %d", &i, &j, &k) >= 3) {
 					ADD_STP(i+j/1e3, k);
 				}
 				break;
