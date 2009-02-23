@@ -378,7 +378,7 @@ static int parse_bms(void)
 				if (sscanf(line+j, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2) {
 					j = key2index(buf1);
 					if (j >= 0) {
-						if (paths[i-10][j]) free(paths[i-11][j]);
+						if (paths[i-10][j]) free(paths[i-10][j]);
 						paths[i-10][j] = strcopy(buf2);
 					}
 				}
