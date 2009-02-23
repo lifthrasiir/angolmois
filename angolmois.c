@@ -1384,7 +1384,7 @@ static void printstr(SDL_Surface *s, int x, int y, int z, const char *c, int u, 
 
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0;
-static double startoffset = -1, startshorten = 1;
+static double startoffset = -1 + 60, startshorten = 1;
 static int xflag, xnnotes, xscore, xduration;
 static int pcur[22] = {0}, pfront[22] = {0}, prear[22] = {0}, pcheck[18] = {0}, thru[22] = {0};
 static int bga[3] = {-1,-1,0}, poorbga = 0, bga_updated = 1;
@@ -1780,9 +1780,9 @@ static int play_process(void)
 							while (j < nchannel[i] && channel[i][j].type == 1) ++j;
 							if (j == nchannel[i]) continue;
 						}
-						if (pcur[i] < nchannel[i]) {
+						if (j < nchannel[i]) {
 							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
-							if (j < nchannel[i] && channel[i][j].type == 2) {
+							if (channel[i][j].type == 2) {
 								update_grade(0);
 							} else if (channel[i][j].type != 2 && channel[i][j].type >= 0) {
 								if (tmp < 0) tmp *= -1;
