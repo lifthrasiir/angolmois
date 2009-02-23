@@ -1830,16 +1830,18 @@ static int play_process(void)
 							while (j < nchannel[i] && channel[i][j]->type == 1) ++j;
 							if (j == nchannel[i]) continue;
 						}
-						if (pcur[i] < nchannel[i] && channel[i][pcur[i]]->type == 2) {
-							update_grade(0);
-						} else if (channel[i][j]->type != 2) {
+						if (pcur[i] < nchannel[i]) {
 							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
-							if (tmp < 0) tmp *= -1;
-							if (channel[i][j]->type >= 0 && tmp < 6e-4) {
-								if (channel[i][j]->type == 3) thru[i] = 1;
-								channel[i][j]->type ^= -1;
-								score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
-								update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
+							if (j < nchannel[i] && channel[i][j]->type == 2) {
+								update_grade(0);
+							} else if (channel[i][j]->type != 2 && channel[i][j]->type >= 0) {
+								if (tmp < 0) tmp *= -1;
+								if (channel[i][j]->type >= 0 && tmp < 6e-4) {
+									if (channel[i][j]->type == 3) thru[i] = 1;
+									channel[i][j]->type ^= -1;
+									score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
+									update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
+								}
 							}
 						}
 					}
