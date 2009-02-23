@@ -67,7 +67,7 @@ static SMPEG *mpeg = NULL;
 #endif
 
 typedef struct { double time; int type, index; } bmsnote;
-static bmsnote **channel[22];
+static bmsnote *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22] = {0};
 static double length;
@@ -266,32 +266,23 @@ static int compare_bmsline(const void *a, const void *b)
 
 static int compare_bmsnote(const void *a, const void *b)
 {
-	bmsnote *A = *(bmsnote**)a, *B = *(bmsnote**)b;
+	const bmsnote *A = a, *B = b;
 	return (A->time > B->time ? 1 : A->time < B->time ? -1 : A->type - B->type);
 }
 
 static void add_note(int chan, double time, int type, int index)
 {
-	bmsnote *temp;
-
-	temp = malloc(sizeof(bmsnote));
-	temp->time = time;
-	temp->type = type;
-	temp->index = index;
-
-	channel[chan] = realloc(channel[chan], sizeof(bmsnote*) * (nchannel[chan]+1));
+	bmsnote temp = {time, type, index};
+	channel[chan] = realloc(channel[chan], sizeof(bmsnote) * (nchannel[chan]+1));
 	channel[chan][nchannel[chan]++] = temp;
 }
 
 static void remove_note(int chan, int index)
 {
-	if (channel[chan][index]) {
-		if (chan < 18 && channel[chan][index]->index) {
-			ADD_BGM(channel[chan][index]->time, channel[chan][index]->index);
-		}
-		free(channel[chan][index]);
-		channel[chan][index] = 0;
+	if (chan < 18 && channel[chan][index].index) {
+		ADD_BGM(channel[chan][index].time, channel[chan][index].index);
 	}
+	channel[chan][index].type = -1;
 }
 
 #define KEY_PATTERN "%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]"
@@ -302,14 +293,14 @@ static int parse_bms(void)
 	int i, j, k;
 	int rnd = 1, ignore = 0;
 	double t;
-	char linebuf[1024], buf1[1024], buf2[1024];
+	char linebuf[4096], buf1[4096], buf2[4096];
 	char *line = linebuf;
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
 
 	srand(time(0));
-	while (fgets(line = linebuf, 1024, fp)) {
+	while (fgets(line = linebuf, sizeof linebuf, fp)) {
 		if (line[0] != '#') continue;
 		++line;
 
@@ -462,8 +453,8 @@ static int parse_bmsline(void)
 					} else if (chan % 10 != 0 && chan > 9 && chan < 30) {
 						if (lnobj && b == lnobj) {
 							c = GET_CHANNEL(chan>20, chan%10);
-							if (nchannel[c] && channel[c][nchannel[c]-1]->type==0) {
-								channel[c][nchannel[c]-1]->type = 3;
+							if (nchannel[c] && channel[c][nchannel[c]-1].type==0) {
+								channel[c][nchannel[c]-1].type = 3;
 								ADD_LNDONE(chan>20, chan%10, t, b);
 							}
 						} else {
@@ -525,27 +516,27 @@ static int sanitize_bmsline(void)
 
 	for (i = 0; i < 22; ++i) {
 		if (!channel[i]) continue;
-		qsort(channel[i], nchannel[i], sizeof(bmsnote*), compare_bmsnote);
+		qsort(channel[i], nchannel[i], sizeof(bmsnote), compare_bmsnote);
 		if (i != 18 && i < 21) {
 			b = 0;
 			t = -1;
 			for (j = 0; j <= nchannel[i]; ++j) {
-				if (j == nchannel[i] || channel[i][j]->time > t) {
+				if (j == nchannel[i] || channel[i][j].time > t) {
 					if (t >= 0) {
 						c = 0;
 						for (; k < j; ++k) {
 							if (
 								i<18 ?
-									(c & 1<<channel[i][k]->type) ||
+									(c & 1<<channel[i][k].type) ||
 									(b ?
-										(a&4)==0 || channel[i][k]->type < 2 :
-										channel[i][k]->type != ((a&12)==8 ? 3 : a&1 ? 0 : 1)
+										(a&4)==0 || channel[i][k].type < 2 :
+										channel[i][k].type != ((a&12)==8 ? 3 : a&1 ? 0 : 1)
 									)
-								: i==19 ? c & 1<<channel[i][k]->type : c
+								: i==19 ? c & 1<<channel[i][k].type : c
 							) {
 								remove_note(i, k);
 							} else {
-								c |= 1 << channel[i][k]->type;
+								c |= 1 << channel[i][k].type;
 							}
 						}
 						b = (b ? (a&12)!=4 : (a&12)==8);
@@ -553,18 +544,18 @@ static int sanitize_bmsline(void)
 					if (j == nchannel[i]) break;
 					a = 0;
 					k = j;
-					t = channel[i][j]->time;
+					t = channel[i][j].time;
 				}
-				a |= 1 << channel[i][j]->type;
+				a |= 1 << channel[i][j].type;
 			}
 			if (i<18 && b) {
-				while (j >= 0 && !channel[i][--j]);
-				if (j >= 0 && channel[i][j]->type == 3) remove_note(i, j);
+				while (j >= 0 && channel[i][--j].type < 0);
+				if (j >= 0 && channel[i][j].type == 3) remove_note(i, j);
 			}
 		}
 		k = 0;
 		for (j = 0; j < nchannel[i]; ++j) {
-			if (channel[i][j]) {
+			if (channel[i][j].type >= 0) {
 				channel[i][j-k] = channel[i][j];
 			} else {
 				++k;
@@ -660,8 +651,8 @@ static void get_bms_info(void)
 	if (nchannel[20]) xflag |= 8;
 	for (i = 0; i < 18; ++i) {
 		for (j = 0; j < nchannel[i]; ++j) {
-			if (channel[i][j]->type > 1) xflag |= 2;
-			if (channel[i][j]->type < 3) ++xnnotes;
+			if (channel[i][j].type > 1) xflag |= 2;
+			if (channel[i][j].type < 3) ++xnnotes;
 		}
 	}
 	for (i = 0; i < xnnotes; ++i) {
@@ -683,20 +674,20 @@ static int get_bms_duration(void)
 	pos = -1;
 	while (1) {
 		for (i = 0, j = -1; i < 22; ++i) {
-			if (pcur[i] < nchannel[i] && (j < 0 || channel[i][pcur[i]]->time < channel[j][pcur[j]]->time)) j = i;
+			if (pcur[i] < nchannel[i] && (j < 0 || channel[i][pcur[i]].time < channel[j][pcur[j]].time)) j = i;
 		}
 		if (j < 0) {
 			time += (int)(adjust_object_position(pos, length) * 24e7 / xbpm);
 			break;
 		}
-		time += (int)(adjust_object_position(pos, channel[j][pcur[j]]->time) * 24e7 / xbpm);
+		time += (int)(adjust_object_position(pos, channel[j][pcur[j]].time) * 24e7 / xbpm);
 
-		i = channel[j][pcur[j]]->index;
+		i = channel[j][pcur[j]].index;
 		ttime = 0;
 		if (j < 19) {
 			if (sndres[i]) ttime = (int)(sndres[i]->alen / .1764);
 		} else if (j == 20) {
-			tmp = (channel[j][pcur[j]]->type ? bpmtab[i] : i);
+			tmp = (channel[j][pcur[j]].type ? bpmtab[i] : i);
 			if (tmp > 0) {
 				xbpm = tmp;
 			} else if (tmp < 0) {
@@ -704,14 +695,14 @@ static int get_bms_duration(void)
 				break;
 			}
 		} else if (j == 21) {
-			if (channel[j][pcur[j]]->type) {
+			if (channel[j][pcur[j]].type) {
 				time += i;
 			} else {
 				time += (int)(stoptab[i] * 125e4 * shorten[(int)(pos+1)-1] / xbpm);
 			}
 		}
 		if (rtime < time + ttime) rtime = time + ttime;
-		pos = channel[j][pcur[j]]->time;
+		pos = channel[j][pcur[j]].time;
 		++pcur[j];
 	}
 	return (time > rtime ? time : rtime) / 1000;
@@ -719,30 +710,28 @@ static int get_bms_duration(void)
 
 static void clone_bms(void)
 {
-	bmsnote *ptr;
 	int i, j;
 
 	for (i = 0; i < 9; ++i) {
 		if (nchannel[i+9]) free(channel[i+9]);
 		nchannel[i+9] = nchannel[i];
-		channel[i+9] = malloc(sizeof(bmsnote*) * nchannel[i]);
+		channel[i+9] = malloc(sizeof(bmsnote) * nchannel[i]);
 		for (j = 0; j < nchannel[i]; ++j) {
-			channel[i+9][j] = ptr = malloc(sizeof(bmsnote));
-			ptr->time = channel[i][j]->time;
-			ptr->type = channel[i][j]->type;
-			ptr->index = channel[i][j]->index;
+			channel[i+9][j].time = channel[i][j].time;
+			channel[i+9][j].type = channel[i][j].type;
+			channel[i+9][j].index = channel[i][j].index;
 		}
 	}
 }
 
 static void shuffle_bms(int mode, int player)
 {
-	bmsnote **tempchan, **result[18]={0};
-	int nresult[18]={0};
+	bmsnote *tempchan, *result[18] = {0};
+	int nresult[18] = {0};
 	int map[18], perm[18], nmap;
-	int ptr[18]={0,}, thru[18]={0}, target[18];
+	int ptr[18] = {0,}, thru[18] = {0}, target[18];
 	int thrumap[18], thrurmap[18];
-	int i, j, flag=1, temp;
+	int i, j, flag = 1, temp;
 	double t;
 
 	srand(time(0));
@@ -791,20 +780,20 @@ static void shuffle_bms(int mode, int player)
 				if (ptr[map[i]] < nchannel[map[i]]) {
 					flag = 1;
 					target[i] = 1;
-					if (t > channel[map[i]][ptr[map[i]]]->time)
-						t = channel[map[i]][ptr[map[i]]]->time - 1e-4;
+					if (t > channel[map[i]][ptr[map[i]]].time)
+						t = channel[map[i]][ptr[map[i]]].time - 1e-4;
 				} else {
 					target[i] = 0;
 				}
 			}
 			t += 2e-4;
 			for (i = 0; i < nmap; ++i) {
-				if (target[i] && channel[map[i]][ptr[map[i]]]->time > t)
+				if (target[i] && channel[map[i]][ptr[map[i]]].time > t)
 					target[i] = 0;
 			}
 			for (i = 0; i < nmap; ++i) {
 				if (!target[i]) continue;
-				temp = channel[map[i]][ptr[map[i]]]->type;
+				temp = channel[map[i]][ptr[map[i]]].type;
 				if (temp == 2) {
 					j = thrumap[i];
 					thru[j] = 2;
@@ -817,7 +806,7 @@ static void shuffle_bms(int mode, int player)
 						thru[j] = 1;
 					}
 				}
-				result[j] = realloc(result[j], sizeof(bmsnote*) * (nresult[j]+1));
+				result[j] = realloc(result[j], sizeof(bmsnote) * (nresult[j]+1));
 				result[j][nresult[j]++] = channel[map[i]][ptr[map[i]]++];
 			}
 			for(i = 0; i < nmap; ++i) {
@@ -1641,7 +1630,7 @@ static void update_grade(int grade)
 
 static int play_process(void)
 {
-	int i, j, k, l, m, ibottom;
+	int i, j, k, l, ibottom;
 	double bottom, top, line, tmp;
 	char buf[99];
 
@@ -1675,10 +1664,10 @@ static int play_process(void)
 	line = bottom;//adjust_object_time(bottom, 0.03/playspeed);
 	top = adjust_object_time(bottom, 1.25/playspeed);
 	for (i = 0; i < 22; ++i) {
-		while (pfront[i] < nchannel[i] && channel[i][pfront[i]]->time < bottom) ++pfront[i];
-		while (prear[i] < nchannel[i] && channel[i][prear[i]]->time <= top) ++prear[i];
-		while (pcur[i] < nchannel[i] && channel[i][pcur[i]]->time < line) {
-			j = channel[i][pcur[i]]->index;
+		while (pfront[i] < nchannel[i] && channel[i][pfront[i]].time < bottom) ++pfront[i];
+		while (prear[i] < nchannel[i] && channel[i][prear[i]].time <= top) ++prear[i];
+		while (pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line) {
+			j = channel[i][pcur[i]].index;
 			if (i == 18) {
 				if (sndres[j]) {
 					j = Mix_PlayChannel(-1, sndres[j], 0);
@@ -1703,23 +1692,23 @@ static int play_process(void)
 #endif
 				}
 			} else if (i == 19) {
-				bga[channel[i][pcur[i]]->type] = j;
+				bga[channel[i][pcur[i]].type] = j;
 				bga_updated = 1;
 			} else if (i == 20) {
-				if (tmp = (channel[i][pcur[i]]->type ? bpmtab[j] : j)) {
+				if (tmp = (channel[i][pcur[i]].type ? bpmtab[j] : j)) {
 					starttime = now;
 					startoffset = bottom;
 					bpm = tmp;
 				}
 			} else if (i == 21) {
 				if (now >= stoptime) stoptime = now;
-				if (channel[i][pcur[i]]->type) {
+				if (channel[i][pcur[i]].type) {
 					stoptime += j;
 				} else {
 					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
-			} else if (opt_mode && channel[i][pcur[i]]->type != 1 && sndres[j]) {
+			} else if (opt_mode && channel[i][pcur[i]].type != 1 && sndres[j]) {
 				j = Mix_PlayChannel(-1, sndres[j], 0);
 				if (j >= 0) Mix_GroupChannel(j, 0);
 			}
@@ -1727,9 +1716,9 @@ static int play_process(void)
 		}
 		if (i<18 && !opt_mode) {
 			for (; pcheck[i] < pcur[i]; ++pcheck[i]) {
-				j = channel[i][pcheck[i]]->type;
+				j = channel[i][pcheck[i]].type;
 				if (j < 0 || j == 1 || (j == 2 && !thru[i])) continue;
-				tmp = channel[i][pcheck[i]]->time;
+				tmp = channel[i][pcheck[i]].time;
 				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
 				if (tmp > 6e-4) update_grade(0); else break;
 			}
@@ -1747,11 +1736,11 @@ static int play_process(void)
 					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 0;
 						if (nchannel[i] && thru[i]) {
-							for (j = pcur[i]; channel[i][j]->type != 2; --j);
+							for (j = pcur[i]; channel[i][j].type != 2; --j);
 							thru[i] = 0;
-							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
+							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
 							if (-6e-4 < tmp && tmp < 6e-4) {
-								channel[i][j]->type ^= -1;
+								channel[i][j].type ^= -1;
 							} else {
 								update_grade(0);
 							}
@@ -1779,27 +1768,27 @@ static int play_process(void)
 					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 1;
 						if (!nchannel[i]) continue;
-						j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1]->time + channel[i][pcur[i]]->time < 2*line) ? pcur[i] : pcur[i]-1);
-						if (sndres[channel[i][j]->index]) {
-							l = Mix_PlayChannel(-1, sndres[channel[i][j]->index], 0);
+						j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1].time + channel[i][pcur[i]].time < 2*line) ? pcur[i] : pcur[i]-1);
+						if (sndres[channel[i][j].index]) {
+							l = Mix_PlayChannel(-1, sndres[channel[i][j].index], 0);
 							if (l >= 0) Mix_GroupChannel(l, 0);
 						}
 						if (j < pcur[i]) {
-							while (j >= 0 && channel[i][j]->type == 1) --j;
+							while (j >= 0 && channel[i][j].type == 1) --j;
 							if (j < 0) continue;
 						} else {
-							while (j < nchannel[i] && channel[i][j]->type == 1) ++j;
+							while (j < nchannel[i] && channel[i][j].type == 1) ++j;
 							if (j == nchannel[i]) continue;
 						}
 						if (pcur[i] < nchannel[i]) {
-							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
-							if (j < nchannel[i] && channel[i][j]->type == 2) {
+							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
+							if (j < nchannel[i] && channel[i][j].type == 2) {
 								update_grade(0);
-							} else if (channel[i][j]->type != 2 && channel[i][j]->type >= 0) {
+							} else if (channel[i][j].type != 2 && channel[i][j].type >= 0) {
 								if (tmp < 0) tmp *= -1;
-								if (channel[i][j]->type >= 0 && tmp < 6e-4) {
-									if (channel[i][j]->type == 3) thru[i] = 1;
-									channel[i][j]->type ^= -1;
+								if (channel[i][j].type >= 0 && tmp < 6e-4) {
+									if (channel[i][j].type == 3) thru[i] = 1;
+									channel[i][j].type ^= -1;
 									score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
 									update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
 								}
@@ -1834,17 +1823,16 @@ static int play_process(void)
 	SDL_SetClipRect(screen, newrect(0,30,800,490));
 	for (i = 0; i < 18; ++i) {
 		if (tkeyleft[i] < 0) continue;
-		m = 0;
 		for (j = pfront[i]; j < prear[i]; ++j) {
-			k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j]->time));
-			if (channel[i][j]->type == 3) {
+			k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j].time));
+			if (channel[i][j].type == 3) {
 				l = k + 5;
-				k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j]->time));
+				k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j].time));
 				if (k < 30) k = 30;
-			} else if (channel[i][j]->type == 2) {
+			} else if (channel[i][j].type == 2) {
 				k += 5;
 				l = 520;
-			} else if (channel[i][j]->type == 0) {
+			} else if (channel[i][j].type == 0) {
 				l = k + 5;
 			} else {
 				continue;
@@ -1852,9 +1840,8 @@ static int play_process(void)
 			if (k > 0 && l > k) {
 				SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],l-k), screen, newrect(tkeyleft[i],k,0,0));
 			}
-			++m;
 		}
-		if (!m && prear[i]<nchannel[i] && channel[i][prear[i]]->type==2) {
+		if (pfront[i]==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==2) {
 			SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, newrect(tkeyleft[i],30,0,0));
 		}
 	}
