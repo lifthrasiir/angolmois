@@ -75,8 +75,6 @@ static double length;
 /******************************************************************************/
 /* system dependent functions */
 
-static char *adjust_path(char*); /* DUMMY */
-
 #ifdef WIN32
 
 #include <windows.h>
@@ -109,16 +107,7 @@ static int errormsg(const char *c, const char *s)
 
 static void dirinit(void) {}
 static void dirfinal(void) {}
-
-static Mix_Chunk *load_wav(const char *file)
-{
-	return Mix_LoadWAV(adjust_path(file));
-}
-
-static SDL_Surface *load_image(const char *file)
-{
-	return IMG_Load(adjust_path(file));
-}
+static const char *adjust_path_case(char *file) { return file; }
 
 #else /* WIN32 */
 
@@ -155,15 +144,12 @@ static void dirinit(void)
 {
 	DIR *d;
 	struct dirent *e;
-	int i=0, j=0;
 
-	for (; bmspath[i]; j = bmspath[i++]-sep ? j : i);
-	if (j > 0) bmspath[j-1] = 0;
-	if (d = opendir(j ? bmspath : ".")) {
+	if (d = opendir(bmspath)) {
 		while (e = readdir(d))
 			flist[nfiles++] = strcopy(e->d_name);
+		closedir(d);
 	}
-	if (j > 0) bmspath[j-1] = sep;
 }
 
 static void dirfinal(void)
@@ -171,21 +157,13 @@ static void dirfinal(void)
 	while (nfiles--) free(flist[nfiles]);
 }
 
-static Mix_Chunk *load_wav(const char *file)
+static const char *adjust_path_case(char *file)
 {
 	int i;
 	for (i = 0; i < nfiles; ++i) {
-		if (stricmp(flist[i], file)) return Mix_LoadWAV(adjust_path(flist[i]));
+		if (stricmp(flist[i], file)) return flist[i];
 	}
-	return 0;
-}
-
-static SDL_Surface *load_image(const char *file) {
-	int i;
-	for (i = 0; i < nfiles; ++i) {
-		if (stricmp(flist[i], file)) return IMG_Load(adjust_path(flist[i]));
-	}
-	return 0;
+	return ""; /* always nonexistent file */
 }
 #endif
 
@@ -194,14 +172,8 @@ static SDL_Surface *load_image(const char *file) {
 
 static char *adjust_path(char *path)
 {
-	const char *pos1 = strrchr(bmspath, '/');
-	const char *pos2 = strrchr(bmspath, '\\');
-	int len1 = pos1 ? (pos1 - bmspath) + 1 : 0;
-	int len2 = pos2 ? (pos2 - bmspath) + 1 : 0;
-	int len = len1 > len2 ? len1 : len2;
-
-	memcpy(respath, bmspath, len);
-	strcpy(respath + len, path); /* XXX could be overflow */
+	strcpy(respath, bmspath);
+	strcat(respath, adjust_path_case(path)); /* XXX could be overflow */
 	return respath;
 }
 
@@ -592,7 +564,7 @@ static int load_resource(void (*callback)(const char *))
 	for (i = 0; i < 1296; ++i) {
 		if (sndpath[i]) {
 			if (callback) callback(sndpath[i]);
-			sndres[i] = load_wav(sndpath[i]);
+			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
 			for (j = 0; sndpath[i][j]; ++j);
 			j = (j>3 ? *(int*)(sndpath[i]+j-4) : 0) | 0x20202020;
 			if (j != 0x33706d2e && j != 0x2e6d7033) {
@@ -602,7 +574,7 @@ static int load_resource(void (*callback)(const char *))
 		}
 		if (imgpath[i]) {
 			if (callback) callback(imgpath[i]);
-			if (temp = load_image(imgpath[i])) {
+			if (temp = IMG_Load(adjust_path(imgpath[i]))) {
 				imgres[i] = SDL_DisplayFormat(temp);
 				SDL_FreeSurface(temp);
 				SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
@@ -1904,10 +1876,10 @@ static int play_process(void)
 static int play(void)
 {
 	int i;
+	char *pos1, *pos2;
 
 	if (initialize()) return 1;
 
-	dirinit();
 	if (read_bms()) {
 		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
 	}
@@ -1922,6 +1894,18 @@ static int play(void)
 	}
 	get_bms_info();
 
+	/* get basename of bmspath */
+	pos1 = strrchr(bmspath, '/');
+	pos2 = strrchr(bmspath, '\\');
+	if (!pos1) pos1 = bmspath + 1;
+	if (!pos2) pos2 = bmspath + 1;
+	(pos1>pos2 ? pos1 : pos2)[1] = '\0';
+	if (pos1 == pos2) { /* will be pos1 = pos2 = bmspath + 1 */
+		bmspath[0] = '.';
+		bmspath[1] = sep;
+	}
+
+	dirinit();
 	play_show_stagefile();
 	dirfinal();
 
