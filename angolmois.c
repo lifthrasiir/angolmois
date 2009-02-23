@@ -1384,7 +1384,7 @@ static void printstr(SDL_Surface *s, int x, int y, int z, const char *c, int u, 
 
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0;
-static double startoffset = -1 + 60, startshorten = 1;
+static double startoffset = -1, startshorten = 1;
 static int xflag, xnnotes, xscore, xduration;
 static int pcur[22] = {0}, pfront[22] = {0}, prear[22] = {0}, pcheck[18] = {0}, thru[22] = {0};
 static int bga[3] = {-1,-1,0}, poorbga = 0, bga_updated = 1;
