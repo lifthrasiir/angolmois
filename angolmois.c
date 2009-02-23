@@ -1786,7 +1786,7 @@ static int play_process(void)
 					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 0;
 						if (nchannel[i] && thru[i]) {
-							for (j = pcur[i]+1; channel[i][j]->type != 2; --j);
+							for (j = pcur[i]; channel[i][j]->type != 2; --j);
 							thru[i] = 0;
 							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
 							if (-6e-4 < tmp && tmp < 6e-4) {
