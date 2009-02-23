@@ -54,7 +54,9 @@ static int value[5] = {1, 0, 2, 1, 0};
 #define lntype value[3]
 #define lnobj value[4]
 
-static char *sndpath[1296], *imgpath[1296];
+static char *paths[2][1296];
+#define sndpath paths[0]
+#define imgpath paths[1]
 static int (*blitcmd)[8] = NULL, nblitcmd = 0;
 static Mix_Chunk *sndres[1296];
 static SDL_Surface *imgres[1296];
@@ -346,7 +348,7 @@ static int parse_bms(void)
 			case 1: /* genre */
 			case 2: /* artist */
 			case 3: /* stagefile */
-				sscanf(line+j, "%*[ ]%s", metadata[i]);
+				sscanf(line+j, "%*[ ]%[^\r\n]", metadata[i]);
 				break;
 
 			case 4: /* bpm */
@@ -372,27 +374,12 @@ static int parse_bms(void)
 				break;
 
 			case 10: /* wav## */
-				if (sscanf(line+j, KEY_PATTERN "%*[ ]%s", buf1, buf2) >= 2) {
-					i = key2index(buf1);
-					if (i >= 0) {
-						if (sndpath[i]) {
-							free(sndpath[i]);
-							sndpath[i] = 0;
-						}
-						sndpath[i] = strcopy(buf2);
-					}
-				}
-				break;
-
 			case 11: /* bmp## */
-				if (sscanf(line+j, KEY_PATTERN "%*[ ]%s", buf1, buf2) >= 2) {
-					i = key2index(buf1);
-					if (i >= 0) {
-						if (imgpath[i]) {
-							free(imgpath[i]);
-							imgpath[i] = 0;
-						}
-						imgpath[i] = strcopy(buf2);
+				if (sscanf(line+j, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2) {
+					j = key2index(buf1);
+					if (j >= 0) {
+						if (paths[i-10][j]) free(paths[i-11][j]);
+						paths[i-10][j] = strcopy(buf2);
 					}
 				}
 				break;
@@ -1424,7 +1411,7 @@ static int bga[3] = {-1,-1,0}, poorbga = 0, bga_updated = 1;
 static int score = 0, scocnt[5] = {0}, scombo = 0, smaxcombo = 0;
 static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256;
-static int opt_mode = 0, opt_showinfo = 1, opt_fullscreen = 1, opt_random = 0, opt_egg = 0;
+static int opt_mode = 0, opt_showinfo = 1, opt_fullscreen = 1, opt_random = 0;
 
 static SDL_AudioSpec aformat;
 static SDL_Surface *sprite=0;
@@ -1922,16 +1909,6 @@ static int play_process(void)
 		SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xc0c0c0);
 		if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
 	}
-	if (opt_egg) {
-		for (i = pfront[20]; i < prear[20]; ++i) {
-			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[20][i]->time));
-			SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xffff00);
-		}
-		for (i = pfront[21]; i < prear[21]; ++i) {
-			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[21][i]->time));
-			SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0x00ff00);
-		}
-	}
 	if (t < gradetime) {
 		for (i = 0; tgradestr[grademode][i]; ++i);
 		printstr(screen, tpanel1/2-8*i, 292, 2, tgradestr[grademode],
@@ -2131,7 +2108,6 @@ int main(int argc, char **argv)
 			else if ((i|32) == 'm') opt_random = 1;
 			else if ((i|32) == 's') opt_random = (i=='s' ? 2 : 3);
 			else if ((i|32) == 'r') opt_random = (i=='r' ? 4 : 5);
-			else if (j == 42 && i == '*') opt_egg = 1;
 		}
 	}
 	while (--argc > 3) {
