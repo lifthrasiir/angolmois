@@ -1403,7 +1403,7 @@ static void printstr(SDL_Surface *s, int x, int y, int z, const char *c, int u, 
 /* main routines */
 
 static double playspeed = 1, targetspeed;
-static int origintime, starttime, stoptime = 0, adjustspeed = 0;
+static int now, origintime, starttime, stoptime = 0, adjustspeed = 0;
 static double startoffset = -1, startshorten = 1;
 static int xflag, xnnotes, xscore, xduration;
 static int pcur[22] = {0}, pfront[22] = {0}, prear[22] = {0}, pcheck[18] = {0}, thru[22] = {0};
@@ -1655,9 +1655,32 @@ static double adjust_object_position(double base, double time)
 	return base;
 }
 
+static void update_grade(int grade)
+{
+	++scocnt[grade];
+	grademode = grade;
+	gradetime = now + 700;
+
+	if (grade < 1) {
+		scombo = 0;
+		gauge -= 12;
+		poorbga = now + 600;
+	} else if (grade < 2) {
+		scombo = 0;
+		gauge -= 5;
+	} else if (grade < 3) {
+		/* do nothing */
+	} else {
+		++scombo;
+		gauge += (grade<4 ? 3 : 5) + scombo / 100;
+	}
+
+	if (scombo > smaxcombo) smaxcombo = scombo;
+}
+
 static int play_process(void)
 {
-	int i, j, k, l, m, t, ibottom;
+	int i, j, k, l, m, ibottom;
 	double bottom, top, line, tmp;
 	char buf[99];
 
@@ -1672,15 +1695,15 @@ static int play_process(void)
 		}
 	}
 
-	t = SDL_GetTicks();
-	if (t < stoptime) {
+	now = SDL_GetTicks();
+	if (now < stoptime) {
 		bottom = startoffset;
 	} else if (stoptime) {
-		starttime = t;
+		starttime = now;
 		stoptime = 0;
 		bottom = startoffset;
 	} else {
-		bottom = startoffset + (t - starttime) * bpm / startshorten / 24e4;
+		bottom = startoffset + (now - starttime) * bpm / startshorten / 24e4;
 	}
 	ibottom = (int)(bottom + 1) - 1;
 	if (bottom > -1 && startshorten != shorten[ibottom]) {
@@ -1723,12 +1746,12 @@ static int play_process(void)
 				bga_updated = 1;
 			} else if (i == 20) {
 				if (tmp = (channel[i][pcur[i]]->type ? bpmtab[j] : j)) {
-					starttime = t;
+					starttime = now;
 					startoffset = bottom;
 					bpm = tmp;
 				}
 			} else if (i == 21) {
-				if (t >= stoptime) stoptime = t;
+				if (now >= stoptime) stoptime = now;
 				if (channel[i][pcur[i]]->type) {
 					stoptime += j;
 				} else {
@@ -1747,16 +1770,7 @@ static int play_process(void)
 				if (j < 0 || j == 1 || (j == 2 && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]]->time;
 				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
-				if (tmp > 6e-4) {
-					++scocnt[0];
-					scombo = 0;
-					grademode = 0;
-					gauge -= 12;
-					poorbga = t + 600;
-					gradetime = t + 700;
-				} else {
-					break;
-				}
+				if (tmp > 6e-4) update_grade(0); else break;
 			}
 		}
 	}
@@ -1778,12 +1792,7 @@ static int play_process(void)
 							if (-6e-4 < tmp && tmp < 6e-4) {
 								channel[i][j]->type ^= -1;
 							} else {
-								++scocnt[0];
-								scombo = 0;
-								grademode = 0;
-								gauge -= 12;
-								poorbga = t + 600;
-								gradetime = t + 700;
+								update_grade(0);
 							}
 						}
 					}
@@ -1822,33 +1831,15 @@ static int play_process(void)
 							if (j == nchannel[i]) continue;
 						}
 						if (pcur[i] < nchannel[i] && channel[i][pcur[i]]->type == 2) {
-							++scocnt[0];
-							scombo = 0;
-							grademode = 0;
-							gauge -= 12;
-							poorbga = t + 600;
-							gradetime = t + 700;
+							update_grade(0);
 						} else if (channel[i][j]->type != 2) {
 							tmp = (channel[i][j]->time - line) * shorten[(int)line] / bpm * gradefactor;
 							if (tmp < 0) tmp *= -1;
 							if (channel[i][j]->type >= 0 && tmp < 6e-4) {
 								if (channel[i][j]->type == 3) thru[i] = 1;
 								channel[i][j]->type ^= -1;
-								if (tmp < 0.6e-4) grademode = 4;
-								else if (tmp < 2.0e-4) grademode = 3;
-								else if (tmp < 3.5e-4) grademode = 2;
-								else grademode = 1;
-								++scocnt[grademode];
-								gradetime = t + 700;
 								score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
-								if (grademode > 2) {
-									++scombo;
-									gauge += (grademode<4 ? 3 : 5) + scombo / 100;
-								} else if (grademode < 2) {
-									scombo = 0;
-									gauge -= 5;
-								}
-								if (scombo > smaxcombo) smaxcombo = scombo;
+								update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
 							}
 						}
 					}
@@ -1909,7 +1900,7 @@ static int play_process(void)
 		SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xc0c0c0);
 		if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
 	}
-	if (t < gradetime) {
+	if (now < gradetime) {
 		for (i = 0; tgradestr[grademode][i]; ++i);
 		printstr(screen, tpanel1/2-8*i, 292, 2, tgradestr[grademode],
 				tgradecolor[grademode][0], tgradecolor[grademode][1]);
@@ -1920,9 +1911,9 @@ static int play_process(void)
 		if (!grademode) bga_updated = 1;
 	}
 	SDL_SetClipRect(screen, 0);
-	if (bga_updated > 0 || (bga_updated < 0 && t >= poorbga)) {
+	if (bga_updated > 0 || (bga_updated < 0 && now >= poorbga)) {
 		SDL_FillRect(screen, newrect(tbga,172,256,256), 0);
-		if (t < poorbga) {
+		if (now < poorbga) {
 			if (bga[2] >= 0 && imgres[bga[2]])
 				SDL_BlitSurface(imgres[bga[2]], newrect(0,0,256,256), screen, newrect(tbga,172,0,0));
 			bga_updated = -1;
@@ -1934,7 +1925,7 @@ static int play_process(void)
 		}
 	}
 
-	i = (t - origintime) / 1000;
+	i = (now - origintime) / 1000;
 	j = xduration / 1000;
 	sprintf(buf, "SCORE %07d%c%4.1fx%c%02d:%02d / %02d:%02d%c@%9.4f%cBPM %6.2f",
 			score, 0, targetspeed, 0, i/60, i%60, j/60, j%60, 0, bottom, 0, bpm);
@@ -1945,7 +1936,7 @@ static int play_process(void)
 	printstr(screen, tpanel1-94, 565, 1, buf+20, 0, 0x404040);
 	printstr(screen, 95, 538, 1, buf+34, 0, 0);
 	printstr(screen, 95, 522, 1, buf+45, 0, 0);
-	i = (t - origintime) * tpanel1 / xduration;
+	i = (now - origintime) * tpanel1 / xduration;
 	printchar(screen, 6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
 	if (!tpanel2 && !opt_mode) {
 		if (gauge > 512) gauge = 512;
