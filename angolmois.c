@@ -307,7 +307,6 @@ static int parse_bms(void)
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
-	dirinit();
 
 	srand(time(0));
 	while (fgets(line = linebuf, 1024, fp)) {
@@ -1370,14 +1369,6 @@ static void fontprocess(int z)
 	}
 }
 
-static void fontfinalize(void)
-{
-	int i;
-	for (i = 1; i < ARRAYSIZE(zoomfont); ++i) {
-		if (zoomfont[i]) free(zoomfont[i]);
-	}
-}
-
 static int printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v)
 {
 	int i, j;
@@ -1462,38 +1453,6 @@ static int initialize(void)
 	return 0;
 }
 
-static void finalize(void)
-{
-	int i, j;
- 
-	for (i = 0; i < 1296; ++i) {
-		if (sndpath[i]) free(sndpath[i]);
-		if (imgpath[i]) free(imgpath[i]);
-		if (sndres[i]) Mix_FreeChunk(sndres[i]);
-		if (imgres[i]) SDL_FreeSurface(imgres[i]);
-	}
-	for (i = 0; i < 22; ++i) {
-		if (channel[i]) {
-			for (j = 0; j < nchannel[i]; ++j)
-				free(channel[i][j]);
-			free(channel[i]);
-		}
-	}
-	free(blitcmd);
-
-	if (sprite) SDL_FreeSurface(sprite);
-#ifdef USE_SMPEG
-	if (mpeg) {
-		SMPEG_stop(mpeg);
-		SMPEG_delete(mpeg);
-	}
-#endif
-	Mix_HookMusic(0, 0);
-	Mix_CloseAudio();
-	fontfinalize();
-	dirfinal();
-}
-
 static SDL_Surface *stagefile_tmp;
 
 static void callback_resource(const char *path) {
@@ -1503,7 +1462,7 @@ static void callback_resource(const char *path) {
 	SDL_BlitSurface(stagefile_tmp, newrect(0,0,800,20), screen, newrect(0,580,800,20));
 	printstr(screen, 797-8*i, 582, 1, path, 0x808080, 0xc0c0c0);
 	SDL_Flip(screen);
-	check_exit();
+	if (check_exit()) exit(0);
 }
 
 static void play_show_stagefile(void)
@@ -1548,7 +1507,9 @@ static void play_show_stagefile(void)
 		callback_resource("loading...");
 		SDL_FreeSurface(stagefile_tmp);
 	}
-	while ((int)SDL_GetTicks() < t && !check_exit());
+	while ((int)SDL_GetTicks() < t) {
+		if (check_exit()) exit(0);
+	}
 }
 
 static void play_prepare(void)
@@ -1959,9 +1920,8 @@ static int play(void)
 
 	if (initialize()) return 1;
 
+	dirinit();
 	if (read_bms()) {
-		finalize();
-		SDL_Quit();
 		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
 	}
 	if (v_player == 4) clone_bms();
@@ -1976,12 +1936,12 @@ static int play(void)
 	get_bms_info();
 
 	play_show_stagefile();
+	dirfinal();
 
 	xduration = get_bms_duration();
 	play_prepare();
 	while ((i = play_process()) > 0);
 
-	finalize();
 	if (!opt_mode && i == 0) {
 		if (gauge > 150) {
 			printf("*** CLEARED! ***\n");
@@ -2039,7 +1999,8 @@ static int credit(void)
 	}
 
 	SDL_FillRect(screen, 0, 0x000010);
-	while (++t < 1820 && !check_exit()) {
+	while (++t < 1820) {
+		if (check_exit()) exit(0);
 		SDL_BlitSurface(credit, newrect(0,t,800,600), screen, 0);
 		SDL_Flip(screen);
 		SDL_Delay(20);
@@ -2048,11 +2009,12 @@ static int credit(void)
 		SDL_FillRect(screen, newrect(0, 0, 800, 100), 0);
 		SDL_Flip(screen);
 		t = SDL_GetTicks() + 8000;
-		while ((int)SDL_GetTicks() < t && !check_exit());
+		while ((int)SDL_GetTicks() < t) {
+			if (check_exit()) exit(0);
+		}
 	}
 
 	SDL_FreeSurface(credit);
-	finalize();
 	return 0;
 }
 
