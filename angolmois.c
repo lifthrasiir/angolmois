@@ -179,13 +179,8 @@ static char *adjust_path(char *path)
 
 static char *strcopy(const char *src)
 {
-	char *dest;
-	int i = 0;
-
-	while (src[i++]);
-	dest = malloc(i);
-	for (i = 0; dest[i] = src[i]; ++i);
-	return dest;
+	char *dest = malloc(strlen(src)+1);
+	return strcpy(dest, src);
 }
 
 /******************************************************************************/
@@ -340,7 +335,7 @@ static int parse_bms(void)
 				if (sscanf(line+j, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2) {
 					j = key2index(buf1);
 					if (j >= 0) {
-						if (paths[i-10][j]) free(paths[i-10][j]);
+						free(paths[i-10][j]);
 						paths[i-10][j] = strcopy(buf2);
 					}
 				}
@@ -565,8 +560,7 @@ static int load_resource(void (*callback)(const char *))
 		if (sndpath[i]) {
 			if (callback) callback(sndpath[i]);
 			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
-			for (j = 0; sndpath[i][j]; ++j);
-			j = (j>3 ? *(int*)(sndpath[i]+j-4) : 0) | 0x20202020;
+			j = (j>3 ? *(int*)(sndpath[i]+strlen(sndpath[i])-4) : 0) | 0x20202020;
 			if (j != 0x33706d2e && j != 0x2e6d7033) {
 				free(sndpath[i]);
 				sndpath[i] = 0;
@@ -685,7 +679,7 @@ static void clone_bms(void)
 	int i, j;
 
 	for (i = 0; i < 9; ++i) {
-		if (nchannel[i+9]) free(channel[i+9]);
+		free(channel[i+9]);
 		nchannel[i+9] = nchannel[i];
 		channel[i+9] = malloc(sizeof(bmsnote) * nchannel[i]);
 		for (j = 0; j < nchannel[i]; ++j) {
@@ -1417,11 +1411,8 @@ static int initialize(void)
 static SDL_Surface *stagefile_tmp;
 
 static void callback_resource(const char *path) {
-	int i;
-
-	for (i = 0; path[i]; ++i);
 	SDL_BlitSurface(stagefile_tmp, newrect(0,0,800,20), screen, newrect(0,580,800,20));
-	printstr(screen, 797-8*i, 582, 1, path, 0x808080, 0xc0c0c0);
+	printstr(screen, 797-8*strlen(path), 582, 1, path, 0x808080, 0xc0c0c0);
 	SDL_Flip(screen);
 	if (check_exit()) exit(0);
 }
@@ -1438,7 +1429,7 @@ static void play_show_stagefile(void)
 	SDL_Flip(screen);
 
 	stagefile_tmp = newsurface(SDL_SWSURFACE, 800, 20);
-	if (metadata[3] && (temp = IMG_Load(adjust_path(metadata[3])))) {
+	if (*metadata[3] && (temp = IMG_Load(adjust_path(metadata[3])))) {
 		stagefile = SDL_DisplayFormat(temp);
 		bicubic_interpolation(stagefile, screen);
 		SDL_FreeSurface(temp);
@@ -1450,10 +1441,8 @@ static void play_show_stagefile(void)
 			for (j = 580; j < 600; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 		}
 		printstr(screen, 6, 4, 2, metadata[0], 0x808080, 0xffffff);
-		for (i = 0; metadata[1][i]; ++i);
-		for (j = 0; metadata[2][j]; ++j);
-		printstr(screen, 792-8*i, 4, 1, metadata[1], 0x808080, 0xffffff);
-		printstr(screen, 792-8*j, 20, 1, metadata[2], 0x808080, 0xffffff);
+		printstr(screen, 792-8*strlen(metadata[1]), 4, 1, metadata[1], 0x808080, 0xffffff);
+		printstr(screen, 792-8*strlen(metadata[2]), 20, 1, metadata[2], 0x808080, 0xffffff);
 		i = sprintf(buf, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
 			v_playlevel, bpm, "?"+((xflag&8)==0), xnnotes,
 			"s"+(xnnotes==1), (xflag&1) ? 7 : 5, (xflag&2) ? "-LN" : "");
@@ -1823,9 +1812,8 @@ static int play_process(void)
 		if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
 	}
 	if (now < gradetime) {
-		for (i = 0; tgradestr[grademode][i]; ++i);
-		printstr(screen, tpanel1/2-8*i, 292, 2, tgradestr[grademode],
-				tgradecolor[grademode][0], tgradecolor[grademode][1]);
+		printstr(screen, tpanel1/2-8*strlen(tgradestr[grademode]), 292, 2,
+				tgradestr[grademode], tgradecolor[grademode][0], tgradecolor[grademode][1]);
 		if (scombo > 1) {
 			i = sprintf(buf, "%d COMBO", scombo);
 			printstr(screen, tpanel1/2-4*i, 320, 1, buf, 0x808080, 0xffffff);
@@ -1955,7 +1943,7 @@ static int credit(void)
 		1420, 1455, 1490, 1510, 1545, 1580, 2060, 2090, 2110, 2130, 2150, 2180
 	};
 	int c[] = {0x4040c0, 0x408040, 0x808040, 0x808080, 0x8080c0, 0x80c080, 0xc0c080, 0xc0c0c0};
-	int i, j, t = -750;
+	int i, t = -750;
 
 	opt_fullscreen = 0;
 	if (initialize()) return 1;
@@ -1965,8 +1953,7 @@ static int credit(void)
 	for (i = 1; i < 16; ++i)
 		SDL_FillRect(credit, newrect(0, 1850-i*5, 800, 5), i);
 	for (i = 0; i < ARRAYSIZE(s); ++i) {
-		for (j = 0; s[i][j]; ++j);
-		printstr(credit, 400-j*(f[i]%3+1)*4, y[i], f[i]%3+1, s[i], c[f[i]/3-22], 0xffffff);
+		printstr(credit, 400-strlen(s[i])*(f[i]%3+1)*4, y[i], f[i]%3+1, s[i], c[f[i]/3-22], 0xffffff);
 	}
 
 	SDL_FillRect(screen, 0, 0x000010);
