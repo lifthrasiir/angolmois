@@ -1730,6 +1730,8 @@ static int play_process(void)
 			} else if (opt_mode && channel[i][pcur[i]].type != 3/*INVNOTE*/ && sndres[j]) {
 				j = Mix_PlayChannel(-1, sndres[j], 0);
 				if (j >= 0) Mix_GroupChannel(j, 0);
+				score += (int)(300 * (1 + 1. * scombo / xnnotes));
+				update_grade(4);
 			}
 			++pcur[i];
 		}
@@ -1871,12 +1873,15 @@ static int play_process(void)
 		if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
 	}
 	if (now < gradetime) {
-		printstr(screen, tpanel1/2-8*strlen(tgradestr[grademode]), 292, 2,
+		int delta = (gradetime - now - 400) / 30;
+		if (delta < 0) delta = 0;
+		printstr(screen, tpanel1/2-8*strlen(tgradestr[grademode]), 260 - delta, 2,
 				tgradestr[grademode], tgradecolor[grademode][0], tgradecolor[grademode][1]);
 		if (scombo > 1) {
 			i = sprintf(buf, "%d COMBO", scombo);
-			printstr(screen, tpanel1/2-4*i, 320, 1, buf, 0x808080, 0xffffff);
+			printstr(screen, tpanel1/2-4*i, 288 - delta, 1, buf, 0x808080, 0xffffff);
 		}
+		if (opt_mode) printstr(screen, tpanel1/2-24, 302 - delta, 1, "(AUTO)", 0x404040, 0xc0c0c0);
 		if (!grademode) bga_updated = 1;
 	}
 	SDL_SetClipRect(screen, 0);
