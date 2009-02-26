@@ -127,17 +127,7 @@ static int errormsg(const char *c, const char *s)
 	return fprintf(stderr, c, s);
 }
 
-static int lcase(char c)
-{
-	return ((c|32)-19)/26-3 ? c : c|32;
-}
-
-static int stricmp(const char *a, const char *b)
-{
-	while (*a && *b && lcase(*a) == lcase(*b)) ++a, ++b;
-	return *a == *b;
-}
-
+static int stricmp(const char *a, const char *b); /* DUMMY */
 static char *strcopy(const char*); /* DUMMY */
 
 static void dirinit(void)
@@ -169,6 +159,17 @@ static const char *adjust_path_case(char *file)
 
 /******************************************************************************/
 /* general functions */
+
+static int lcase(char c)
+{
+	return ((c|32)-19)/26-3 ? c : c|32;
+}
+
+static int stricmp(const char *a, const char *b)
+{
+	while (*a && *b && lcase(*a) == lcase(*b)) ++a, ++b;
+	return *a == *b;
+}
 
 static char *adjust_path(char *path)
 {
@@ -1861,12 +1862,48 @@ static int play_process(void)
 /******************************************************************************/
 /* entry point */
 
+static SDLKey get_sdlkey_from_name(const char *str)
+{
+	SDLKey i;
+
+	/* XXX maybe won't work in SDL 1.3 */
+	for (i = SDLK_FIRST; i < SDLK_LAST; ++i) {
+		if (stricmp(SDL_GetKeyName(i), str)) return i;
+	}
+	return SDLK_UNKNOWN;
+}
+
+static void read_envvars(void)
+{
+	static const char *keymapname[] = {
+		"KEY1P_1", "KEY1P_2", "KEY1P_3", "KEY1P_4", "KEY1P_5", "KEY1P_SCRATCH", "KEY1P_PEDAL", "KEY1P_6", "KEY1P_7",
+		"KEY2P_1", "KEY2P_2", "KEY2P_3", "KEY2P_4", "KEY2P_5", "KEY2P_SCRATCH", "KEY2P_PEDAL", "KEY2P_6", "KEY2P_7",
+	};
+
+	const char *ptr;
+	int i;
+	SDLKey key;
+
+	ptr = getenv("PLAYSPEED");
+	playspeed = ptr ? atof(ptr) : 0;
+	if (playspeed <= 0) playspeed = 1;
+	if (playspeed < .1) playspeed = .1;
+	if (playspeed > 99) playspeed = 99;
+
+	for (i = 0; i < 18; ++i) {
+		ptr = getenv(keymapname[i]);
+		key = ptr ? get_sdlkey_from_name(ptr) : SDLK_UNKNOWN;
+		if (key != SDLK_UNKNOWN) keymap[i] = key;
+	}
+}
+
 static int play(void)
 {
 	int i;
 	char *pos1, *pos2;
 
 	if (initialize()) return 1;
+	read_envvars();
 
 	if (read_bms()) {
 		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
@@ -1978,26 +2015,6 @@ static int credit(void)
 
 int main(int argc, char **argv)
 {
-#if 0
-	char buf[512] = {0};
-	int i, j;
-
-	for (i = 1; i < argc; ++i) {
-		if (argv[i][0] != '-') {
-			break;
-		}
-		if (argv[i][1] == '-') {
-			fprintf(stderr, "%s: Unrecognized option: %s\n", argv[0], argv[i]);
-			return 1;
-		}
-
-		for (j = 1; argv[i][j]; ++j) {
-			switch (argv[i][j]) {
-			case 'v': /* viewer mode */
-			}
-	}
-#endif
-
 	char buf[512]={0};
 	int i, j, use_buf;
 
@@ -2008,13 +2025,7 @@ int main(int argc, char **argv)
 		use_buf = 0;
 	}
 	if (argc > 2) {
-		playspeed = atof(argv[2]);
-		if (playspeed <= 0) playspeed = 1;
-		if (playspeed < .1) playspeed = .1;
-		if (playspeed > 99) playspeed = 99;
-	}
-	if (argc > 3) {
-		for (j = 0; i = argv[3][j]; ++j) {
+		for (j = 0; i = argv[2][j]; ++j) {
 			if ((i|32) == 'v') opt_mode = 1;
 			else if ((i|32) == 'i') opt_showinfo = i&32;
 			else if ((i|32) == 'w') opt_fullscreen = !(i&32);
@@ -2022,9 +2033,6 @@ int main(int argc, char **argv)
 			else if ((i|32) == 's') opt_random = (i=='s' ? 2 : 3);
 			else if ((i|32) == 'r') opt_random = (i=='r' ? 4 : 5);
 		}
-	}
-	while (--argc > 3) {
-		if (argc < 22 && (i = atoi(argv[argc]))) keymap[argc-4] = i;
 	}
 
 	if (argc > 1 || use_buf) {
