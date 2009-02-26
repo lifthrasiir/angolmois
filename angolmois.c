@@ -84,7 +84,7 @@ static const char sep = '\\';
 static int filedialog(char *buf)
 {
 	OPENFILENAME ofn = {
-		.lStructSize = 76,
+		.lStructSize = sizeof ofn,
 		.lpstrFilter =
 			"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
 			"Be-Music Source File (*.bms)\0*.bms\0"
@@ -479,44 +479,57 @@ static int parse_bmsline(void)
 
 static int sanitize_bmsline(void)
 {
-	int i, j, k, a, b, c;
-	double t;
+	int i, j, k, b, c;
 
 	for (i = 0; i < 22; ++i) {
 		if (!channel[i]) continue;
 		qsort(channel[i], nchannel[i], sizeof(bmsnote), compare_bmsnote);
+
 		if (i != 18 && i < 21) {
 			b = 0;
-			t = -1;
-			for (j = 0; j <= nchannel[i]; ++j) {
-				if (j == nchannel[i] || channel[i][j].time > t) {
-					if (t >= 0) {
-						c = 0;
-						for (; k < j; ++k) {
-							if (
-								i<18 ?
-									(c & 1<<channel[i][k].type) ||
-									(b ?
-										(a&4)==0 || channel[i][k].type < 2 :
-										channel[i][k].type != ((a&12)==8 ? 3 : a&1 ? 0 : 1)
-									)
-								: i==19 ? c & 1<<channel[i][k].type : c
-							) {
-								remove_note(i, k);
-							} else {
-								c |= 1 << channel[i][k].type;
-							}
-						}
-						b = (b ? (a&12)!=4 : (a&12)==8);
+			j = 0;
+			while (j < nchannel[i]) {
+				k = j;
+				c = 0;
+				for (k = j; k < nchannel[i] && channel[i][k].time <= channel[i][j].time; ++k) {
+					if (c & 1 << channel[i][k].type) {
+						remove_note(i, k);
+					} else {
+						c |= 1 << channel[i][k].type;
 					}
-					if (j == nchannel[i]) break;
-					a = 0;
-					k = j;
-					t = channel[i][j].time;
 				}
-				a |= 1 << channel[i][j].type;
+
+				/* XXX we can change bit masks for four types to make this simpler */
+				if (b) {
+					/* remove starting longnote if there's no ending longnote */
+					c &= ~(c & 4 ? 0 : 8);
+					/* remove visible note */
+					c &= ~1;
+					/* keep only one starting longnote, ending longnote, invisible in the order */
+					c = (c & 8 ? 8 : c & 4 ? 4 : c & 2 ? 2 : 0);
+
+					b = (c != 4);
+				} else {
+					/* remove starting longnote if there's also ending longnote */
+					c &= ~(c & 4 ? 8 : 0);
+					/* remove ending longnote */
+					c &= ~4;
+					/* keep only one starting longnote, visible, invisible in the order */
+					c = (c & 8 ? 8 : c & 1 ? 1 : c & 2 ? 2 : 0);
+
+					b = (c == 8);
+				}
+
+				for (; j < k; ++j) {
+					if (channel[i][j].type < 0) continue;
+
+					if (i < 18 && !(c & 1 << channel[i][j].type)) {
+						remove_note(i, j);
+					}
+				}
 			}
-			if (i<18 && b) {
+			if (i < 18 && b) {
+				/* remove last starting longnote which is unfinished */
 				while (j >= 0 && channel[i][--j].type < 0);
 				if (j >= 0 && channel[i][j].type == 3) remove_note(i, j);
 			}
@@ -1390,6 +1403,41 @@ static int check_exit(void)
 	return i;
 }
 
+static SDLKey get_sdlkey_from_name(const char *str)
+{
+	SDLKey i;
+
+	/* XXX maybe won't work in SDL 1.3 */
+	for (i = SDLK_FIRST; i < SDLK_LAST; ++i) {
+		if (stricmp(SDL_GetKeyName(i), str)) return i;
+	}
+	return SDLK_UNKNOWN;
+}
+
+static void read_envvars(void)
+{
+	static const char *keymapname[] = {
+		"KEY1P_1", "KEY1P_2", "KEY1P_3", "KEY1P_4", "KEY1P_5", "KEY1P_SCRATCH", "KEY1P_PEDAL", "KEY1P_6", "KEY1P_7",
+		"KEY2P_1", "KEY2P_2", "KEY2P_3", "KEY2P_4", "KEY2P_5", "KEY2P_SCRATCH", "KEY2P_PEDAL", "KEY2P_6", "KEY2P_7",
+	};
+
+	const char *ptr;
+	int i;
+	SDLKey key;
+
+	ptr = getenv("PLAYSPEED");
+	playspeed = ptr ? atof(ptr) : 0;
+	if (playspeed <= 0) playspeed = 1;
+	if (playspeed < .1) playspeed = .1;
+	if (playspeed > 99) playspeed = 99;
+
+	for (i = 0; i < 18; ++i) {
+		ptr = getenv(keymapname[i]);
+		key = ptr ? get_sdlkey_from_name(ptr) : SDLK_UNKNOWN;
+		if (key != SDLK_UNKNOWN) keymap[i] = key;
+	}
+}
+
 static int initialize(void)
 {
 	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) < 0)
@@ -1406,6 +1454,7 @@ static int initialize(void)
 	fontprocess(1);
 	fontprocess(2);
 	fontprocess(3);
+	read_envvars();
 	return 0;
 }
 
@@ -1862,48 +1911,12 @@ static int play_process(void)
 /******************************************************************************/
 /* entry point */
 
-static SDLKey get_sdlkey_from_name(const char *str)
-{
-	SDLKey i;
-
-	/* XXX maybe won't work in SDL 1.3 */
-	for (i = SDLK_FIRST; i < SDLK_LAST; ++i) {
-		if (stricmp(SDL_GetKeyName(i), str)) return i;
-	}
-	return SDLK_UNKNOWN;
-}
-
-static void read_envvars(void)
-{
-	static const char *keymapname[] = {
-		"KEY1P_1", "KEY1P_2", "KEY1P_3", "KEY1P_4", "KEY1P_5", "KEY1P_SCRATCH", "KEY1P_PEDAL", "KEY1P_6", "KEY1P_7",
-		"KEY2P_1", "KEY2P_2", "KEY2P_3", "KEY2P_4", "KEY2P_5", "KEY2P_SCRATCH", "KEY2P_PEDAL", "KEY2P_6", "KEY2P_7",
-	};
-
-	const char *ptr;
-	int i;
-	SDLKey key;
-
-	ptr = getenv("PLAYSPEED");
-	playspeed = ptr ? atof(ptr) : 0;
-	if (playspeed <= 0) playspeed = 1;
-	if (playspeed < .1) playspeed = .1;
-	if (playspeed > 99) playspeed = 99;
-
-	for (i = 0; i < 18; ++i) {
-		ptr = getenv(keymapname[i]);
-		key = ptr ? get_sdlkey_from_name(ptr) : SDLK_UNKNOWN;
-		if (key != SDLK_UNKNOWN) keymap[i] = key;
-	}
-}
-
 static int play(void)
 {
 	int i;
 	char *pos1, *pos2;
 
 	if (initialize()) return 1;
-	read_envvars();
 
 	if (read_bms()) {
 		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
