@@ -66,8 +66,17 @@ static double bpmtab[1296] = {0};
 static SMPEG *mpeg = NULL;
 #endif
 
-typedef struct { double time; int type, index; } bmsnote;
-static bmsnote *channel[22];
+typedef struct {
+	double time; /* time */
+	int type; /* for notes: start(0) and end(1) of longnote, visible(2), invisible(3)
+			   * for BGA: lower layer(0), upper layer(1), poor BGA(2)
+			   * for BPM: direct(0), indirect(1)
+			   * for STOP: unit=1/192 measure, indirect(0), unit=msec, direct(1)
+			   * otherwise: always 0. note that removed one has type -1. */
+	int index; /* associated resource or key value (if any) */
+} bmsnote;
+
+static bmsnote *channel[22]; /* 0..17: notes, 18: BGM; 19: BGA; 20: BPM; 21: STOP */
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22] = {0};
 static double length;
@@ -189,13 +198,13 @@ static char *strcopy(const char *src)
 
 #define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define ADD_NOTE(player, chan, time, index) \
-	add_note(GET_CHANNEL(player,chan), (time), 0, (index))
+	add_note(GET_CHANNEL(player,chan), (time), 2/*NOTE*/, (index))
 #define ADD_INVNOTE(player, chan, time, index) \
-	add_note(GET_CHANNEL(player,chan), (time), 1, (index))
+	add_note(GET_CHANNEL(player,chan), (time), 3/*INVNOTE*/, (index))
 #define ADD_LNDONE(player, chan, time, index) \
-	add_note(GET_CHANNEL(player,chan), (time), 2, (index))
+	add_note(GET_CHANNEL(player,chan), (time), 0/*LNDONE*/, (index))
 #define ADD_LNSTART(player, chan, time, index) \
-	add_note(GET_CHANNEL(player,chan), (time), 3, (index))
+	add_note(GET_CHANNEL(player,chan), (time), 1/*LNSTART*/, (index))
 #define ADD_BGM(time, index) \
 	add_note(18, (time), 0, (index))
 #define ADD_BGA(time, index) \
@@ -421,8 +430,8 @@ static int parse_bmsline(void)
 					} else if (chan % 10 != 0 && chan > 9 && chan < 30) {
 						if (lnobj && b == lnobj) {
 							c = GET_CHANNEL(chan>20, chan%10);
-							if (nchannel[c] && channel[c][nchannel[c]-1].type==0) {
-								channel[c][nchannel[c]-1].type = 3;
+							if (nchannel[c] && channel[c][nchannel[c]-1].type==2/*NOTE*/) {
+								channel[c][nchannel[c]-1].type = 1/*LNSTART*/;
 								ADD_LNDONE(chan>20, chan%10, t, b);
 							}
 						} else {
@@ -499,25 +508,24 @@ static int sanitize_bmsline(void)
 					}
 				}
 
-				/* XXX we can change bit masks for four types to make this simpler */
 				if (b) {
 					/* remove starting longnote if there's no ending longnote */
-					c &= ~(c & 4 ? 0 : 8);
+					c &= ~(c & 1 ? 0 : 2);
 					/* remove visible note */
-					c &= ~1;
-					/* keep only one starting longnote, ending longnote, invisible in the order */
-					c = (c & 8 ? 8 : c & 4 ? 4 : c & 2 ? 2 : 0);
+					c &= ~4;
+					/* remove invisible note if there is any longnote */
+					c &= ~(c & 3 ? 8 : 0);
 
-					b = (c != 4);
+					b = !(c & 1);
 				} else {
 					/* remove starting longnote if there's also ending longnote */
-					c &= ~(c & 4 ? 8 : 0);
+					c &= ~(c & 1 ? 2 : 0);
 					/* remove ending longnote */
-					c &= ~4;
-					/* keep only one starting longnote, visible, invisible in the order */
-					c = (c & 8 ? 8 : c & 1 ? 1 : c & 2 ? 2 : 0);
+					c &= ~1;
+					/* keep only one note, in the order of importance */
+					c &= -c;
 
-					b = (c == 8);
+					b = (c & 2);
 				}
 
 				for (; j < k; ++j) {
@@ -531,7 +539,7 @@ static int sanitize_bmsline(void)
 			if (i < 18 && b) {
 				/* remove last starting longnote which is unfinished */
 				while (j >= 0 && channel[i][--j].type < 0);
-				if (j >= 0 && channel[i][j].type == 3) remove_note(i, j);
+				if (j >= 0 && channel[i][j].type == 1/*LNSTART*/) remove_note(i, j);
 			}
 		}
 		k = 0;
@@ -631,8 +639,12 @@ static void get_bms_info(void)
 	if (nchannel[20]) xflag |= 8;
 	for (i = 0; i < 18; ++i) {
 		for (j = 0; j < nchannel[i]; ++j) {
-			if (channel[i][j].type > 1) xflag |= 2;
-			if (channel[i][j].type < 3) ++xnnotes;
+			if (channel[i][j].type == 1/*LNSTART*/) {
+				xflag |= 2;
+				++xnnotes;
+			} else if (channel[i][j].type == 2/*NOTE*/) {
+				++xnnotes;
+			}
 		}
 	}
 	for (i = 0; i < xnnotes; ++i) {
@@ -690,17 +702,13 @@ static int get_bms_duration(void)
 
 static void clone_bms(void)
 {
-	int i, j;
+	int i;
 
 	for (i = 0; i < 9; ++i) {
 		free(channel[i+9]);
 		nchannel[i+9] = nchannel[i];
 		channel[i+9] = malloc(sizeof(bmsnote) * nchannel[i]);
-		for (j = 0; j < nchannel[i]; ++j) {
-			channel[i+9][j].time = channel[i][j].time;
-			channel[i+9][j].type = channel[i][j].type;
-			channel[i+9][j].index = channel[i][j].index;
-		}
+		memcpy(channel[i+9], channel[i], sizeof(bmsnote) * nchannel[i]);
 	}
 }
 
@@ -774,13 +782,13 @@ static void shuffle_bms(int mode, int player)
 			for (i = 0; i < nmap; ++i) {
 				if (!target[i]) continue;
 				temp = channel[map[i]][ptr[map[i]]].type;
-				if (temp == 2) {
+				if (temp == 0/*LNDONE*/) {
 					j = thrumap[i];
 					thru[j] = 2;
 				} else {
 					j = perm[i];
 					while (thru[j]) j = perm[thrurmap[j]];
-					if (temp == 3) {
+					if (temp == 1/*LNSTART*/) {
 						thrumap[i] = j;
 						thrurmap[j] = i;
 						thru[j] = 1;
@@ -1719,7 +1727,7 @@ static int play_process(void)
 					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
-			} else if (opt_mode && channel[i][pcur[i]].type != 1 && sndres[j]) {
+			} else if (opt_mode && channel[i][pcur[i]].type != 3/*INVNOTE*/ && sndres[j]) {
 				j = Mix_PlayChannel(-1, sndres[j], 0);
 				if (j >= 0) Mix_GroupChannel(j, 0);
 			}
@@ -1728,7 +1736,7 @@ static int play_process(void)
 		if (i<18 && !opt_mode) {
 			for (; pcheck[i] < pcur[i]; ++pcheck[i]) {
 				j = channel[i][pcheck[i]].type;
-				if (j < 0 || j == 1 || (j == 2 && !thru[i])) continue;
+				if (j < 0 || j == 3/*INVNOTE*/ || (j == 0/*LNDONE*/ && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]].time;
 				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
 				if (tmp > 6e-4) update_grade(0); else break;
@@ -1747,7 +1755,7 @@ static int play_process(void)
 					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 0;
 						if (nchannel[i] && thru[i]) {
-							for (j = pcur[i]; channel[i][j].type != 2; --j);
+							for (j = pcur[i]; channel[i][j].type != 0/*LNDONE*/; --j);
 							thru[i] = 0;
 							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
 							if (-6e-4 < tmp && tmp < 6e-4) {
@@ -1779,30 +1787,31 @@ static int play_process(void)
 					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
 						keypressed[i] = 1;
 						if (!nchannel[i]) continue;
+
 						j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1].time + channel[i][pcur[i]].time < 2*line) ? pcur[i] : pcur[i]-1);
 						if (sndres[channel[i][j].index]) {
 							l = Mix_PlayChannel(-1, sndres[channel[i][j].index], 0);
 							if (l >= 0) Mix_GroupChannel(l, 0);
 						}
+
 						if (j < pcur[i]) {
-							while (j >= 0 && channel[i][j].type == 1) --j;
+							while (j >= 0 && channel[i][j].type == 3/*INVNOTE*/) --j;
 							if (j < 0) continue;
 						} else {
-							while (j < nchannel[i] && channel[i][j].type == 1) ++j;
+							while (j < nchannel[i] && channel[i][j].type == 3/*INVNOTE*/) ++j;
 							if (j == nchannel[i]) continue;
 						}
-						if (j < nchannel[i]) {
+
+						if (channel[i][j].type == 0/*LNDONE*/) {
+							if (thru[i]) update_grade(0);
+						} else if (channel[i][j].type >= 0) {
 							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
-							if (channel[i][j].type == 2) {
-								update_grade(0);
-							} else if (channel[i][j].type != 2 && channel[i][j].type >= 0) {
-								if (tmp < 0) tmp *= -1;
-								if (channel[i][j].type >= 0 && tmp < 6e-4) {
-									if (channel[i][j].type == 3) thru[i] = 1;
-									channel[i][j].type ^= -1;
-									score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
-									update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
-								}
+							if (tmp < 0) tmp *= -1;
+							if (channel[i][j].type >= 0 && tmp < 6e-4) {
+								if (channel[i][j].type == 1/*LNSTART*/) thru[i] = 1;
+								channel[i][j].type ^= -1;
+								score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
+								update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
 							}
 						}
 					}
@@ -1836,14 +1845,14 @@ static int play_process(void)
 		if (tkeyleft[i] < 0) continue;
 		for (j = pfront[i]; j < prear[i]; ++j) {
 			k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j].time));
-			if (channel[i][j].type == 3) {
+			if (channel[i][j].type == 1/*LNSTART*/) {
 				l = k + 5;
 				k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j].time));
 				if (k < 30) k = 30;
-			} else if (channel[i][j].type == 2) {
+			} else if (channel[i][j].type == 0/*LNDONE*/) {
 				k += 5;
 				l = 520;
-			} else if (channel[i][j].type == 0) {
+			} else if (channel[i][j].type == 2/*NOTE*/) {
 				l = k + 5;
 			} else {
 				continue;
@@ -1852,7 +1861,7 @@ static int play_process(void)
 				SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],l-k), screen, newrect(tkeyleft[i],k,0,0));
 			}
 		}
-		if (pfront[i]==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==2) {
+		if (pfront[i]==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==0/*LNDONE*/) {
 			SDL_BlitSurface(sprite, newrect(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, newrect(tkeyleft[i],30,0,0));
 		}
 	}

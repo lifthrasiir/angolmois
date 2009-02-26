@@ -1,0 +1,18 @@
+This test file is a part of angolmois, and put in the public domain.
+
+Sound sample is from OLPC sound samples <http://wiki.laptop.org/go/Sound_samples>,
+freely offered under CC-BY license.
+
+#artist echoless
+#title LNTYPE 1 longnote test (as last note)
+#player 1
+#bpm 180
+#lntype 1
+
+#wav11 tumba-muffled-1.wav
+#wav12 tumba-muffled-2.wav
+
+#00051:11
+#00151:ff
+
+
