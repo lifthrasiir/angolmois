@@ -1,6 +1,6 @@
 /*
  * Angolmois -- the simple BMS player
- * Copyright (c) 2005, 2007, 2009, Kang Seonghoon.
+ * Copyright (c) 2005, 2007, 2009, 2012, Kang Seonghoon.
  * Project Angolmois is copyright (c) 2003-2007, Choi Kaya (CHKY).
  * 
  * This program is free software; you can redistribute it and/or
@@ -25,9 +25,7 @@
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <SDL_image.h>
-#ifdef USE_SMPEG
 #include <smpeg.h>
-#endif
 
 static const char VERSION[] = "Angolmois 2.0.0 alpha 0";
 
@@ -62,9 +60,8 @@ static Mix_Chunk *sndres[1296];
 static SDL_Surface *imgres[1296];
 static int stoptab[1296] = {0};
 static double bpmtab[1296] = {0};
-#ifdef USE_SMPEG
 static SMPEG *mpeg = NULL;
-#endif
+int imgmpeg = -2;
 
 typedef struct {
 	double time; /* time */
@@ -184,6 +181,20 @@ static char *adjust_path(char *path)
 {
 	strcpy(respath, bmspath);
 	strcat(respath, adjust_path_case(path)); /* XXX could be overflow */
+	return respath;
+}
+
+static char *adjust_path_with_ext(char *path, char *ext)
+{
+	int len = strlen(bmspath);
+	char *oldext;
+	strcpy(respath, bmspath);
+	strcpy(respath + len, path);
+	oldext = strrchr(respath + len, '.');
+	if (oldext) {
+		strcpy(oldext, ext);
+		strcpy(respath + len, adjust_path_case(respath + len));
+	}
 	return respath;
 }
 
@@ -576,24 +587,32 @@ static SDL_Rect *newrect(int x, int y, int w, int h); /* DUMMY */
 static int load_resource(void (*callback)(const char *))
 {
 	SDL_Surface *temp;
-	int i, j;
+	int i;
 
 	for (i = 0; i < 1296; ++i) {
 		if (sndpath[i]) {
 			if (callback) callback(sndpath[i]);
 			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
-			j = (j>3 ? *(int*)(sndpath[i]+strlen(sndpath[i])-4) : 0) | 0x20202020;
-			if (j != 0x33706d2e && j != 0x2e6d7033) {
-				free(sndpath[i]);
-				sndpath[i] = 0;
-			}
+			if (!sndres[i]) sndres[i] = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".mp3"));
+			if (!sndres[i]) sndres[i] = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".ogg"));
+			free(sndpath[i]);
+			sndpath[i] = 0;
 		}
 		if (imgpath[i]) {
+			char *ext = strrchr(imgpath[i], '.');
 			if (callback) callback(imgpath[i]);
-			if (temp = IMG_Load(adjust_path(imgpath[i]))) {
-				imgres[i] = SDL_DisplayFormat(temp);
-				SDL_FreeSurface(temp);
-				SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+			if (ext && stricmp(ext, ".mpg") && !mpeg) {
+				mpeg = SMPEG_new(adjust_path(imgpath[i]), NULL, 0);
+				imgmpeg = i;
+			} else {
+				temp = IMG_Load(adjust_path(imgpath[i]));
+				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".png"));
+				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".jpg"));
+				if (temp) {
+					imgres[i] = SDL_DisplayFormat(temp);
+					SDL_FreeSurface(temp);
+					SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+				}
 			}
 			free(imgpath[i]);
 			imgpath[i] = 0;
@@ -605,7 +624,7 @@ static int load_resource(void (*callback)(const char *))
 		temp = imgres[blitcmd[i][0]];
 		if (!temp) {
 			imgres[blitcmd[i][0]] = temp = newsurface(SDL_SWSURFACE, 256, 256);
-			SDL_FillRect(temp, 0, 0);
+			SDL_FillRect(temp, 0, SDL_MapRGB(imgres[blitcmd[i][0]]->format, 0, 0, 0));
 			SDL_SetColorKey(temp, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 		}
 		if (blitcmd[i][2] < 0) blitcmd[i][2] = 0;
@@ -819,11 +838,19 @@ static int _rect=0;
 
 static int getpixel(SDL_Surface *s, int x, int y)
 {
-	return ((Uint32*)s->pixels)[x+y*s->pitch/4];
+	Uint8 r, g, b;
+	SDL_GetRGB(((Uint32*)s->pixels)[x+y*s->pitch/4], s->format, &r, &g, &b);
+	return (int)(r << 16) | ((int)g << 8) | (int)b;
+}
+
+static Uint32 map(int c)
+{
+	return SDL_MapRGB(screen->format, c >> 16, (c >> 8) & 255, c & 255);
 }
 
 static int putpixel(SDL_Surface *s, int x, int y, int c)
 {
+	c = SDL_MapRGB(s->format, c >> 16, (c >> 8) & 255, c & 255);
 	return ((Uint32*)s->pixels)[x+y*s->pitch/4] = c;
 }
 
@@ -853,16 +880,6 @@ static SDL_Rect *newrect(int x, int y, int w, int h)
 	r->w = w;
 	r->h = h;
 	return r;
-}
-
-static int lock(void)
-{
-	return SDL_MUSTLOCK(screen) && SDL_LockSurface(screen) < 0;
-}
-
-static void unlock(void)
-{
-	if (SDL_MUSTLOCK(screen)) SDL_UnlockSurface(screen);
 }
 
 static int bicubic_kernel(int x, int y) {
@@ -899,15 +916,15 @@ static int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 				if (xx>=0 && xx<=ww && yy>=0 && yy<=hh) {
 					c = getpixel(src, xx, yy);
 					d = a[k/4][0] * a[k%4][1] >> 6;
-					r += (c&255) * d;
+					r += (c>>16) * d;
 					g += (c>>8&255) * d;
-					b += (c>>16&255) * d;
+					b += (c&255) * d;
 				}
 			}
 			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
 			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
 			b = (b<0 ? 0 : b>>24 ? 255 : b>>16);
-			putpixel(dest, i, j, r | (g<<8) | (b<<16));
+			putpixel(dest, i, j, (r<<16) | (g<<8) | b);
 
 			dy += hh;
 			if (dy > h) {
@@ -1044,7 +1061,6 @@ static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256;
 static int opt_mode = 0, opt_showinfo = 1, opt_fullscreen = 1, opt_random = 0;
 
-static SDL_AudioSpec aformat;
 static SDL_Surface *sprite=0;
 static int keymap[18]={
 	SDLK_z, SDLK_s, SDLK_x, SDLK_d, SDLK_c, SDLK_LSHIFT, SDLK_LALT, SDLK_f, SDLK_v,
@@ -1118,7 +1134,9 @@ static int initialize(void)
 	if (!screen)
 		return errormsg("SDL Video Initialization Failure: %s", SDL_GetError());
 	SDL_ShowCursor(SDL_DISABLE);
-	if (Mix_OpenAudio(aformat.freq=44100, aformat.format=MIX_DEFAULT_FORMAT, aformat.channels=2, 2048)<0)
+	IMG_Init(IMG_INIT_JPG|IMG_INIT_PNG);
+	Mix_Init(MIX_INIT_OGG|MIX_INIT_MP3);
+	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0)
 		return errormsg("SDL Mixer Initialization Failure: %s", Mix_GetError());
 	SDL_WM_SetCaption(VERSION, 0);
 
@@ -1257,9 +1275,16 @@ static void play_prepare(void)
 	SDL_FillRect(sprite, newrect(10,564,tpanel1,1), 0x404040);
 
 	/* screen */
-	SDL_FillRect(screen, 0, 0);
+	SDL_FillRect(screen, 0, map(0));
 	SDL_BlitSurface(sprite, newrect(0,0,800,30), screen, newrect(0,0,0,0));
 	SDL_BlitSurface(sprite, newrect(0,520,800,80), screen, newrect(0,520,0,0));
+
+	/* video (if any) */
+	if (mpeg) {
+		imgres[imgmpeg] = newsurface(SDL_SWSURFACE, 256, 256);
+		SMPEG_enablevideo(mpeg, 1);
+		SMPEG_setdisplay(mpeg, imgres[imgmpeg], NULL, NULL);
+	}
 
 	/* configuration */
 	origintime = starttime = SDL_GetTicks();
@@ -1324,7 +1349,7 @@ static int play_process(void)
 			playspeed = targetspeed;
 			for (i = 0; i < 22; ++i) prear[i] = pfront[i];
 		} else {
-			playspeed += tmp * 0.015;
+			playspeed += tmp * 0.05;
 		}
 	}
 
@@ -1358,21 +1383,6 @@ static int play_process(void)
 						Mix_Volume(j, 96);
 						Mix_GroupChannel(j, 1);
 					}
-				} else if (sndpath[j]) {
-#ifdef USE_SMPEG
-					if (!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING) {
-						if (mpeg) {
-							Mix_HookMusic(0, 0);
-							SMPEG_delete(mpeg);
-						}
-						if (mpeg = SMPEG_new(sndpath[j], 0, 0)) {
-							SMPEG_actualSpec(mpeg, &aformat);
-							Mix_HookMusic(SMPEG_playAudioSDL, mpeg);
-							SMPEG_enableaudio(mpeg, 1);
-							SMPEG_play(mpeg);
-						}
-					}
-#endif
 				}
 			} else if (i == 19) {
 				bga[channel[i][pcur[i]].type] = j;
@@ -1486,22 +1496,18 @@ static int play_process(void)
 		}
 	}
 	if (bottom > length) {
-#ifdef SMPEG
 		i = (!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING);
-#else
-		i = 1;
-#endif
 		j = (opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1);
 		if (i && j) return 0;
 	} else if (bottom < -1) {
 		return 0;
 	}
 
-	SDL_FillRect(screen, newrect(0,30,tpanel1,490), 0x404040);
-	if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,30,800-tpanel2,490), 0x404040);
+	SDL_FillRect(screen, newrect(0,30,tpanel1,490), map(0x404040));
+	if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,30,800-tpanel2,490), map(0x404040));
 	for (i = 0; i < 18; ++i) {
 		if (tkeyleft[i] < 0) continue;
-		SDL_FillRect(screen, newrect(tkeyleft[i],30,tkeywidth[i],490), 0);
+		SDL_FillRect(screen, newrect(tkeyleft[i],30,tkeywidth[i],490), map(0));
 		if (keypressed[i]) {
 			SDL_BlitSurface(sprite, newrect(tkeyleft[i],140,tkeywidth[i],380), screen, newrect(tkeyleft[i],140,0,0));
 		}
@@ -1533,8 +1539,8 @@ static int play_process(void)
 	}
 	for (i = ibottom; i < top; ++i) {
 		j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, i));
-		SDL_FillRect(screen, newrect(0,j,tpanel1,1), 0xc0c0c0);
-		if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), 0xc0c0c0);
+		SDL_FillRect(screen, newrect(0,j,tpanel1,1), map(0xc0c0c0));
+		if (tpanel2) SDL_FillRect(screen, newrect(tpanel2,j,800-tpanel2,1), map(0xc0c0c0));
 	}
 	if (now < gradetime) {
 		int delta = (gradetime - now - 400) / 30;
@@ -1549,15 +1555,18 @@ static int play_process(void)
 		if (!grademode) bga_updated = 1;
 	}
 	SDL_SetClipRect(screen, 0);
-	if (bga_updated > 0 || (bga_updated < 0 && now >= poorbga)) {
-		SDL_FillRect(screen, newrect(tbga,172,256,256), 0);
+	if (bga_updated > 0 || (bga_updated < 0 && now >= poorbga) || SMPEG_status(mpeg) == SMPEG_PLAYING) {
+		SDL_FillRect(screen, newrect(tbga,172,256,256), map(0));
+		for (i = 0; i < 3; ++i) {
+			if (bga_updated > 0 && bga[i] == imgmpeg && SMPEG_status(mpeg) != SMPEG_PLAYING) SMPEG_play(mpeg);
+		}
 		if (now < poorbga) {
 			if (bga[2] >= 0 && imgres[bga[2]])
 				SDL_BlitSurface(imgres[bga[2]], newrect(0,0,256,256), screen, newrect(tbga,172,0,0));
 			bga_updated = -1;
 		} else {
 			for (i = 0; i < 2; ++i)
-				if(bga[i] >= 0 && imgres[bga[i]])
+				if (bga[i] >= 0 && imgres[bga[i]])
 					SDL_BlitSurface(imgres[bga[i]], newrect(0,0,256,256), screen, newrect(tbga,172,0,0));
 			bga_updated = 0;
 		}
@@ -1579,7 +1588,7 @@ static int play_process(void)
 	if (!tpanel2 && !opt_mode) {
 		if (gauge > 512) gauge = 512;
 		i = (gauge<0 ? 0 : (gauge*400>>9) - (int)(160*startshorten*(1+bottom)) % 40);
-		SDL_FillRect(screen, newrect(4,588,i>360?360:i<5?5:i,8), 0xc00000);
+		SDL_FillRect(screen, newrect(4,588,i>360?360:i<5?5:i,8), map(0xc00000));
 	}
 
 	SDL_Flip(screen);
