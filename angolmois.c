@@ -21,19 +21,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <time.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <SDL_image.h>
 #include <smpeg.h>
 
-static const char VERSION[] = "Angolmois 2.0.0 alpha 0";
+static const char VERSION[] = "Angolmois 2.0.0 alpha 1";
+static const char *argv0 = "angolmois";
 
 /******************************************************************************/
 /* constants, variables */
 
 #define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 #define SWAP(x,y,t) {(t)=(x);(x)=(y);(y)=(t);}
+
+static int opt_mode = 0, opt_showinfo = 1, opt_fullscreen = 1, opt_random = 0, opt_bga = 0;
 
 static const char *bmsheader[] = {
 	"title", "genre", "artist", "stagefile", "bpm", "player", "playlevel",
@@ -104,11 +108,15 @@ static int filedialog(char *buf)
 	return GetOpenFileName(&ofn);
 }
 
-static int errormsg(const char *c, const char *s)
+static void die(const char *msg, ...)
 {
+	va_list v;
 	char b[512];
-	sprintf(b, c, s);
-	return MessageBox(0, b, VERSION, 0);
+	va_start(v, msg);
+	vsprintf(b, c, v);
+	va_end(a);
+	MessageBox(0, b, VERSION, 0);
+	exit(1);
 }
 
 static void dirinit(void) {}
@@ -128,9 +136,15 @@ static int filedialog(char *buf)
 	return 0;
 }
 
-static int errormsg(const char *c, const char *s)
+static void die(const char *msg, ...)
 {
-	return fprintf(stderr, c, s);
+	va_list v;
+	fprintf(stderr, "%s: ", argv0);
+	va_start(v, msg);
+	vfprintf(stderr, msg, v);
+	va_end(v);
+	fprintf(stderr, "\n");
+	exit(1);
 }
 
 static int stricmp(const char *a, const char *b); /* DUMMY */
@@ -601,10 +615,10 @@ static int load_resource(void (*callback)(const char *))
 		if (imgpath[i]) {
 			char *ext = strrchr(imgpath[i], '.');
 			if (callback) callback(imgpath[i]);
-			if (ext && stricmp(ext, ".mpg") && !mpeg) {
+			if (ext && stricmp(ext, ".mpg") && opt_bga < 1 && !mpeg) {
 				mpeg = SMPEG_new(adjust_path(imgpath[i]), NULL, 0);
 				imgmpeg = i;
-			} else {
+			} else if (opt_bga < 2) {
 				temp = IMG_Load(adjust_path(imgpath[i]));
 				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".png"));
 				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".jpg"));
@@ -1058,13 +1072,10 @@ static int pcur[22] = {0}, pfront[22] = {0}, prear[22] = {0}, pcheck[18] = {0}, 
 static int bga[3] = {-1,-1,0}, poorbga = 0, bga_updated = 1;
 static int score = 0, scocnt[5] = {0}, scombo = 0, smaxcombo = 0;
 static double gradefactor;
-static int gradetime = 0, grademode, gauge = 256;
-static int opt_mode = 0, opt_showinfo = 1, opt_fullscreen = 1, opt_random = 0;
+static int gradetime = 0, grademode, gauge = 256, survival = 150;
 
 static SDL_Surface *sprite=0;
-static int keymap[18]={
-	SDLK_z, SDLK_s, SDLK_x, SDLK_d, SDLK_c, SDLK_LSHIFT, SDLK_LALT, SDLK_f, SDLK_v,
-	SDLK_m, SDLK_k, SDLK_COMMA, SDLK_l, SDLK_PERIOD, SDLK_RSHIFT, SDLK_RALT, SDLK_SEMICOLON, SDLK_SLASH};
+static int keymap[SDLK_LAST]; /* -1: none, 0..17: notes, 18..19: speed down/up */
 static int keypressed[18] = {0};
 static int tkeyleft[18] = {41,67,93,119,145,0,223,171,197, 578,604,630,656,682,760,537,708,734};
 static int tkeywidth[18] = {25,25,25,25,25,40,40,25,25, 25,25,25,25,25,40,40,25,25};
@@ -1081,13 +1092,13 @@ static int tgradecolor[5][2] = {
 	{0xff4040, 0xffc0c0}, {0xff40ff, 0xffc0ff}, {0xffff40, 0xffffc0},
 	{0x40ff40, 0xc0ffc0}, {0x4040ff, 0xc0c0ff}};
 
-static int check_exit(void)
+static Mix_Chunk *beep;
+
+static void check_exit(void)
 {
-	int i = 0;
 	while (SDL_PollEvent(&event)) {
-		if (event.type == SDL_QUIT || (event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_ESCAPE)) i = 1;
+		if (event.type == SDL_QUIT || (event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_ESCAPE)) exit(0);
 	}
-	return i;
 }
 
 static SDLKey get_sdlkey_from_name(const char *str)
@@ -1101,60 +1112,88 @@ static SDLKey get_sdlkey_from_name(const char *str)
 	return SDLK_UNKNOWN;
 }
 
-static void read_envvars(void)
+static void read_keymap(void)
 {
-	static const char *keymapname[] = {
-		"KEY1P_1", "KEY1P_2", "KEY1P_3", "KEY1P_4", "KEY1P_5", "KEY1P_SCRATCH", "KEY1P_PEDAL", "KEY1P_6", "KEY1P_7",
-		"KEY2P_1", "KEY2P_2", "KEY2P_3", "KEY2P_4", "KEY2P_5", "KEY2P_SCRATCH", "KEY2P_PEDAL", "KEY2P_6", "KEY2P_7",
+	static const struct { const char *name, *def; int base, limit; } envvars[] = {
+		{"ANGOLMOIS_1P_KEYS", "z|s|x|d|c|left shift|left alt|f|v", 0, 9},
+		{"ANGOLMOIS_2P_KEYS", "m|k|,|l|.|right shift|right alt|;|/", 9, 18},
+		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", 18, 20},
 	};
-
-	const char *ptr;
-	int i;
+	char *s, buf[256] = "";
+	int i, j, k, sep;
 	SDLKey key;
 
-	ptr = getenv("PLAYSPEED");
-	playspeed = ptr ? atof(ptr) : 0;
-	if (playspeed <= 0) playspeed = 1;
-	if (playspeed < .1) playspeed = .1;
-	if (playspeed > 99) playspeed = 99;
-
-	for (i = 0; i < 18; ++i) {
-		ptr = getenv(keymapname[i]);
-		key = ptr ? get_sdlkey_from_name(ptr) : SDLK_UNKNOWN;
-		if (key != SDLK_UNKNOWN) keymap[i] = key;
+	for (i = 0; i < SDLK_LAST; ++i) keymap[i] = -1;
+	for (i = 0; i < 3; ++i) {
+		s = getenv(envvars[i].name);
+		strncpy(buf, s ? s : envvars[i].def, sizeof(buf) - 1);
+		s = buf;
+		sep = 1;
+		for (j = envvars[i].base; sep && j < envvars[i].limit; ) {
+			k = strcspn(s, "%|"); /* both character is not used as a key name in SDL 1.2 */
+			sep = s[k];
+			s[k++] = '\0';
+			key = get_sdlkey_from_name(s);
+			if (key == SDLK_UNKNOWN) {
+				die("Unknown key name in the environment variable %s: %s", envvars[i].name, s);
+			}
+			keymap[key] = j;
+			if (sep != '%') ++j;
+			s += k;
+		}
 	}
+	
+}
+
+static void create_beep(void)
+{
+	Sint32 samples[12000]; /* approx. 0.14 seconds */
+	int i;
+
+	for (i = 0; i < 12000; ++i) {
+		/* sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds. */
+		samples[i] = (i%28-14)*(i<2000 ? 2000 : (12000-i)*(12000-i)/50000);
+	}
+	beep = Mix_QuickLoad_RAW((Uint8*)samples, sizeof samples);
 }
 
 static int initialize(void)
 {
 	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) < 0)
-		return errormsg("SDL Initialization Failure: %s", SDL_GetError());
+		die("SDL Initialization Failure: %s", SDL_GetError());
 	atexit(SDL_Quit);
 	screen = SDL_SetVideoMode(800, 600, 32, opt_fullscreen ? SDL_FULLSCREEN : SDL_SWSURFACE|SDL_DOUBLEBUF);
 	if (!screen)
-		return errormsg("SDL Video Initialization Failure: %s", SDL_GetError());
+		die("SDL Video Initialization Failure: %s", SDL_GetError());
 	SDL_ShowCursor(SDL_DISABLE);
 	IMG_Init(IMG_INIT_JPG|IMG_INIT_PNG);
 	Mix_Init(MIX_INIT_OGG|MIX_INIT_MP3);
 	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0)
-		return errormsg("SDL Mixer Initialization Failure: %s", Mix_GetError());
+		die("SDL Mixer Initialization Failure: %s", Mix_GetError());
 	SDL_WM_SetCaption(VERSION, 0);
 
 	fontdecompress();
 	fontprocess(1);
 	fontprocess(2);
 	fontprocess(3);
-	read_envvars();
+	read_keymap(); /* this is unfortunate, but get_sdlkey_from_name depends on SDL_Init. */
+	create_beep();
 	return 0;
 }
 
 static SDL_Surface *stagefile_tmp;
+static int last_flip = -1;
 
 static void callback_resource(const char *path) {
+	/* try not to refresh the screen within 1/20 seconds */
+	int t = SDL_GetTicks();
+	if (last_flip >= 0 && (t - last_flip) < 50) return;
+
+	last_flip = t;
 	SDL_BlitSurface(stagefile_tmp, newrect(0,0,800,20), screen, newrect(0,580,800,20));
 	printstr(screen, 797-8*strlen(path), 582, 1, path, 0x808080, 0xc0c0c0);
 	SDL_Flip(screen);
-	if (check_exit()) exit(0);
+	check_exit();
 }
 
 static void play_show_stagefile(void)
@@ -1164,7 +1203,7 @@ static void play_show_stagefile(void)
 	int i, j, t;
 
 	sprintf(buf, "%s: %s - %s", VERSION, metadata[2], metadata[0]);
-	//SDL_WM_SetCaption(buf, 0);
+	/*SDL_WM_SetCaption(buf, 0);*/
 	printstr(screen, 248, 284, 2, "loading bms file...", 0x202020, 0x808080);
 	SDL_Flip(screen);
 
@@ -1194,12 +1233,11 @@ static void play_show_stagefile(void)
 	t = SDL_GetTicks() + 3000;
 	load_resource(opt_showinfo ? callback_resource : 0);
 	if (opt_showinfo) {
+		last_flip = -1; /* force update */
 		callback_resource("loading...");
 		SDL_FreeSurface(stagefile_tmp);
 	}
-	while ((int)SDL_GetTicks() < t) {
-		if (check_exit()) exit(0);
-	}
+	while ((int)SDL_GetTicks() < t) check_exit();
 }
 
 static void play_prepare(void)
@@ -1321,16 +1359,16 @@ static void update_grade(int grade)
 
 	if (grade < 1) {
 		scombo = 0;
-		gauge -= 12;
+		gauge -= 30;
 		poorbga = now + 600;
 	} else if (grade < 2) {
 		scombo = 0;
-		gauge -= 5;
+		gauge -= 15;
 	} else if (grade < 3) {
 		/* do nothing */
 	} else {
 		++scombo;
-		gauge += (grade<4 ? 3 : 5) + scombo / 100;
+		gauge += (grade<4 ? 2 : 3) + (scombo<100 ? scombo : 100) / 50;
 	}
 
 	if (scombo > smaxcombo) smaxcombo = scombo;
@@ -1338,7 +1376,7 @@ static void update_grade(int grade)
 
 static int play_process(void)
 {
-	int i, j, k, l, ibottom;
+	int i, j, k, l, ibottom, eop;
 	double bottom, top, line, tmp;
 	char buf[99];
 
@@ -1349,7 +1387,7 @@ static int play_process(void)
 			playspeed = targetspeed;
 			for (i = 0; i < 22; ++i) prear[i] = pfront[i];
 		} else {
-			playspeed += tmp * 0.05;
+			playspeed += tmp * 0.1;
 		}
 	}
 
@@ -1369,8 +1407,9 @@ static int play_process(void)
 		startoffset = ibottom;
 		startshorten = shorten[ibottom];
 	}
-	line = bottom;//adjust_object_time(bottom, 0.03/playspeed);
+	line = bottom;/*adjust_object_time(bottom, 0.03/playspeed);*/
 	top = adjust_object_time(bottom, 1.25/playspeed);
+	eop = 1;
 	for (i = 0; i < 22; ++i) {
 		while (pfront[i] < nchannel[i] && channel[i][pfront[i]].time < bottom) ++pfront[i];
 		while (prear[i] < nchannel[i] && channel[i][prear[i]].time <= top) ++prear[i];
@@ -1417,78 +1456,79 @@ static int play_process(void)
 				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
 				if (tmp > 6e-4) update_grade(0); else break;
 			}
+			if (pfront[i] < nchannel[i]) eop = 0;
 		}
 	}
 
 	while (SDL_PollEvent(&event)) {
 		if (event.type == SDL_QUIT) {
-			return -1;
+			return (eop ? 0 : -1);
 		} else if (event.type == SDL_KEYUP) {
 			if (event.key.keysym.sym == SDLK_ESCAPE) {
-				return -1;
+				return (eop ? 0 : -1);
 			} else if (!opt_mode) {
-				for (i = 0; i < 18; ++i) {
-					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
-						keypressed[i] = 0;
-						if (nchannel[i] && thru[i]) {
-							for (j = pcur[i]; channel[i][j].type != 0/*LNDONE*/; --j);
-							thru[i] = 0;
-							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
-							if (-6e-4 < tmp && tmp < 6e-4) {
-								channel[i][j].type ^= -1;
-							} else {
-								update_grade(0);
-							}
+				i = keymap[event.key.keysym.sym];
+				if (i >= 0 && i < 18 && tkeyleft[i] >= 0) {
+					j = keypressed[i];
+					if (j > 0) --keypressed[i];
+					if (j == 1 && nchannel[i] && thru[i]) {
+						for (j = pcur[i]; channel[i][j].type != 0/*LNDONE*/; --j);
+						thru[i] = 0;
+						tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
+						if (-6e-4 < tmp && tmp < 6e-4) {
+							channel[i][j].type ^= -1;
+						} else {
+							update_grade(0);
 						}
 					}
 				}
 			}
 		} else if (event.type == SDL_KEYDOWN) {
-			if (event.key.keysym.sym == SDLK_F3) {
+			i = keymap[event.key.keysym.sym];
+			if (i == 18/*SPEED_DOWN*/) {
 				if (targetspeed > 20) targetspeed -= 5;
 				else if (targetspeed > 10) targetspeed -= 1;
 				else if (targetspeed > 1) targetspeed -= .5;
 				else if (targetspeed > .201) targetspeed -= .2;
 				else continue;
 				adjustspeed = 1;
-			} else if (event.key.keysym.sym == SDLK_F4) {
+				Mix_PlayChannel(-1, beep, 0);
+			} else if (i == 19/*SPEED_UP*/) {
 				if (targetspeed < 1) targetspeed += .2;
 				else if (targetspeed < 10) targetspeed += .5;
 				else if (targetspeed < 20) targetspeed += 1;
 				else if (targetspeed < 95) targetspeed += 5;
 				else continue;
 				adjustspeed = 1;
+				Mix_PlayChannel(-1, beep, 0);
 			} else if (!opt_mode) {
-				for (i = 0; i < 18; ++i) {
-					if (tkeyleft[i] >= 0 && event.key.keysym.sym == keymap[i]) {
-						keypressed[i] = 1;
-						if (!nchannel[i]) continue;
+				if (i >= 0 && i < 18 && tkeyleft[i] >= 0) {
+					if (keypressed[i]++ || !nchannel[i]) continue;
 
-						j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1].time + channel[i][pcur[i]].time < 2*line) ? pcur[i] : pcur[i]-1);
-						if (sndres[channel[i][j].index]) {
-							l = Mix_PlayChannel(-1, sndres[channel[i][j].index], 0);
-							if (l >= 0) Mix_GroupChannel(l, 0);
-						}
+					j = (pcur[i] < 1 || (pcur[i] < nchannel[i] && channel[i][pcur[i]-1].time + channel[i][pcur[i]].time < 2*line) ? pcur[i] : pcur[i]-1);
+					if (sndres[channel[i][j].index]) {
+						l = Mix_PlayChannel(-1, sndres[channel[i][j].index], 0);
+						if (l >= 0) Mix_GroupChannel(l, 0);
+					}
 
-						if (j < pcur[i]) {
-							while (j >= 0 && channel[i][j].type == 3/*INVNOTE*/) --j;
-							if (j < 0) continue;
-						} else {
-							while (j < nchannel[i] && channel[i][j].type == 3/*INVNOTE*/) ++j;
-							if (j == nchannel[i]) continue;
-						}
+					if (j < pcur[i]) {
+						while (j >= 0 && channel[i][j].type == 3/*INVNOTE*/) --j;
+						if (j < 0) continue;
+					} else {
+						while (j < nchannel[i] && channel[i][j].type == 3/*INVNOTE*/) ++j;
+						if (j == nchannel[i]) continue;
+					}
 
-						if (channel[i][j].type == 0/*LNDONE*/) {
-							if (thru[i]) update_grade(0);
-						} else if (channel[i][j].type >= 0) {
-							tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
-							if (tmp < 0) tmp *= -1;
-							if (channel[i][j].type >= 0 && tmp < 6e-4) {
-								if (channel[i][j].type == 1/*LNSTART*/) thru[i] = 1;
-								channel[i][j].type ^= -1;
-								score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
-								update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
-							}
+					if (channel[i][j].type == 0/*LNDONE*/) {
+						if (thru[i]) update_grade(0);
+					} else if (channel[i][j].type >= 0) {
+						tmp = (channel[i][j].time - line) * shorten[(int)line] / bpm * gradefactor;
+						if (tmp < 0) tmp *= -1;
+						if (channel[i][j].type >= 0 && tmp < 6e-4) {
+							if (channel[i][j].type == 1/*LNSTART*/) thru[i] = 1;
+							channel[i][j].type ^= -1;
+							score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / xnnotes));
+							update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
 						}
 					}
 				}
@@ -1585,8 +1625,10 @@ static int play_process(void)
 	printchar(screen, 6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
 	if (!tpanel2 && !opt_mode) {
 		if (gauge > 512) gauge = 512;
-		i = (gauge<0 ? 0 : (gauge*400>>9) - (int)(160*startshorten*(1+bottom)) % 40);
-		SDL_FillRect(screen, newrect(4,588,i>360?360:i<5?5:i,8), map(0xc00000));
+		k = (int)(160*startshorten*(1+bottom)) % 40; /* i.e. cycles four times per measure */
+		i = (gauge<0 ? 0 : (gauge*400>>9) - k);
+		j = (gauge>=survival ? 0xc0 : 0xc0 - k*4) << 16;
+		SDL_FillRect(screen, newrect(4,588,i>360?360:i<5?5:i,8), map(j));
 	}
 
 	SDL_Flip(screen);
@@ -1603,9 +1645,7 @@ static int play(void)
 
 	if (initialize()) return 1;
 
-	if (read_bms()) {
-		return *bmspath && errormsg("Couldn't load BMS file: %s", bmspath);
-	}
+	if (read_bms()) die("Couldn't load BMS file: %s", bmspath);
 	if (v_player == 4) clone_bms();
 	if (opt_random) {
 		if (v_player == 3) {
@@ -1637,7 +1677,7 @@ static int play(void)
 	while ((i = play_process()) > 0);
 
 	if (!opt_mode && i == 0) {
-		if (gauge > 150) {
+		if (gauge >= survival) {
 			printf("*** CLEARED! ***\n");
 			for (i = 4; i >= 0; --i)
 				printf("%-5s %4d    %s", tgradestr[i], scocnt[i], "\n"+(i!=2));
@@ -1650,95 +1690,108 @@ static int play(void)
 	return 0;
 }
 
-static int credit(void)
+int usage(void)
 {
-	SDL_Surface *credit;
-	const char *s[] = {
-		"TokigunStudio Angolmois", "\"the Simple BMS Player\"", VERSION + 10,
-		"Original Character Design from", "Project Angolmois", "by", "Choi Kaya (CHKY)", "[ http://angolmois.net/ ]",
-		"Programmed & Obfuscated by", "Kang Seonghoon (Tokigun)", "[ http://tokigun.net/ ]",
-		"Graphics & Interface Design by", "Kang Seonghoon (Tokigun)",
-		"Special Thanks to", "Park J. K. (mono*)", "Park Jiin (Mithrandir)", "Hye-Shik Chang (perky)",
-		"Greetings", "Kang Junho (MysticMist)", "Joon-cheol Park (exman)",
-		"Jae-kyun Lee (kida)", "Park Byeong-uk (Minan2DJ07)",
-		"Park Jaesong (klutzy)", "HanIRC #tokigun, #perky", "ToEZ2DJ.net",
-		"Powered by", "SDL, SDL_mixer, SDL_image", "gVim, Python", "and",
-		"DemiSoda Apple/Grape", "POCARISWEAT", "Shovel Works",
-		"Copyright (c) 2005, Kang Seonghoon (Tokigun).",
-		"This program is free software; you can redistribute it and/or",
-		"modify it under the terms of the GNU General Public License",
-		"as published by the Free Software Foundation; either version 2",
-		"of the License, or (at your option) any later version.",
-		"for more information, visit http://dev.tokigun.net/angolmois/.",
-	};
-	char f[] = "DNNTITITTITTIQFFFQFFFFFFFQFFEFFFKKKKKW";
-	int y[] = {
-		20, 80, 100, 200, 220, 255, 275, 310, 410, 430, 465, 580, 600, 800,
-		820, 855, 890, 1000, 1020, 1055, 1090, 1125, 1160, 1195, 1230, 1400,
-		1420, 1455, 1490, 1510, 1545, 1580, 2060, 2090, 2110, 2130, 2150, 2180
-	};
-	int c[] = {0x4040c0, 0x408040, 0x808040, 0x808080, 0x8080c0, 0x80c080, 0xc0c080, 0xc0c0c0};
-	int i, t = -750;
-
-	opt_fullscreen = 0;
-	if (initialize()) return 1;
-	credit = newsurface(SDL_SWSURFACE, 800, 2200);
-	SDL_FillRect(credit, 0, 0x000010);
-	SDL_FillRect(credit, newrect(0, 1790, 800, 410), 0);
-	for (i = 1; i < 16; ++i)
-		SDL_FillRect(credit, newrect(0, 1850-i*5, 800, 5), i);
-	for (i = 0; i < ARRAYSIZE(s); ++i) {
-		printstr(credit, 400-strlen(s[i])*(f[i]%3+1)*4, y[i], f[i]%3+1, s[i], c[f[i]/3-22], 0xffffff);
-	}
-
-	SDL_FillRect(screen, 0, 0x000010);
-	while (++t < 1820) {
-		if (check_exit()) exit(0);
-		SDL_BlitSurface(credit, newrect(0,t,800,600), screen, 0);
-		SDL_Flip(screen);
-		SDL_Delay(20);
-	}
-	if (t == 1820) {
-		SDL_FillRect(screen, newrect(0, 0, 800, 100), 0);
-		SDL_Flip(screen);
-		t = SDL_GetTicks() + 8000;
-		while ((int)SDL_GetTicks() < t) {
-			if (check_exit()) exit(0);
-		}
-	}
-
-	SDL_FreeSurface(credit);
-	return 0;
+	fprintf(stderr,
+		"%s -- the simple BMS player\n"
+		"http://mearie.org/projects/angolmois/\n\n"
+		"Usage: %s <options> <path>\n"
+		"  Accepts any BMS, BME or BML file.\n"
+		"  Resources should be in the same directory as the BMS file.\n\n"
+		"Options:\n"
+		"  -h, --help            This help\n"
+		"  -V, --version         Shows the version\n"
+		"  -a #.#, --speed #.#   Sets the initial play speed (default: 1.0x)\n"
+		"  -#                    Same as '-a #.0'\n"
+		"  -v, --autoplay        Enables AUTO PLAY (viewer) mode\n"
+		"  --fullscreen          Enables the fullscreen mode (default)\n"
+		"  -w, --no-fullscreen   Disables the fullscreen mode\n"
+		"  --info                Shows a brief information about the song (default)\n"
+		"  -q, --no-info         Do not show an information about the song\n"
+		"  -m, --mirror          Uses a mirror modifier\n"
+		"  -r, --random          Uses a random modifier\n"
+		"  -R, --random-ex       Uses a random modifier, even for scratches\n"
+		"  -s, --srandom         Uses a super-random modifier\n"
+		"  -S, --srandom-ex      Uses a super-random modifier, even for scratches\n"
+		"  --bga                 Loads and shows the BGA (default)\n"
+		"  -B, --no-bga          Do not load and show the BGA\n"
+		"  -M, --no-movie        Do not load and show the BGA movie\n\n"
+		"Environment Variables:\n"
+		"  ANGOLMOIS_1P_KEYS=<1>|<2>|<3>|<4>|<5>|<scratch>|<pedal>|<6>|<7>\n"
+		"  ANGOLMOIS_2P_KEYS=<1>|<2>|<3>|<4>|<5>|<scratch>|<pedal>|<6>|<7>\n"
+		"  ANGOLMOIS_SPEED_KEYS=<speed down>|<speed up>\n"
+		"    Specifies the keys used for gameplay. Key names should follow them of\n"
+		"    SDL (e.g. 'a', 'right shift' etc.). The mapping for 1P/2P is as follows:\n"
+		"                   <2> <4> <6>\n"
+		"      <scratch>  <1> <3> <5> <7>  <pedal>\n"
+		"    One can map multiple keys by separating key names with '%%'.\n"
+		"    The default mapping is to use zsxdcfv and mk,l.;/ for 1P and 2P,\n"
+		"    respectively. F3 and F4 is used for speed adjustment.\n\n",
+		VERSION, argv0);
+	return 1;
 }
 
 int main(int argc, char **argv)
 {
+	static char *longargs[] =
+		{"h--help", "V--version", "a--speed", "v--autoplay", "w--windowed",
+		 "w--no-fullscreen", " --fullscreen", " --info", "q--no-info", "m--mirror",
+		 "r--random", "R--random-ex", "s--srandom", "S--srandom-ex", " --bga",
+		 "B--no-bga", " --movie", "M--no-movie", NULL};
 	char buf[512]={0};
-	int i, j, use_buf;
+	int i, j, cont;
 
-	if (argc < 2 || !*argv[1]) {
-		use_buf = 1;
-		if (!filedialog(buf)) use_buf = 0;
-	} else {
-		use_buf = 0;
-	}
-	if (argc > 2) {
-		for (j = 0; i = argv[2][j]; ++j) {
-			if ((i|32) == 'v') opt_mode = 1;
-			else if ((i|32) == 'i') opt_showinfo = i&32;
-			else if ((i|32) == 'w') opt_fullscreen = !(i&32);
-			else if ((i|32) == 'm') opt_random = 1;
-			else if ((i|32) == 's') opt_random = (i=='s' ? 2 : 3);
-			else if ((i|32) == 'r') opt_random = (i=='r' ? 4 : 5);
+	argv0 = argv[0];
+	for (i = 1; argv[i]; ++i) {
+		if (argv[i][0] != '-') {
+			if (!bmspath) bmspath = argv[i];
+		} else if (!strcmp(argv[i], "--")) {
+			if (!bmspath) bmspath = argv[++i];
+			break; 
+		} else {
+			if (argv[i][1] == '-') {
+				for (j = 0; longargs[j]; ++j) {
+					if (!strcmp(argv[i], longargs[j]+1)) {
+						argv[i][1] = longargs[j][0];
+						argv[i][2] = '\0';
+						break;
+					}
+				}
+				if (!longargs[j]) die("Invalid option: %s", argv[i]);
+			}
+			for (j = cont = 1; cont; ++j) {
+				switch (argv[i][j]) {
+				case 'h': case 'V': usage(); exit(1);
+				case 'v': opt_mode = 1; break;
+				case 'w': opt_fullscreen = 0; break;
+				case 'q': opt_showinfo = 0; break;
+				case 'm': opt_random = 1; break;
+				case 's': opt_random = 2; break;
+				case 'S': opt_random = 3; break;
+				case 'r': opt_random = 4; break;
+				case 'R': opt_random = 5; break;
+				case 'a':
+					playspeed = atof(argv[i][++j] ? argv[i]+j : argv[++i]);
+					if (playspeed <= 0) playspeed = 1;
+					if (playspeed < .1) playspeed = .1;
+					if (playspeed > 99) playspeed = 99;
+				case 'B': opt_bga = 2; break;
+				case 'M': opt_bga = 1; break;
+				case '\0': cont = 0;
+				case ' ': break;
+				default:
+					if (argv[i][j] >= '1' && argv[i][j] <= '9') {
+						playspeed = argv[i][j] - '0';
+					} else {
+						die("Invalid option: -%c", argv[i][j]);
+					}
+				}
+			}
 		}
 	}
 
-	if (argc > 1 || use_buf) {
-		bmspath = use_buf ? buf : argv[1];
-		return play();
-	} else {
-		return credit();
-	}
+	if (!bmspath && filedialog(buf)) bmspath = buf;
+	return bmspath ? play() : usage();
 }
 
 /* vim: set ts=4 sw=4: */
