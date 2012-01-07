@@ -1496,9 +1496,7 @@ static int play_process(void)
 		}
 	}
 	if (bottom > length) {
-		i = (!mpeg || SMPEG_status(mpeg) != SMPEG_PLAYING);
-		j = (opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1);
-		if (i && j) return 0;
+		if (opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1) return 0;
 	} else if (bottom < -1) {
 		return 0;
 	}
@@ -1555,7 +1553,7 @@ static int play_process(void)
 		if (!grademode) bga_updated = 1;
 	}
 	SDL_SetClipRect(screen, 0);
-	if (bga_updated > 0 || (bga_updated < 0 && now >= poorbga) || SMPEG_status(mpeg) == SMPEG_PLAYING) {
+	if (bga_updated > 0 || (bga_updated < 0 && now >= poorbga) || (mpeg && SMPEG_status(mpeg) == SMPEG_PLAYING)) {
 		SDL_FillRect(screen, newrect(tbga,172,256,256), map(0));
 		for (i = 0; i < 3; ++i) {
 			if (bga_updated > 0 && bga[i] == imgmpeg && SMPEG_status(mpeg) != SMPEG_PLAYING) SMPEG_play(mpeg);
