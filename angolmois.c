@@ -171,12 +171,22 @@ static const char *adjust_path_case(char *file)
 	for (i = 0; i < nfiles; ++i) {
 		if (stricmp(flist[i], file)) return flist[i];
 	}
-	return ""; /* always nonexistent file */
+	return file; /* always nonexistent file */
 }
 #endif
 
 /******************************************************************************/
 /* general functions */
+
+static void warn(const char *msg, ...)
+{
+	va_list v;
+	fprintf(stderr, "*** Warning: ");
+	va_start(v, msg);
+	vfprintf(stderr, msg, v);
+	va_end(v);
+	fprintf(stderr, "\n");
+}
 
 static int stricmp(const char *a, const char *b)
 {
@@ -610,6 +620,7 @@ static int load_resource(void (*callback)(const char *))
 			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
 			if (!sndres[i]) sndres[i] = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".mp3"));
 			if (!sndres[i]) sndres[i] = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".ogg"));
+			if (!sndres[i]) warn("failed to load sound #%d (%s)", i, sndpath[i]);
 			free(sndpath[i]);
 			sndpath[i] = 0;
 		}
@@ -618,6 +629,7 @@ static int load_resource(void (*callback)(const char *))
 			if (callback) callback(imgpath[i]);
 			if (ext && stricmp(ext, ".mpg") && opt_bga < 1 && !mpeg) {
 				mpeg = SMPEG_new(adjust_path(imgpath[i]), NULL, 0);
+				if (!mpeg) warn("failed to load image #%d (%s)", i, imgpath[i]);
 				imgmpeg = i;
 			} else if (opt_bga < 2) {
 				temp = IMG_Load(adjust_path(imgpath[i]));
@@ -627,6 +639,8 @@ static int load_resource(void (*callback)(const char *))
 					imgres[i] = SDL_DisplayFormat(temp);
 					SDL_FreeSurface(temp);
 					SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+				} else {
+					warn("failed to load image #%d (%s)", i, imgpath[i]);
 				}
 			}
 			free(imgpath[i]);
@@ -1450,11 +1464,15 @@ static int play_process(void)
 					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
-			} else if (opt_mode && channel[i][pcur[i]].type != 3/*INVNOTE*/ && sndres[j]) {
-				j = Mix_PlayChannel(-1, sndres[j], 0);
-				if (j >= 0) Mix_GroupChannel(j, 0);
-				score += (int)(300 * (1 + 1. * scombo / xnnotes));
-				update_grade(4);
+			} else if (opt_mode && channel[i][pcur[i]].type != 3/*INVNOTE*/) {
+				if (sndres[j]) {
+					j = Mix_PlayChannel(-1, sndres[j], 0);
+					if (j >= 0) Mix_GroupChannel(j, 0);
+				}
+				if (channel[i][pcur[i]].type != 0/*LNDONE*/) {
+					score += (int)(300 * (1 + 1. * scombo / xnnotes));
+					update_grade(4);
+				}
 			}
 			++pcur[i];
 		}
