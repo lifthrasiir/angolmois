@@ -211,14 +211,18 @@ static int stricmp(const char *a, const char *b)
 
 static char *adjust_path(char *path)
 {
+	int i;
 	strcpy(respath, bmspath);
 	strcat(respath, adjust_path_case(path)); /* XXX could be overflow */
+	for (i = 0; respath[i]; ++i) {
+		if (respath[i] == '\\' || respath[i] == '/') respath[i] = sep;
+	}
 	return respath;
 }
 
 static char *adjust_path_with_ext(char *path, char *ext)
 {
-	int len = strlen(bmspath);
+	int len = strlen(bmspath), i;
 	char *oldext;
 	strcpy(respath, bmspath);
 	strcpy(respath + len, path);
@@ -226,6 +230,9 @@ static char *adjust_path_with_ext(char *path, char *ext)
 	if (oldext) {
 		strcpy(oldext, ext);
 		strcpy(respath + len, adjust_path_case(respath + len));
+	}
+	for (i = 0; respath[i]; ++i) {
+		if (respath[i] == '\\' || respath[i] == '/') respath[i] = sep;
 	}
 	return respath;
 }
@@ -1661,7 +1668,7 @@ static int play_process(void)
 			if (tpanel2) SDL_FillRect(screen, R(tpanel2,j,800-tpanel2,1), map(0xc0c0c0));
 		}
 		if (now < gradetime) {
-			int delta = (gradetime - now - 400) / 30;
+			int delta = (gradetime - now - 400) / 15;
 			if (delta < 0) delta = 0;
 			printstr(screen, tpanel1/2-8*strlen(tgradestr[grademode]), 260 - delta, 2,
 					tgradestr[grademode], tgradecolor[grademode][0], tgradecolor[grademode][1]);
