@@ -1640,11 +1640,17 @@ static int play_process(void)
 		SDL_SetClipRect(screen, R(0,30,800,490));
 		for (i = 0; i < 18; ++i) {
 			if (tkeyleft[i] < 0) continue;
-			for (j = pfront[i]; j < prear[i]; ++j) {
+			for (j = pfront[i]; j < prear[i] && channel[i][j].type == INVNOTE; ++j);
+			if (j==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==LNDONE) {
+				SDL_BlitSurface(sprite, R(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, R(tkeyleft[i],30,0,0));
+			}
+			for (; j < prear[i]; ++j) {
 				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j].time));
 				if (channel[i][j].type == LNSTART) {
 					l = k + 5;
-					k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][++j].time));
+					/* the additional check can be omitted as the sanitization ensures LNDONE always exists */
+					while (channel[i][++j].type != LNDONE);
+					k = (int)(530 - 400 * playspeed * adjust_object_position(bottom, channel[i][j].time));
 					if (k < 30) k = 30;
 				} else if (channel[i][j].type == LNDONE) {
 					k += 5;
@@ -1657,9 +1663,6 @@ static int play_process(void)
 				if (k > 0 && l > k) {
 					SDL_BlitSurface(sprite, R(800+tkeyleft[i%9],0,tkeywidth[i%9],l-k), screen, R(tkeyleft[i],k,0,0));
 				}
-			}
-			if (pfront[i]==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==LNDONE) {
-				SDL_BlitSurface(sprite, R(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, R(tkeyleft[i],30,0,0));
 			}
 		}
 		for (i = ibottom; i < top; ++i) {
