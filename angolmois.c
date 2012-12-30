@@ -733,7 +733,7 @@ static int get_bms_duration(void)
 		i = channel[j][cur[j]].index;
 		ttime = 0;
 		if (j < 19) {
-			if (sndres[i]) ttime = (int)(sndres[i]->alen / .1764);
+			if (i && sndres[i]) ttime = (int)(sndres[i]->alen / .1764);
 		} else if (j == 20) {
 			tmp = (channel[j][cur[j]].type ? bpmtab[i] : i);
 			if (tmp > 0) {
@@ -1469,7 +1469,7 @@ static int play_process(void)
 		while (pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line) {
 			j = channel[i][pcur[i]].index;
 			if (i == 18) {
-				if (sndres[j]) {
+				if (j && sndres[j]) {
 					j = Mix_PlayChannel(-1, sndres[j], 0);
 					if (j >= 0) {
 						Mix_Volume(j, 96);
@@ -1494,7 +1494,7 @@ static int play_process(void)
 				}
 				startoffset = bottom;
 			} else if (opt_mode && channel[i][pcur[i]].type != INVNOTE) {
-				if (sndres[j]) {
+				if (j && sndres[j]) {
 					j = Mix_PlayChannel(-1, sndres[j], 0);
 					if (j >= 0) Mix_GroupChannel(j, 0);
 				}
@@ -1593,8 +1593,9 @@ static int play_process(void)
 			}
 			if (l && nchannel[k]) {
 				j = (pcur[k] < 1 || (pcur[k] < nchannel[k] && channel[k][pcur[k]-1].time + channel[k][pcur[k]].time < 2*line) ? pcur[k] : pcur[k]-1);
-				if (sndres[channel[k][j].index]) {
-					l = Mix_PlayChannel(-1, sndres[channel[k][j].index], 0);
+				l = channel[k][j].index;
+				if (l && sndres[l]) {
+					l = Mix_PlayChannel(-1, sndres[l], 0);
 					if (l >= 0) Mix_GroupChannel(l, 0);
 				}
 
