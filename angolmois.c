@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <limits.h>
 #include <time.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
@@ -147,6 +150,7 @@ static int nfiles = 0;
 
 static int filedialog(char *buf)
 {
+	(void) buf;
 	return 0;
 }
 
@@ -321,8 +325,8 @@ static int parse_bms(void)
 
 	srand(time(0));
 	while (fgets(line = linebuf, sizeof linebuf, fp)) {
-		if (line[0] != '#') continue;
-		++line;
+		while (*line == ' ' || *line == '\t') ++line;
+		if (*line++ != '#') continue;
 
 		for (i = 0; bmsheader[i]; ++i) {
 			for (j = 0; bmsheader[i][j]; ++j)
@@ -1009,7 +1013,7 @@ static void fontdecompress(void)
 		"o7[.W(O";
 
 	int i, ch = 0;
-	for (i = 0; i < sizeof(words) / sizeof(int); ++i) {
+	for (i = 0; i < (int) (sizeof(words) / sizeof(int)); ++i) {
 		ch += words[i];
 		words[i] = ch;
 	}
@@ -1849,11 +1853,11 @@ int main(int argc, char **argv)
 		 " --info", "q--no-info", "m--mirror", "s--shuffle", "S--shuffle-ex",
 		 "r--random", "R--random-ex", " --bga", "B--no-bga", " --movie", "M--no-movie",
 		 "j--joystick", NULL};
-	char buf[512]={0};
+	char buf[512]={0}, *arg;
 	int i, j, cont;
 
 	argv0 = argv[0];
-	for (i = 1; argv[i]; ++i) {
+	for (i = 1; i < argc; ++i) {
 		if (argv[i][0] != '-') {
 			if (!bmspath) bmspath = argv[i];
 		} else if (!strcmp(argv[i], "--")) {
@@ -1884,7 +1888,10 @@ int main(int argc, char **argv)
 				case 'r': opt_random = RANDOM_MODF; break;
 				case 'R': opt_random = RANDOMEX_MODF; break;
 				case 'a':
-					playspeed = atof(argv[i][++j] ? argv[i]+j : argv[++i]);
+					cont = 0;
+					arg = argv[i][++j] ? argv[i]+j : argv[++i];
+					if (!arg) die("No argument to the option -a");
+					playspeed = atof(arg);
 					if (playspeed <= 0) playspeed = 1;
 					if (playspeed < .1) playspeed = .1;
 					if (playspeed > 99) playspeed = 99;
@@ -1892,7 +1899,10 @@ int main(int argc, char **argv)
 				case 'B': opt_bga = NO_BGA; break;
 				case 'M': opt_bga = BGA_BUT_NO_MOVIE; break;
 				case 'j':
-					opt_joystick = atoi(argv[i][++j] ? argv[i]+j : argv[++i]);
+					cont = 0;
+					arg = argv[i][++j] ? argv[i]+j : argv[++i];
+					if (!arg) die("No argument to the option -q");
+					opt_joystick = atoi(arg);
 					break;
 				case '\0': cont = 0;
 				case ' ': break;
