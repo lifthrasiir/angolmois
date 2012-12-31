@@ -1,6 +1,6 @@
 SRC = angolmois.c
 BIN = angolmois
-CFLAGS = -Os -Wunused -Wall -W
+CFLAGS = -Os -Wunused -Wall -W -std=c99
 
 
 .PHONY: all clean

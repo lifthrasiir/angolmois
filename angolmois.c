@@ -1,6 +1,6 @@
 /*
  * Angolmois -- the simple BMS player
- * Copyright (c) 2005, 2007, 2009, 2012, Kang Seonghoon.
+ * Copyright (c) 2005, 2007, 2009, 2012, 2013, Kang Seonghoon.
  * Project Angolmois is copyright (c) 2003-2007, Choi Kaya (CHKY).
  * 
  * This program is free software; you can redistribute it and/or
@@ -42,6 +42,66 @@ static const char *argv0 = "angolmois";
 #define INFO_INTERVAL 47 /* try not to refresh screen or console too fast (tops at 21fps) */
 
 /******************************************************************************/
+/* utility declarations */
+
+static void die(const char *msg, ...);
+static void warn(const char *msg, ...);
+#define SHOULD(x) ((x) || die("assertion failure: %s", #x))
+
+struct xv_base { ptrdiff_t xv__size, xv__alloc; };
+#define XV(...) struct { struct xv_base xv__base; __VA_ARGS__ *xv__ptr; }
+#define XV_BASE(xv) ((xv).xv__base)
+#define XV_SIZE(xv) (XV_BASE(xv).xv__size)
+#define XV_ALLOC(xv) (XV_BASE(xv).xv__alloc)
+#define XV_PTR(xv) ((xv).xv__ptr)
+#define XV_ITEMSIZE(xv) (ptrdiff_t) sizeof(*XV_PTR(xv))
+#define XV_EMPTY {.xv__base = {.xv__size = 0, .xv__alloc = 0}, .xv__ptr = NULL}
+#define XV_INIT(xv) (XV_SIZE(xv) = XV_ALLOC(xv) = 0, XV_PTR(xv) = NULL)
+#define XV_INVARIANT(xv) \
+	(XV_SIZE(xv) >= 0 && XV_ALLOC(xv) >= 0 && XV_SIZE(xv) <= XV_ALLOC(xv) && \
+	 (XV_ALLOC(xv) > 0) == (XV_PTR(xv) != NULL))
+#define XV_CHECK(xv,i) ((ptrdiff_t) (i) >= 0 && (ptrdiff_t) (i) < XV_SIZE(xv))
+#define XV_RESERVE(xv,n) \
+	((ptrdiff_t) (n) > XV_ALLOC(xv) && \
+	 (XV_PTR(xv) = xv_do_resize(&XV_BASE(xv), XV_PTR(xv), (n), XV_ITEMSIZE(xv)), 1))
+#define XV_RESIZE(xv,n) (XV_SIZE(xv) = (ptrdiff_t) (n), XV_RESERVE(xv, XV_SIZE(xv)))
+#define XV_RESIZEBY(xv,n) XV_RESIZE(xv, XV_SIZE(xv) + (ptrdiff_t) (n))
+#define XV_AT(xv,i) (XV_PTR(xv)[(ptrdiff_t) (i)])
+#define XV_ATEND(xv,i) (XV_PTR(xv)[XV_SIZE(xv) - (ptrdiff_t) (i) - 1])
+#define XV_LOOP(xv,itype,i,before,after) \
+	for (itype (i) = 0; (ptrdiff_t) (i) < XV_SIZE(xv) && ((void) (before), 1); \
+	     (void) (after), ++(i))
+#define XV_IEACH(i,v,xv) XV_LOOP(xv, ptrdiff_t, i, (v) = XV_AT(xv,i), 0)
+#define XV_IEACHPTR(i,p,xv) XV_LOOP(xv, ptrdiff_t, i, (p) = &XV_AT(xv,i), 0)
+#define XV_EACH(v,xv) XV_IEACH(xv__i_##__LINE__,v,xv)
+#define XV_EACHPTR(p,xv) XV_IEACHPTR(xv__i_##__LINE__,p,xv)
+#define XV_PUSH(xv,x) (XV_RESERVE(xv, XV_SIZE(xv)+1), XV_AT(xv, XV_SIZE(xv)++) = (x))
+#define XV_POP(xv) (XV_PTR(xv)[--XV_SIZE(xv)])
+#define XV_COPYTO(p,xv,i,n) memcpy((p), XV_PTR(xv)+i, (n)*XV_ITEMSIZE(xv))
+#define XV_COPYFROM(xv,i,p,n) ((void) memcpy(XV_PTR(xv)+i, (p), (n)*XV_ITEMSIZE(xv)))
+#define XV_COPYPUSH(xv,p,n) \
+	(XV_RESERVE(xv, XV_SIZE(xv) + (ptrdiff_t) (n)), \
+	 XV_COPYFROM(xv, XV_SIZE(xv), p, n), (void) (XV_SIZE(xv) += (n)))
+#define XV_ZEROIZE(xv,i,n) memset(XV_PTR(xv) + (i), 0, (n) * XV_ITEMSIZE(xv))
+#define XV_FREE(xv) if (XV_ALLOC(xv) == 0) { } else free(XV_PTR(xv))
+
+static void *xv_do_resize(struct xv_base *base, void *ptr, ptrdiff_t n, ptrdiff_t itemsize)
+{
+	static const ptrdiff_t GROWLIMIT = 0x7fff;
+	if (n <= GROWLIMIT) {
+		--n; n |= n >> 1; n |= n >> 2; n |= n >> 4; n |= n >> 8; ++n;
+		if (n < 4) n = 4;
+	} else {
+		if (n > (PTRDIFF_MAX & ~GROWLIMIT)) die("memory error"); /* overflow */
+		n = (n + GROWLIMIT) & ~GROWLIMIT;
+	}
+	ptr = realloc(ptr, n * itemsize);
+	if (!ptr) die("memory error");
+	base->xv__alloc = n;
+	return ptr;
+}
+
+/******************************************************************************/
 /* constants, variables */
 
 enum { PLAY_MODE = 0, AUTOPLAY_MODE = 1, EXCLUSIVE_MODE = 2 };
@@ -72,7 +132,7 @@ static int value[5] = {1, 0, 2, 1, 0};
 static char *paths[2][1296];
 #define sndpath paths[0]
 #define imgpath paths[1]
-static int (*blitcmd)[8] = NULL, nblitcmd = 0;
+XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
 static Mix_Chunk *sndres[1296];
 static SDL_Surface *imgres[1296];
 static int stoptab[1296];
@@ -319,6 +379,7 @@ static int parse_bms(void)
 	double t;
 	char linebuf[4096], buf1[4096], buf2[4096];
 	char *line = linebuf;
+	struct blitcmd bc;
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
@@ -400,14 +461,11 @@ static int parse_bms(void)
 				break;
 
 			case 12: /* bga## */
-				i = nblitcmd;
-				blitcmd = realloc(blitcmd, sizeof(int) * 8 * (i+1));
 				if (sscanf(line, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
-							buf1, buf2, blitcmd[i]+2, blitcmd[i]+3, blitcmd[i]+4,
-							blitcmd[i]+5, blitcmd[i]+6, blitcmd[i]+7) >= 8) {
-					blitcmd[i][0] = key2index(buf1);
-					blitcmd[i][1] = key2index(buf2);
-					if (blitcmd[i][0] >= 0 && blitcmd[i][1] >= 0) ++nblitcmd;
+						buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8) {
+					bc.dst = key2index(buf1);
+					bc.src = key2index(buf2);
+					if (bc.dst >= 0 && bc.src >= 0) XV_PUSH(blitcmd, bc);
 				}
 				break;
 
@@ -616,6 +674,7 @@ static void resource_loaded(const char *path);
 static int load_resource(void)
 {
 	SDL_Surface *temp;
+	struct blitcmd bc;
 	int i;
 
 	for (i = 0; i < 1296; ++i) {
@@ -652,23 +711,22 @@ static int load_resource(void)
 		}
 	}
 
-	for (i = 0; i < nblitcmd; ++i) {
-		if (blitcmd[i][0]<0 || blitcmd[i][1]<0 || !imgres[blitcmd[i][1]]) continue;
-		temp = imgres[blitcmd[i][0]];
+	XV_EACH(bc, blitcmd) {
+		if (bc.dst < 0 || bc.src < 0 || !imgres[bc.src]) continue;
+		temp = imgres[bc.dst];
 		if (!temp) {
-			imgres[blitcmd[i][0]] = temp = newsurface(256, 256);
-			SDL_FillRect(temp, 0, SDL_MapRGB(imgres[blitcmd[i][0]]->format, 0, 0, 0));
+			imgres[bc.dst] = temp = newsurface(256, 256);
+			SDL_FillRect(temp, 0, SDL_MapRGB(imgres[bc.dst]->format, 0, 0, 0));
 			SDL_SetColorKey(temp, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 		}
-		if (blitcmd[i][2] < 0) blitcmd[i][2] = 0;
-		if (blitcmd[i][3] < 0) blitcmd[i][3] = 0;
-		if (blitcmd[i][4] > blitcmd[i][2] + 256) blitcmd[i][4] = blitcmd[i][2] + 256;
-		if (blitcmd[i][5] > blitcmd[i][3] + 256) blitcmd[i][5] = blitcmd[i][3] + 256;
-		SDL_BlitSurface(imgres[blitcmd[i][1]],
-			R(blitcmd[i][2], blitcmd[i][3], blitcmd[i][4]-blitcmd[i][2], blitcmd[i][5]-blitcmd[i][3]),
-			temp, R(blitcmd[i][6], blitcmd[i][7], 0, 0));
+		if (bc.x1 < 0) bc.x1 = 0;
+		if (bc.y1 < 0) bc.y1 = 0;
+		if (bc.x2 > bc.x1 + 256) bc.x2 = bc.x1 + 256;
+		if (bc.y2 > bc.y1 + 256) bc.y2 = bc.y1 + 256;
+		SDL_BlitSurface(imgres[bc.src], R(bc.x1, bc.y1, bc.x2-bc.x1, bc.y2-bc.y1),
+			temp, R(bc.dx, bc.dy, 0, 0));
 	}
-	free(blitcmd);
+	XV_FREE(blitcmd);
 
 	return 0;
 }
