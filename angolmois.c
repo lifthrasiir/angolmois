@@ -46,7 +46,7 @@ static const char *argv0 = "angolmois";
 
 static void die(const char *msg, ...);
 static void warn(const char *msg, ...);
-#define SHOULD(x) ((x) || die("assertion failure: %s", #x))
+#define SHOULD(x) ((x) ? (void) 0 : die("assertion failure: %s", #x))
 
 struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV(...) struct { struct xv_base xv__base; __VA_ARGS__ *xv__ptr; }
@@ -138,20 +138,23 @@ static double bpmtab[1296];
 static SMPEG *mpeg = NULL;
 int imgmpeg = -2;
 
-enum { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 };
+#define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
+#define IS_NOTE_CHANNEL(c) ((c) < 18)
+enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 }; 
+enum { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 }; /* types for NOTE_CHANNEL */
+enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHANNEL */
+enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
+enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 }; /* types for STOP_CHANNEL */
+
 enum { HAS_7KEYS = 1, HAS_LONGNOTE = 2, HAS_PEDAL = 4, HAS_BPM_CHANGE = 8 };
 
 typedef struct {
 	double time; /* time */
-	int type; /* for notes: LNDONE, LNSTART, NOTE or INVNOTE
-			   * for BGA: lower layer(0), upper layer(1), poor BGA(2)
-			   * for BPM: direct(0), indirect(1)
-			   * for STOP: unit=1/192 measure, indirect(0), unit=msec, direct(1)
-			   * otherwise: always 0. note that removed one has type -1. */
+	int type; /* type (see above). 0 if unspecified. -1 if removed somehow. */
 	int index; /* associated resource or key value (if any) */
 } bmsnote;
 
-static bmsnote *channel[22]; /* 0..17: notes, 18: BGM; 19: BGA; 20: BPM; 21: STOP */
+static bmsnote *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22];
 static double length;
@@ -307,13 +310,6 @@ static char *strcopy(const char *src)
 
 /******************************************************************************/
 /* bms parser */
-
-#define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
-#define IS_NOTE_CHANNEL(c) ((c) < 18)
-enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
-enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 };
-enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
-enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 };
 
 static int getdigit(int n)
 {
