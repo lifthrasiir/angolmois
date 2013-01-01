@@ -116,8 +116,6 @@ static int opt_bga = BGA_AND_MOVIE;
 static int opt_joystick = -1;
 
 static char *bmspath, respath[512];
-static char **bmsline = NULL;
-static int nbmsline = 0;
 
 #define MAXMETADATA 1023
 static char metadata[4][MAXMETADATA+1];
@@ -310,16 +308,12 @@ static char *strcopy(const char *src)
 /******************************************************************************/
 /* bms parser */
 
-#define GET_CHANNEL(player, chan) ((player)*9+(chan)-1)
-#define ADD_NOTE(p, c, time, type, index) add_note(GET_CHANNEL(p,c), (time), (type), (index))
-#define ADD_BGM(time, index) add_note(18, (time), 0, (index))
-#define ADD_BGA(time, index) add_note(19, (time), 0, (index))
-#define ADD_BGA2(time, index) add_note(19, (time), 1, (index))
-#define ADD_POORBGA(time, index) add_note(19, (time), 2, (index))
-#define ADD_BPM(time, index) add_note(20, (time), 0, (index))
-#define ADD_BPM2(time, index) add_note(20, (time), 1, (index))
-#define ADD_STOP(time, index) add_note(21, (time), 0, (index))
-#define ADD_STP(time, index) add_note(21, (time), 1, (index))
+#define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
+#define IS_NOTE_CHANNEL(c) ((c) < 18)
+enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
+enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 };
+enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
+enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 };
 
 static int getdigit(int n)
 {
@@ -340,7 +334,7 @@ static int compare_bmsline(const void *a, const void *b)
 	for (i = 0; i < 6; ++i) {
 		if ((j = (*(char**)a)[i] - (*(char**)b)[i])) return j;
 	}
-	return 0;
+	return (char*)a - (char*)b;
 }
 
 static int compare_bmsnote(const void *a, const void *b)
@@ -358,8 +352,8 @@ static void add_note(int chan, double time, int type, int index)
 
 static void remove_note(int chan, int index)
 {
-	if (chan < 18 && channel[chan][index].index) {
-		ADD_BGM(channel[chan][index].time, channel[chan][index].index);
+	if (IS_NOTE_CHANNEL(chan) && channel[chan][index].index) {
+		add_note(BGM_CHANNEL, channel[chan][index].time, 0, channel[chan][index].index);
 	}
 	channel[chan][index].type = -1;
 }
@@ -374,12 +368,14 @@ static int parse_bms(void)
 		"if", "else", "endif", 0};
 
 	FILE *fp;
-	int i, j, k;
+	int i, j, k, a, b, c;
 	int rnd = 1, ignore = 0;
+	int measure, chan, prev[18] = {0}, lprev[18] = {0};
 	double t;
 	char linebuf[4096], buf1[4096], buf2[4096];
-	char *line = linebuf;
+	char *line;
 	struct blitcmd bc;
+	XV(char*) bmsline = XV_EMPTY;
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
@@ -390,12 +386,15 @@ static int parse_bms(void)
 		if (*line++ != '#') continue;
 
 		for (i = 0; bmsheader[i]; ++i) {
-			for (j = 0; bmsheader[i][j]; ++j)
+			for (j = 0; bmsheader[i][j]; ++j) {
 				if ((bmsheader[i][j] ^ line[j]) & ~32) break;
-			if (!bmsheader[i][j]) break;
+			}
+			if (!bmsheader[i][j]) {
+				line += j;
+				break;
+			}
 		}
 
-		line += j;
 		switch (i) {
 		case 15: /* random */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
@@ -478,113 +477,101 @@ static int parse_bms(void)
 
 			case 14: /* stp## */
 				if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
-					ADD_STP(i+j/1e3, k);
+					add_note(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k);
 				}
 				break;
 
 			case 19: /* #####:... */
 				/* only check validity, do not store them yet */
 				if (sscanf(line, "%*5c:%c", buf1) >= 1) {
-					bmsline = realloc(bmsline, sizeof(char*) * (nbmsline+1));
-					bmsline[nbmsline] = strcopy(line-j);
-					++nbmsline;
+					XV_PUSH(bmsline, strcopy(line));
 				}
 			}
 		}
 	}
 	fclose(fp);
 
-	return 0;
-}
-
-static int parse_bmsline(void)
-{
-	int prev[40] = {0};
-	int i, j, k, a, b, c;
-	int measure, chan;
-	double t;
-
-	qsort(bmsline, nbmsline, sizeof(char*), compare_bmsline);
-
-	for (i = 0; i < nbmsline; ++i) {
-		j = atoi(bmsline[i]);
+	qsort(XV_PTR(bmsline), XV_SIZE(bmsline), XV_ITEMSIZE(bmsline), compare_bmsline);
+	XV_EACH(line, bmsline) {
+		j = atoi(line);
 		measure = j / 100;
 		chan = j % 100;
 		if (chan == 2) {
-			shorten[measure] = atof(bmsline[i]+6);
+			shorten[measure] = atof(line+6);
 		} else {
-			j = 6 + strspn(bmsline[i]+6, " \t\r\n");
-			a = strcspn(bmsline[i]+j, " \t\r\n") / 2;
+			j = 6 + strspn(line+6, " \t\r\n");
+			a = strcspn(line+j, " \t\r\n") / 2;
 			for (k = 0; k < a; ++k, j+=2) {
-				b = key2index(bmsline[i]+j);
+				b = key2index(line+j);
 				t = measure + 1. * k / a;
-				if (b) {
-					if (chan == 1) {
-						ADD_BGM(t, b);
-					} else if (chan == 3 && (b/36<16 && b%36<16)) {
-						ADD_BPM(t, b/36*16+b%36);
-					} else if (chan == 4) {
-						ADD_BGA(t, b);
-					} else if (chan == 6) {
-						ADD_POORBGA(t, b);
-					} else if (chan == 7) {
-						ADD_BGA2(t, b);
-					} else if (chan == 8) {
-						ADD_BPM2(t, b);
-					} else if (chan == 9) {
-						ADD_STOP(t, b);
-					} else if (chan % 10 != 0 && chan > 9 && chan < 30) {
+				if (chan == 1) {
+					if (b) add_note(BGM_CHANNEL, t, 0, b);
+				} else if (chan == 3) {
+					if (b/36<16 && b%36<16) add_note(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36);
+				} else if (chan == 4) {
+					if (b) add_note(BGA_CHANNEL, t, BGA_LAYER, b);
+				} else if (chan == 6) {
+					if (b) add_note(BGA_CHANNEL, t, BGA2_LAYER, b);
+				} else if (chan == 7) {
+					if (b) add_note(BGA_CHANNEL, t, POORBGA_LAYER, b);
+				} else if (chan == 8) {
+					if (b) add_note(BPM_CHANNEL, t, BPM_BY_INDEX, b);
+				} else if (chan == 9) {
+					if (b) add_note(STOP_CHANNEL, t, STOP_BY_192ND_OF_MEASURE, b);
+				} else if (chan >= 10 && chan < 30 && chan % 10 != 0) {
+					if (b) {
+						c = NOTE_CHANNEL(chan>20, chan%10);
 						if (lnobj && b == lnobj) {
-							c = GET_CHANNEL(chan>20, chan%10);
 							if (nchannel[c] && channel[c][nchannel[c]-1].type==NOTE) {
 								channel[c][nchannel[c]-1].type = LNSTART;
-								ADD_NOTE(chan>20, chan%10, t, LNDONE, b);
+								add_note(c, t, LNDONE, b);
 							}
 						} else {
-							ADD_NOTE(chan>20, chan%10, t, NOTE, b);
+							add_note(c, t, NOTE, b);
 						}
-					} else if (chan % 10 != 0 && chan > 29 && chan < 50) {
-						ADD_NOTE(chan>40, chan%10, t, INVNOTE, b);
 					}
-				}
-				if (chan % 10 != 0 && chan > 49 && chan < 70) {
+				} else if (chan >= 30 && chan < 50 && chan % 10 != 0) {
+					if (b) add_note(NOTE_CHANNEL(chan>40, chan%10), t, INVNOTE, b);
+				} else if (chan >= 50 && chan < 70 && chan % 10 != 0) {
+					c = NOTE_CHANNEL(chan>60, chan%10);
 					if (lntype == 1 && b) {
-						if (prev[chan-50]) {
-							prev[chan-50] = 0;
-							ADD_NOTE(chan>60, chan%10, t, LNDONE, 0);
+						if (prev[c]) {
+							prev[c] = 0;
+							add_note(c, t, LNDONE, 0);
 						} else {
-							prev[chan-50] = b;
-							ADD_NOTE(chan>60, chan%10, t, LNSTART, b);
+							prev[c] = b;
+							add_note(c, t, LNSTART, b);
 						}
 					} else if (lntype == 2) {
-						if (prev[chan-50] || prev[chan-50] != b) {
-							if (prev[chan-50]) {
-								if (prev[chan-30] + 1 < measure) {
-									ADD_NOTE(chan>60, chan%10, prev[chan-30]+1, LNDONE, 0);
-								} else if (prev[chan-50] != b) {
-									ADD_NOTE(chan>60, chan%10, t, LNDONE, 0);
+						if (prev[c] || prev[c] != b) {
+							if (prev[c]) {
+								if (lprev[c] + 1 < measure) {
+									add_note(c, lprev[c]+1, LNDONE, 0);
+								} else if (prev[c] != b) {
+									add_note(c, t, LNDONE, 0);
 								}
 							}
-							if (b && (prev[chan-50]!=b || prev[chan-30]+1<measure)) {
-								ADD_NOTE(chan>60, chan%10, t, LNSTART, b);
+							if (b && (prev[c]!=b || lprev[c]+1<measure)) {
+								add_note(c, t, LNSTART, b);
 							}
-							prev[chan-30] = measure;
-							prev[chan-50] = b;
+							lprev[c] = measure;
+							prev[c] = b;
 						}
 					}
 				}
 			}
 		}
-		free(bmsline[i]);
+		free(line);
 	}
-	free(bmsline);
+	XV_FREE(bmsline);
+
 	length = measure + 2;
-	for (i = 0; i < 20; ++i) {
+	for (i = 0; i < 18; ++i) {
 		if (prev[i]) {
-			if (lntype == 2 && prev[i+20] + 1 < measure) {
-				ADD_NOTE(i>10, i%10, prev[i+20]+1, LNDONE, 0);
+			if (lntype == 2 && lprev[i] + 1 < measure) {
+				add_note(i, lprev[i]+1, LNDONE, 0);
 			} else {
-				ADD_NOTE(i>10, i%10, length - 1, LNDONE, 0);
+				add_note(i, length - 1, LNDONE, 0);
 			}
 		}
 	}
@@ -592,7 +579,7 @@ static int parse_bmsline(void)
 	return 0;
 }
 
-static int sanitize_bmsline(void)
+static int sanitize_bms(void)
 {
 	int i, j, k, b, c;
 
@@ -600,7 +587,7 @@ static int sanitize_bmsline(void)
 		if (!channel[i]) continue;
 		qsort(channel[i], nchannel[i], sizeof(bmsnote), compare_bmsnote);
 
-		if (i != 18 && i < 21) {
+		if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 			b = 0;
 			j = 0;
 			while (j < nchannel[i]) {
@@ -637,12 +624,12 @@ static int sanitize_bmsline(void)
 				for (; j < k; ++j) {
 					if (channel[i][j].type < 0) continue;
 
-					if (i < 18 && !(c & 1 << channel[i][j].type)) {
+					if (IS_NOTE_CHANNEL(i) && !(c & 1 << channel[i][j].type)) {
 						remove_note(i, j);
 					}
 				}
 			}
-			if (i < 18 && b) {
+			if (IS_NOTE_CHANNEL(i) && b) {
 				/* remove last starting longnote which is unfinished */
 				while (j >= 0 && channel[i][--j].type < 0);
 				if (j >= 0 && channel[i][j].type == LNSTART) remove_note(i, j);
@@ -794,20 +781,20 @@ static int get_bms_duration(void)
 
 		i = channel[j][cur[j]].index;
 		ttime = 0;
-		if (j < 19) {
+		if (IS_NOTE_CHANNEL(j)) {
 			if (i && sndres[i]) ttime = (int)(sndres[i]->alen / .1764);
-		} else if (j == 20) {
-			tmp = (channel[j][cur[j]].type ? bpmtab[i] : i);
+		} else if (j == BPM_CHANNEL) {
+			tmp = (channel[j][cur[j]].type == BPM_BY_INDEX ? bpmtab[i] : i);
 			if (tmp > 0) {
 				xbpm = tmp;
 			} else if (tmp < 0) {
 				time += (int)(adjust_object_position(-1, pos) * 24e7 / xbpm);
 				break;
 			}
-		} else if (j == 21) {
-			if (channel[j][cur[j]].type) {
+		} else if (j == STOP_CHANNEL) {
+			if (channel[j][cur[j]].type == STOP_BY_MSEC) {
 				time += i;
-			} else {
+			} else { /* STOP_BY_192ND_OF_MEASURE */
 				time += (int)(stoptab[i] * 125e4 * shorten[(int)(pos+1)-1] / xbpm);
 			}
 		}
@@ -816,18 +803,6 @@ static int get_bms_duration(void)
 		++cur[j];
 	}
 	return (time > rtime ? time : rtime) / 1000;
-}
-
-static void clone_bms(void)
-{
-	int i;
-
-	for (i = 0; i < 9; ++i) {
-		free(channel[i+9]);
-		nchannel[i+9] = nchannel[i];
-		channel[i+9] = malloc(sizeof(bmsnote) * nchannel[i]);
-		memcpy(channel[i+9], channel[i], sizeof(bmsnote) * nchannel[i]);
-	}
 }
 
 static void shuffle_bms(int mode, int player)
@@ -1530,7 +1505,7 @@ static int play_process(void)
 		while (prear[i] < nchannel[i] && channel[i][prear[i]].time <= top) ++prear[i];
 		while (pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line) {
 			j = channel[i][pcur[i]].index;
-			if (i == 18) {
+			if (i == BGM_CHANNEL) {
 				if (j && sndres[j]) {
 					j = Mix_PlayChannel(-1, sndres[j], 0);
 					if (j >= 0) {
@@ -1538,20 +1513,20 @@ static int play_process(void)
 						Mix_GroupChannel(j, 1);
 					}
 				}
-			} else if (i == 19) {
+			} else if (i == BGA_CHANNEL) {
 				bga[channel[i][pcur[i]].type] = j;
 				bga_updated = 1;
-			} else if (i == 20) {
-				if ((tmp = (channel[i][pcur[i]].type ? bpmtab[j] : j))) {
+			} else if (i == BPM_CHANNEL) {
+				if ((tmp = (channel[i][pcur[i]].type == BPM_BY_INDEX ? bpmtab[j] : j))) {
 					starttime = now;
 					startoffset = bottom;
 					bpm = tmp;
 				}
-			} else if (i == 21) {
+			} else if (i == STOP_CHANNEL) {
 				if (now >= stoptime) stoptime = now;
-				if (channel[i][pcur[i]].type) {
+				if (channel[i][pcur[i]].type == STOP_BY_MSEC) {
 					stoptime += j;
-				} else {
+				} else { /* STOP_BY_192ND_OF_MEASURE */
 					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
 				}
 				startoffset = bottom;
@@ -1807,10 +1782,9 @@ static int play(void)
 
 	if (initialize()) return 1;
 
-	if (parse_bms() || parse_bmsline() || sanitize_bmsline()) {
+	if (parse_bms() || sanitize_bms()) {
 		die("Couldn't load BMS file: %s", bmspath);
 	}
-	if (v_player == 4) clone_bms();
 	if (opt_random) {
 		if (v_player == 3) {
 			shuffle_bms(opt_random, 0);
@@ -1920,7 +1894,7 @@ int main(int argc, char **argv)
 			if (!bmspath) bmspath = argv[i];
 		} else if (!strcmp(argv[i], "--")) {
 			if (!bmspath) bmspath = argv[++i];
-			break; 
+			break;
 		} else {
 			if (argv[i][1] == '-') {
 				for (j = 0; longargs[j]; ++j) {
