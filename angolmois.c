@@ -784,7 +784,7 @@ static int get_bms_duration(void)
 			if (tmp > 0) {
 				xbpm = tmp;
 			} else if (tmp < 0) {
-				time += (int)(adjust_object_position(-1, pos) * 24e7 / xbpm);
+				time += (int)(adjust_object_position(-1, pos) * 24e7 / -tmp);
 				break;
 			}
 		} else if (j == STOP_CHANNEL) {
@@ -1625,7 +1625,7 @@ static int play_process(void)
 				if (keypressed[j][k]++) l = 0;
 			}
 			if (l && nchannel[k]) {
-				j = (pcur[k] < 1 || (pcur[k] < nchannel[k] && channel[k][pcur[k]-1].time + channel[k][pcur[k]].time < 2*line) ? pcur[k] : pcur[k]-1);
+				j = (pcur[k] < 1 || pcur[k] <= pcheck[k] || (pcur[k] < nchannel[k] && channel[k][pcur[k]-1].time + channel[k][pcur[k]].time < 2*line) ? pcur[k] : pcur[k]-1);
 				l = channel[k][j].index;
 				if (l && sndres[l]) {
 					l = Mix_PlayChannel(-1, sndres[l], 0);
