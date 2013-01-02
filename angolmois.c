@@ -40,6 +40,7 @@ static const char *argv0 = "angolmois";
 #define R(x,y,w,h) &(SDL_Rect){x,y,w,h}
 
 #define INFO_INTERVAL 47 /* try not to refresh screen or console too fast (tops at 21fps) */
+#define NMIXCHANNELS 128
 
 /******************************************************************************/
 /* utility declarations */
@@ -131,7 +132,8 @@ static char *paths[2][1296];
 #define sndpath paths[0]
 #define imgpath paths[1]
 XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
-static Mix_Chunk *sndres[1296];
+static struct { Mix_Chunk *res; int ch; } sndres[1296];
+static int sndchmap[NMIXCHANNELS];
 static SDL_Surface *imgres[1296];
 static int stoptab[1296];
 static double bpmtab[1296];
@@ -661,12 +663,13 @@ static int load_resource(void)
 	int i;
 
 	for (i = 0; i < 1296; ++i) {
+		sndres[i].ch = -1;
 		if (sndpath[i]) {
 			resource_loaded(sndpath[i]);
-			sndres[i] = Mix_LoadWAV(adjust_path(sndpath[i]));
-			if (!sndres[i]) sndres[i] = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".mp3"));
-			if (!sndres[i]) sndres[i] = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".ogg"));
-			if (!sndres[i]) warn("failed to load sound #%d (%s)", i, sndpath[i]);
+			sndres[i].res = Mix_LoadWAV(adjust_path(sndpath[i]));
+			if (!sndres[i].res) sndres[i].res = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".mp3"));
+			if (!sndres[i].res) sndres[i].res = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".ogg"));
+			if (!sndres[i].res) warn("failed to load sound #%d (%s)", i, sndpath[i]);
 			free(sndpath[i]);
 			sndpath[i] = 0;
 		}
@@ -778,7 +781,7 @@ static int get_bms_duration(void)
 		i = channel[j][cur[j]].index;
 		ttime = 0;
 		if (IS_NOTE_CHANNEL(j)) {
-			if (i && sndres[i]) ttime = (int)(sndres[i]->alen / .1764);
+			if (i && sndres[i].res) ttime = (int)(sndres[i].res->alen / .1764);
 		} else if (j == BPM_CHANNEL) {
 			tmp = (channel[j][cur[j]].type == BPM_BY_INDEX ? bpmtab[i] : i);
 			if (tmp > 0) {
@@ -1249,6 +1252,27 @@ static int initialize(void)
 	return 0;
 }
 
+static void play_sound_finished(int ch)
+{
+	if (sndchmap[ch] >= 0 && sndres[sndchmap[ch]].ch == ch) {
+		sndres[sndchmap[ch]].ch = -1;
+	}
+	sndchmap[ch] = -1;
+}
+
+static void play_sound(int i, int group)
+{
+	int ch;
+	if (!sndres[i].res) return;
+	ch = Mix_PlayChannel(sndres[i].ch, sndres[i].res, 0);
+	if (ch >= 0) {
+		Mix_Volume(ch, group ? 96 : 128);
+		Mix_GroupChannel(ch, group);
+		sndres[i].ch = ch;
+		sndchmap[ch] = i;
+	}
+}
+
 static SDL_Surface *stagefile_tmp;
 static int lastinfo;
 
@@ -1348,7 +1372,9 @@ static void play_prepare(void)
 	/* configuration */
 	origintime = starttime = SDL_GetTicks();
 	targetspeed = playspeed;
-	Mix_AllocateChannels(128);
+	Mix_AllocateChannels(NMIXCHANNELS);
+	for (i = 0; i < NMIXCHANNELS; ++i) sndchmap[i] = -1;
+	Mix_ChannelFinished(&play_sound_finished);
 	gradefactor = 1.5 - v_rank * .25;
 
 	/* video (if any) */
@@ -1502,13 +1528,7 @@ static int play_process(void)
 		while (pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line) {
 			j = channel[i][pcur[i]].index;
 			if (i == BGM_CHANNEL) {
-				if (j && sndres[j]) {
-					j = Mix_PlayChannel(-1, sndres[j], 0);
-					if (j >= 0) {
-						Mix_Volume(j, 96);
-						Mix_GroupChannel(j, 1);
-					}
-				}
+				if (j) play_sound(j, 1);
 			} else if (i == BGA_CHANNEL) {
 				bga[channel[i][pcur[i]].type] = j;
 				bga_updated = 1;
@@ -1527,10 +1547,7 @@ static int play_process(void)
 				}
 				startoffset = bottom;
 			} else if (opt_mode && channel[i][pcur[i]].type != INVNOTE) {
-				if (j && sndres[j]) {
-					j = Mix_PlayChannel(-1, sndres[j], 0);
-					if (j >= 0) Mix_GroupChannel(j, 0);
-				}
+				if (j) play_sound(j, 0);
 				if (channel[i][pcur[i]].type != LNDONE) {
 					score += (int)(300 * (1 + 1. * scombo / nnotes));
 					update_grade(4);
@@ -1625,12 +1642,9 @@ static int play_process(void)
 				if (keypressed[j][k]++) l = 0;
 			}
 			if (l && nchannel[k]) {
-				j = (pcur[k] < 1 || pcur[k] <= pcheck[k] || (pcur[k] < nchannel[k] && channel[k][pcur[k]-1].time + channel[k][pcur[k]].time < 2*line) ? pcur[k] : pcur[k]-1);
+				j = (pcur[k] < 1 || (pcur[k] < nchannel[k] && channel[k][pcur[k]-1].time + channel[k][pcur[k]].time < 2*line) ? pcur[k] : pcur[k]-1);
 				l = channel[k][j].index;
-				if (l && sndres[l]) {
-					l = Mix_PlayChannel(-1, sndres[l], 0);
-					if (l >= 0) Mix_GroupChannel(l, 0);
-				}
+				if (l) play_sound(l, 0);
 
 				if (j < pcur[k]) {
 					while (j >= 0 && channel[k][j].type == INVNOTE) --j;
@@ -1639,6 +1653,7 @@ static int play_process(void)
 					while (j < nchannel[k] && channel[k][j].type == INVNOTE) ++j;
 					if (j == nchannel[k]) continue;
 				}
+				if (j < pcheck[k]) continue;
 
 				if (channel[k][j].type == LNDONE) {
 					if (thru[k]) update_grade(0);
