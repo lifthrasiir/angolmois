@@ -509,9 +509,9 @@ static int parse_bms(void)
 				} else if (chan == 4) {
 					if (b) add_note(BGA_CHANNEL, t, BGA_LAYER, b);
 				} else if (chan == 6) {
-					if (b) add_note(BGA_CHANNEL, t, BGA2_LAYER, b);
-				} else if (chan == 7) {
 					if (b) add_note(BGA_CHANNEL, t, POORBGA_LAYER, b);
+				} else if (chan == 7) {
+					if (b) add_note(BGA_CHANNEL, t, BGA2_LAYER, b);
 				} else if (chan == 8) {
 					if (b) add_note(BPM_CHANNEL, t, BPM_BY_INDEX, b);
 				} else if (chan == 9) {
@@ -1558,7 +1558,7 @@ static int play_process(void)
 		if (i<18 && !opt_mode) {
 			for (; pcheck[i] < pcur[i]; ++pcheck[i]) {
 				j = channel[i][pcheck[i]].type;
-				if (j < 0 || j == INVNOTE || (j == 0/*LNDONE*/ && !thru[i])) continue;
+				if (j < 0 || j == INVNOTE || (j == LNDONE && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]].time;
 				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
 				if (tmp > 6e-4) update_grade(0); else break;
@@ -1642,27 +1642,26 @@ static int play_process(void)
 				if (keypressed[j][k]++) l = 0;
 			}
 			if (l && nchannel[k]) {
-				j = (pcur[k] < 1 || (pcur[k] < nchannel[k] && channel[k][pcur[k]-1].time + channel[k][pcur[k]].time < 2*line) ? pcur[k] : pcur[k]-1);
-				l = channel[k][j].index;
-				if (l) play_sound(l, 0);
+				j = pcur[k];
+				l = pcur[k] - 1;
+				tmp = (l >= 0 ? line - channel[k][l].time : 0);
+				if (l < 0 || (j < nchannel[k] && tmp > channel[k][j].time - line)) l = j;
+				if (channel[k][l].index) play_sound(channel[k][l].index, 0);
 
-				if (j < pcur[k]) {
-					while (j >= 0 && channel[k][j].type == INVNOTE) --j;
-					if (j < 0) continue;
-				} else {
-					while (j < nchannel[k] && channel[k][j].type == INVNOTE) ++j;
-					if (j == nchannel[k]) continue;
-				}
-				if (j < pcheck[k]) continue;
+				for (j = pcur[k]; j < nchannel[k] && channel[k][j].type == INVNOTE; ++j);
+				for (l = pcur[k] - 1; l >= 0 && channel[k][l].type == INVNOTE; --l);
+				tmp = (l >= 0 ? line - channel[k][l].time : 0);
+				if (l < 0 || (j < nchannel[k] && tmp > channel[k][j].time - line)) l = j;
+				if (l < pcheck[k]) continue;
 
-				if (channel[k][j].type == LNDONE) {
+				if (channel[k][l].type == LNDONE) {
 					if (thru[k]) update_grade(0);
-				} else if (channel[k][j].type >= 0) {
-					tmp = (channel[k][j].time - line) * shorten[(int)line] / bpm * gradefactor;
+				} else if (channel[k][l].type >= 0) {
+					tmp = (channel[k][l].time - line) * shorten[(int)line] / bpm * gradefactor;
 					if (tmp < 0) tmp *= -1;
-					if (channel[k][j].type >= 0 && tmp < 6e-4) {
-						if (channel[k][j].type == LNSTART) thru[k] = 1;
-						channel[k][j].type ^= -1;
+					if (channel[k][l].type >= 0 && tmp < 6e-4) {
+						if (channel[k][l].type == LNSTART) thru[k] = 1;
+						channel[k][l].type ^= -1;
 						score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / nnotes));
 						update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
 					}
