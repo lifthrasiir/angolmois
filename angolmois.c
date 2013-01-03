@@ -40,7 +40,6 @@ static const char *argv0 = "angolmois";
 #define R(x,y,w,h) &(SDL_Rect){x,y,w,h}
 
 #define INFO_INTERVAL 47 /* try not to refresh screen or console too fast (tops at 21fps) */
-#define NMIXCHANNELS 128
 #define MEASURE_TO_MSEC(measure,bpm) ((measure) * 24e4 / (bpm))
 #define MSEC_TO_MEASURE(msec,bpm) ((msec) * (bpm) / 24e4)
 
@@ -125,16 +124,16 @@ static double bpm = 130;
 static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [V_LNOBJ]=0};
 
 static char *sndpath[1296], *imgpath[1296];
-XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
+static XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
 static struct { Mix_Chunk *res; int ch; } sndres[1296];
-static int sndchmap[NMIXCHANNELS];
+static XV(int) sndchmap;
 static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
 static int stoptab[1296];
 static double bpmtab[1296];
 
 #define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define IS_NOTE_CHANNEL(c) ((c) < 18)
-enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 }; 
+enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
 enum { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 }; /* types for NOTE_CHANNEL */
 enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHANNEL */
 enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
@@ -1248,25 +1247,33 @@ static int initialize(void)
 	return 0;
 }
 
+static void allocate_more_channels(int n)
+{
+	int i = XV_SIZE(sndchmap);
+	n = Mix_AllocateChannels(Mix_AllocateChannels(-1) + n);
+	XV_RESIZE(sndchmap, n);
+	while (i < n) XV_AT(sndchmap,i++) = -1;
+}
+
 static void play_sound_finished(int ch)
 {
-	if (sndchmap[ch] >= 0 && sndres[sndchmap[ch]].ch == ch) {
-		sndres[sndchmap[ch]].ch = -1;
+	if (XV_AT(sndchmap,ch) >= 0 && sndres[XV_AT(sndchmap,ch)].ch == ch) {
+		sndres[XV_AT(sndchmap,ch)].ch = -1;
 	}
-	sndchmap[ch] = -1;
+	XV_AT(sndchmap,ch) = -1;
 }
 
 static void play_sound(int i, int group)
 {
 	int ch;
 	if (!sndres[i].res) return;
-	ch = Mix_PlayChannel(sndres[i].ch, sndres[i].res, 0);
-	if (ch >= 0) {
-		Mix_Volume(ch, group ? 96 : 128);
-		Mix_GroupChannel(ch, group);
-		sndres[i].ch = ch;
-		sndchmap[ch] = i;
+	while ((ch = Mix_PlayChannel(sndres[i].ch, sndres[i].res, 0)) < 0) {
+		allocate_more_channels(32);
 	}
+	Mix_Volume(ch, group ? 96 : 128);
+	Mix_GroupChannel(ch, group);
+	sndres[i].ch = ch;
+	XV_AT(sndchmap,ch) = i;
 }
 
 static SDL_Surface *stagefile_tmp;
@@ -1368,8 +1375,8 @@ static void play_prepare(void)
 	/* configuration */
 	origintime = starttime = SDL_GetTicks();
 	targetspeed = playspeed;
-	Mix_AllocateChannels(NMIXCHANNELS);
-	for (i = 0; i < NMIXCHANNELS; ++i) sndchmap[i] = -1;
+	allocate_more_channels(64);
+	Mix_ReserveChannels(1); /* so that the beep won't be affected */
 	Mix_ChannelFinished(&play_sound_finished);
 	gradefactor = 1.5 - value[V_RANK] * .25;
 
@@ -1594,7 +1601,7 @@ static int play_process(void)
 			else if (targetspeed > .201) targetspeed -= .2;
 			else continue;
 			adjustspeed = 1;
-			Mix_PlayChannel(-1, beep, 0);
+			Mix_PlayChannel(0, beep, 0);
 		}
 
 		if (i && k == 19/*SPEED_UP*/) {
@@ -1604,7 +1611,7 @@ static int play_process(void)
 			else if (targetspeed < 95) targetspeed += 5;
 			else continue;
 			adjustspeed = 1;
-			Mix_PlayChannel(-1, beep, 0);
+			Mix_PlayChannel(0, beep, 0);
 		}
 
 		if (opt_mode || k < 0 || k >= 18 || tkeyleft[k] < 0) continue;
