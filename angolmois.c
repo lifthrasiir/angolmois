@@ -149,7 +149,7 @@ static bmsnote *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22];
 static double length;
-static int has7keys, haslongnote, haspedal, hasbpmchange;
+static int nkeys, haslongnote, haspedal, hasbpmchange;
 static int nnotes, maxscore, duration;
 
 /******************************************************************************/
@@ -735,7 +735,7 @@ static void get_bms_info(void)
 {
 	int i, j;
 
-	has7keys = (nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]);
+	nkeys = (nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17] ? 7 : 5);
 	haspedal = (nchannel[6] || nchannel[15]);
 	hasbpmchange = nchannel[20];
 	haslongnote = nnotes = 0;
@@ -1318,7 +1318,7 @@ static void play_show_stagefile(void)
 
 	t = sprintf(buf, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
 		value[V_PLAYLEVEL], bpm, "?"+(hasbpmchange==0), nnotes,
-		"s"+(nnotes==1), has7keys ? 7 : 5, haslongnote ? "-LN" : "");
+		"s"+(nnotes==1), nkeys * (value[V_PLAYER]==3 ? 2 : 1), haslongnote ? "-LN" : "");
 
 	if (opt_mode < EXCLUSIVE_MODE) {
 		/*
@@ -1388,7 +1388,7 @@ static void play_prepare(void)
 		tpanel1 -= tkeywidth[6] + 1;
 		tpanel2 += tkeywidth[15] + 1;
 	}
-	if (has7keys == 0) {
+	if (nkeys == 5) {
 		tkeyleft[7] = tkeyleft[8] = tkeyleft[16] = tkeyleft[17] = -1;
 		for (i = 9; i < 16; ++i) {
 			if (i != 14 && tkeyleft[i] >= 0)
