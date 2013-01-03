@@ -105,32 +105,24 @@ static void *xv_do_resize(struct xv_base *base, void *ptr, ptrdiff_t n, ptrdiff_
 /******************************************************************************/
 /* constants, variables */
 
-enum { PLAY_MODE = 0, AUTOPLAY_MODE = 1, EXCLUSIVE_MODE = 2 };
-enum { NO_BGA = 2, BGA_BUT_NO_MOVIE = 1, BGA_AND_MOVIE = 0 };
-enum { NO_MODF = 0, MIRROR_MODF = 1, RANDOM_MODF = 2, RANDOMEX_MODF = 3, SHUFFLE_MODF = 4, SHUFFLEEX_MODF = 5 };
-
-static int opt_mode = PLAY_MODE;
+static enum { PLAY_MODE, AUTOPLAY_MODE, EXCLUSIVE_MODE } opt_mode = PLAY_MODE;
 static int opt_showinfo = 1;
 static int opt_fullscreen = 1;
-static int opt_random = NO_MODF;
-static int opt_bga = BGA_AND_MOVIE;
+static enum { NO_MODF, MIRROR_MODF, RANDOM_MODF, RANDOMEX_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF } opt_modf = NO_MODF;
+static enum { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA } opt_bga = BGA_AND_MOVIE;
 static int opt_joystick = -1;
 
 static char *bmspath, respath[512];
 
+enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3 };
+enum { V_PLAYER = 0, V_PLAYLEVEL = 1, V_RANK = 2, V_LNTYPE = 3, V_LNOBJ = 4 };
+
 #define MAXMETADATA 1023
 static char metadata[4][MAXMETADATA+1];
 static double bpm = 130;
-static int value[5] = {1, 0, 2, 1, 0};
-#define v_player value[0]
-#define v_playlevel value[1]
-#define v_rank value[2]
-#define lntype value[3]
-#define lnobj value[4]
+static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [V_LNOBJ]=0};
 
-static char *paths[2][1296];
-#define sndpath paths[0]
-#define imgpath paths[1]
+static char *sndpath[1296], *imgpath[1296];
 XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
 static struct { Mix_Chunk *res; int ch; } sndres[1296];
 static int sndchmap[NMIXCHANNELS];
@@ -148,11 +140,9 @@ enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHAN
 enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
 enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 }; /* types for STOP_CHANNEL */
 
-enum { HAS_7KEYS = 1, HAS_LONGNOTE = 2, HAS_PEDAL = 4, HAS_BPM_CHANGE = 8 };
-
 typedef struct {
 	double time; /* time */
-	int type; /* type (see above). 0 if unspecified. -1 if removed somehow. */
+	int type; /* type (see above). 0 if unspecified. <0 if removed somehow. */
 	int index; /* associated resource or key value (if any) */
 } bmsnote;
 
@@ -160,7 +150,8 @@ static bmsnote *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22];
 static double length;
-static int flags, nnotes, maxscore, duration;
+static int has7keys, haslongnote, haspedal, hasbpmchange;
+static int nnotes, maxscore, duration;
 
 /******************************************************************************/
 /* system dependent functions */
@@ -392,98 +383,96 @@ static int parse_bms(void)
 				break;
 			}
 		}
+		if (ignore) i = ~i;
 
 		switch (i) {
-		case 15: /* random */
+		case 0: /* title */
+		case 1: /* genre */
+		case 2: /* artist */
+		case 3: /* stagefile */
+			sscanf(line, "%*[ ]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i]);
+			break;
+
+		case 4: /* bpm */
+			if (sscanf(line, "%*[ ]%lf", &bpm) >= 1) {
+				/* do nothing, bpm is set */
+			} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2) {
+				i = key2index(buf1);
+				if (i >= 0) bpmtab[i] = t;
+			}
+			break;
+
+		case 5: /* player */
+		case 6: /* playlevel */
+		case 7: /* rank */
+		case 8: /* lntype */
+			sscanf(line, "%*[ ]%d", &value[i-5]);
+			break;
+
+		case 9: /* lnobj */
+			if (sscanf(line, "%*[ ]" KEY_PATTERN, buf1) >= 1) {
+				value[V_LNOBJ] = key2index(buf1);
+			}
+			break;
+
+		case 10: /* wav## */
+		case 11: /* bmp## */
+			if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2) {
+				j = key2index(buf1);
+				if (j >= 0) {
+					char **path = (i==10 ? sndpath : imgpath);
+					free(path[j]);
+					path[j] = strcopy(buf2);
+				}
+			}
+			break;
+
+		case 12: /* bga## */
+			if (sscanf(line, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
+					buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8) {
+				bc.dst = key2index(buf1);
+				bc.src = key2index(buf2);
+				if (bc.dst >= 0 && bc.src >= 0) XV_PUSH(blitcmd, bc);
+			}
+			break;
+
+		case 13: /* stop## */
+			if (sscanf(line, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2) {
+				i = key2index(buf1);
+				if (i >= 0) stoptab[i] = j;
+			}
+			break;
+
+		case 14: /* stp## */
+			if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
+				add_note(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k);
+			}
+			break;
+
+		case 15: case ~15: /* random */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
 				rnd = rand() % abs(j) + 1;
 			}
 			break;
 
-		case 16: /* if */
+		case 16: case ~16: /* if */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
 				ignore = (rnd != j);
 			}
 			break;
 
-		case 17: /* else */
+		case 17: case ~17: /* else */
 			ignore = !ignore;
 			break;
 
-		case 18: /* endif */
+		case 18: case ~18: /* endif */
 			ignore = 0;
 			break;
-		}
 
-		if (!ignore) {
-			switch (i) {
-			case 0: /* title */
-			case 1: /* genre */
-			case 2: /* artist */
-			case 3: /* stagefile */
-				sscanf(line, "%*[ ]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i]);
-				break;
-
-			case 4: /* bpm */
-				if (sscanf(line, "%*[ ]%lf", &bpm) >= 1) {
-					/* do nothing, bpm is set */
-				} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2) {
-					i = key2index(buf1);
-					if (i >= 0) bpmtab[i] = t;
-				}
-				break;
-
-			case 5: /* player */
-			case 6: /* playlevel */
-			case 7: /* rank */
-			case 8: /* lntype */
-				sscanf(line, "%*[ ]%d", &value[i-5]);
-				break;
-
-			case 9: /* lnobj */
-				if (sscanf(line, "%*[ ]" KEY_PATTERN, buf1) >= 1) {
-					lnobj = key2index(buf1);
-				}
-				break;
-
-			case 10: /* wav## */
-			case 11: /* bmp## */
-				if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2) {
-					j = key2index(buf1);
-					if (j >= 0) {
-						free(paths[i-10][j]);
-						paths[i-10][j] = strcopy(buf2);
-					}
-				}
-				break;
-
-			case 12: /* bga## */
-				if (sscanf(line, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
-						buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8) {
-					bc.dst = key2index(buf1);
-					bc.src = key2index(buf2);
-					if (bc.dst >= 0 && bc.src >= 0) XV_PUSH(blitcmd, bc);
-				}
-				break;
-
-			case 13: /* stop## */
-				if (sscanf(line, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2) {
-					i = key2index(buf1);
-					if (i >= 0) stoptab[i] = j;
-				}
-				break;
-
-			case 14: /* stp## */
-				if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
-					add_note(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k);
-				}
-				break;
-
-			case 19: /* #####:... */
-				/* only check validity, do not store them yet */
-				if (sscanf(line, "%*5c:%c", buf1) >= 1) {
-					XV_PUSH(bmsline, strcopy(line));
-				}
+		case 19: /* #####:... */
+			/* only check validity, do not store them yet */
+			if (sscanf(line, "%*5c:%c", buf1) >= 1) {
+				XV_PUSH(bmsline, strcopy(line));
 			}
 		}
 	}
@@ -519,7 +508,7 @@ static int parse_bms(void)
 				} else if (chan >= 10 && chan < 30 && chan % 10 != 0) {
 					if (b) {
 						c = NOTE_CHANNEL(chan>20, chan%10);
-						if (lnobj && b == lnobj) {
+						if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
 							if (nchannel[c] && channel[c][nchannel[c]-1].type==NOTE) {
 								channel[c][nchannel[c]-1].type = LNSTART;
 								add_note(c, t, LNDONE, b);
@@ -532,7 +521,7 @@ static int parse_bms(void)
 					if (b) add_note(NOTE_CHANNEL(chan>40, chan%10), t, INVNOTE, b);
 				} else if (chan >= 50 && chan < 70 && chan % 10 != 0) {
 					c = NOTE_CHANNEL(chan>60, chan%10);
-					if (lntype == 1 && b) {
+					if (value[V_LNTYPE] == 1 && b) {
 						if (prev[c]) {
 							prev[c] = 0;
 							add_note(c, t, LNDONE, 0);
@@ -540,7 +529,7 @@ static int parse_bms(void)
 							prev[c] = b;
 							add_note(c, t, LNSTART, b);
 						}
-					} else if (lntype == 2) {
+					} else if (value[V_LNTYPE] == 2) {
 						if (prev[c] || prev[c] != b) {
 							if (prev[c]) {
 								if (lprev[c] + 1 < measure) {
@@ -566,7 +555,7 @@ static int parse_bms(void)
 	length = measure + 2;
 	for (i = 0; i < 18; ++i) {
 		if (prev[i]) {
-			if (lntype == 2 && lprev[i] + 1 < measure) {
+			if (value[V_LNTYPE] == 2 && lprev[i] + 1 < measure) {
 				add_note(i, lprev[i]+1, LNDONE, 0);
 			} else {
 				add_note(i, length - 1, LNDONE, 0);
@@ -740,14 +729,14 @@ static void get_bms_info(void)
 {
 	int i, j;
 
-	flags = nnotes = 0;
-	if (nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]) flags |= HAS_7KEYS;
-	if (nchannel[6] || nchannel[15]) flags |= HAS_PEDAL;
-	if (nchannel[20]) flags |= HAS_BPM_CHANGE;
+	has7keys = (nchannel[7] || nchannel[8] || nchannel[16] || nchannel[17]);
+	haspedal = (nchannel[6] || nchannel[15]);
+	hasbpmchange = nchannel[20];
+	haslongnote = nnotes = 0;
 	for (i = 0; i < 18; ++i) {
 		for (j = 0; j < nchannel[i]; ++j) {
 			if (channel[i][j].type == LNSTART) {
-				flags |= HAS_LONGNOTE;
+				haslongnote = 1;
 				++nnotes;
 			} else if (channel[i][j].type == NOTE) {
 				++nnotes;
@@ -1314,8 +1303,8 @@ static void play_show_stagefile(void)
 	int i, j, t;
 
 	t = sprintf(buf, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
-		v_playlevel, bpm, "?"+((flags&HAS_BPM_CHANGE)==0), nnotes,
-		"s"+(nnotes==1), (flags&HAS_7KEYS) ? 7 : 5, (flags&HAS_LONGNOTE) ? "-LN" : "");
+		value[V_PLAYLEVEL], bpm, "?"+(hasbpmchange==0), nnotes,
+		"s"+(nnotes==1), has7keys ? 7 : 5, haslongnote ? "-LN" : "");
 
 	if (opt_mode < EXCLUSIVE_MODE) {
 		/*
@@ -1375,7 +1364,7 @@ static void play_prepare(void)
 	Mix_AllocateChannels(NMIXCHANNELS);
 	for (i = 0; i < NMIXCHANNELS; ++i) sndchmap[i] = -1;
 	Mix_ChannelFinished(&play_sound_finished);
-	gradefactor = 1.5 - v_rank * .25;
+	gradefactor = 1.5 - value[V_RANK] * .25;
 
 	/* video (if any) */
 	if (mpeg) {
@@ -1387,12 +1376,12 @@ static void play_prepare(void)
 	if (opt_mode >= EXCLUSIVE_MODE) return;
 
 	/* panel position */
-	if ((flags&HAS_PEDAL) == 0) {
+	if (haspedal == 0) {
 		tkeyleft[6] = tkeyleft[15] = -1;
 		tpanel1 -= tkeywidth[6] + 1;
 		tpanel2 += tkeywidth[15] + 1;
 	}
-	if ((flags&HAS_7KEYS) == 0) {
+	if (has7keys == 0) {
 		tkeyleft[7] = tkeyleft[8] = tkeyleft[16] = tkeyleft[17] = -1;
 		for (i = 9; i < 16; ++i) {
 			if (i != 14 && tkeyleft[i] >= 0)
@@ -1403,13 +1392,13 @@ static void play_prepare(void)
 		tpanel1 -= tkeywidth[7] + tkeywidth[8] + 2;
 		tpanel2 += tkeywidth[16] + tkeywidth[17] + 2;
 	}
-	if (v_player == 1) {
+	if (value[V_PLAYER] == 1) {
 		for (i = 9; i < 18; ++i) tkeyleft[i] = -1;
-	} else if (v_player == 3) {
+	} else if (value[V_PLAYER] == 3) {
 		for (i = 9; i < 18; ++i) tkeyleft[i] += tpanel1 - tpanel2;
 		tpanel1 += 801 - tpanel2;
 	}
-	if (v_player % 2) {
+	if (value[V_PLAYER] % 2) {
 		tpanel2 = 0;
 		tbgax = tpanel1 / 2 + 282;
 	} else {
@@ -1463,11 +1452,12 @@ static void play_prepare(void)
 	SDL_BlitSurface(sprite, R(0,520,800,80), screen, R(0,520,0,0));
 }
 
-static void update_grade(int grade)
+static void update_grade(int grade, int delta)
 {
 	++scocnt[grade];
 	grademode = grade;
 	gradetime = now + 700;
+	score += (int)(delta * (1 + 1. * scombo / nnotes));
 
 	if (grade < 1) {
 		scombo = 0;
@@ -1548,10 +1538,7 @@ static int play_process(void)
 				startoffset = bottom;
 			} else if (opt_mode && channel[i][pcur[i]].type != INVNOTE) {
 				if (j) play_sound(j, 0);
-				if (channel[i][pcur[i]].type != LNDONE) {
-					score += (int)(300 * (1 + 1. * scombo / nnotes));
-					update_grade(4);
-				}
+				if (channel[i][pcur[i]].type != LNDONE) update_grade(4, 300);
 			}
 			++pcur[i];
 		}
@@ -1561,7 +1548,7 @@ static int play_process(void)
 				if (j < 0 || j == INVNOTE || (j == LNDONE && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]].time;
 				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
-				if (tmp > 6e-4) update_grade(0); else break;
+				if (tmp > 6e-4) update_grade(0, 0); else break;
 			}
 			if (pfront[i] < nchannel[i]) eop = 0;
 		}
@@ -1629,7 +1616,7 @@ static int play_process(void)
 				if (-6e-4 < tmp && tmp < 6e-4) {
 					channel[k][j].type ^= -1;
 				} else {
-					update_grade(0);
+					update_grade(0, 0);
 				}
 			}
 		}
@@ -1655,15 +1642,14 @@ static int play_process(void)
 				if (l < pcheck[k]) continue;
 
 				if (channel[k][l].type == LNDONE) {
-					if (thru[k]) update_grade(0);
+					if (thru[k]) update_grade(0, 0);
 				} else if (channel[k][l].type >= 0) {
 					tmp = (channel[k][l].time - line) * shorten[(int)line] / bpm * gradefactor;
 					if (tmp < 0) tmp *= -1;
 					if (channel[k][l].type >= 0 && tmp < 6e-4) {
 						if (channel[k][l].type == LNSTART) thru[k] = 1;
 						channel[k][l].type ^= -1;
-						score += (int)((300 - tmp * 5e5) * (1 + 1. * scombo / nnotes));
-						update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1);
+						update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1, 300 - tmp * 5e5);
 					}
 				}
 			}
@@ -1795,12 +1781,12 @@ static int play(void)
 	if (parse_bms() || sanitize_bms()) {
 		die("Couldn't load BMS file: %s", bmspath);
 	}
-	if (opt_random) {
-		if (v_player == 3) {
-			shuffle_bms(opt_random, 0);
+	if (opt_modf) {
+		if (value[V_PLAYER] == 3) {
+			shuffle_bms(opt_modf, 0);
 		} else {
-			shuffle_bms(opt_random, 1);
-			if (v_player != 1) shuffle_bms(opt_random, 2);
+			shuffle_bms(opt_modf, 1);
+			if (value[V_PLAYER] != 1) shuffle_bms(opt_modf, 2);
 		}
 	}
 	get_bms_info();
@@ -1924,11 +1910,11 @@ int main(int argc, char **argv)
 				case 'X': opt_mode = EXCLUSIVE_MODE; opt_bga = NO_BGA; break;
 				case 'w': opt_fullscreen = 0; break;
 				case 'q': opt_showinfo = 0; break;
-				case 'm': opt_random = MIRROR_MODF; break;
-				case 's': opt_random = SHUFFLE_MODF; break;
-				case 'S': opt_random = SHUFFLEEX_MODF; break;
-				case 'r': opt_random = RANDOM_MODF; break;
-				case 'R': opt_random = RANDOMEX_MODF; break;
+				case 'm': opt_modf = MIRROR_MODF; break;
+				case 's': opt_modf = SHUFFLE_MODF; break;
+				case 'S': opt_modf = SHUFFLEEX_MODF; break;
+				case 'r': opt_modf = RANDOM_MODF; break;
+				case 'R': opt_modf = RANDOMEX_MODF; break;
 				case 'a':
 					cont = 0;
 					arg = argv[i][++j] ? argv[i]+j : argv[++i];
