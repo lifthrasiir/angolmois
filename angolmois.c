@@ -128,11 +128,9 @@ static char *sndpath[1296], *imgpath[1296];
 XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
 static struct { Mix_Chunk *res; int ch; } sndres[1296];
 static int sndchmap[NMIXCHANNELS];
-static SDL_Surface *imgres[1296];
+static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
 static int stoptab[1296];
 static double bpmtab[1296];
-static SMPEG *mpeg = NULL;
-int imgmpeg = -2;
 
 #define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define IS_NOTE_CHANNEL(c) ((c) < 18)
@@ -667,18 +665,25 @@ static int load_resource(void)
 		if (imgpath[i]) {
 			char *ext = strrchr(imgpath[i], '.');
 			resource_loaded(imgpath[i]);
-			if (ext && stricmp(ext, ".mpg") && opt_bga < BGA_BUT_NO_MOVIE && !mpeg) {
-				mpeg = SMPEG_new(adjust_path(imgpath[i]), NULL, 0);
-				if (!mpeg) warn("failed to load image #%d (%s)", i, imgpath[i]);
-				imgmpeg = i;
+			if (ext && stricmp(ext, ".mpg") && opt_bga < BGA_BUT_NO_MOVIE) {
+				SMPEG *movie = SMPEG_new(adjust_path(imgpath[i]), NULL, 0);
+				if (!movie) {
+					warn("failed to load image #%d (%s)", i, imgpath[i]);
+				} else {
+					imgres[i].surface = newsurface(256, 256);
+					imgres[i].movie = movie;
+					SMPEG_enablevideo(movie, 1);
+					SMPEG_loop(movie, 1);
+					SMPEG_setdisplay(movie, imgres[i].surface, NULL, NULL);
+				}
 			} else if (opt_bga < NO_BGA) {
 				temp = IMG_Load(adjust_path(imgpath[i]));
 				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".png"));
 				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".jpg"));
 				if (temp) {
-					imgres[i] = SDL_DisplayFormat(temp);
+					imgres[i].surface = SDL_DisplayFormat(temp);
 					SDL_FreeSurface(temp);
-					SDL_SetColorKey(imgres[i], SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+					SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 				} else {
 					warn("failed to load image #%d (%s)", i, imgpath[i]);
 				}
@@ -689,18 +694,18 @@ static int load_resource(void)
 	}
 
 	XV_EACH(bc, blitcmd) {
-		if (bc.dst < 0 || bc.src < 0 || !imgres[bc.src]) continue;
-		temp = imgres[bc.dst];
+		if (imgres[bc.dst].movie || imgres[bc.src].movie || !imgres[bc.src].surface) continue;
+		temp = imgres[bc.dst].surface;
 		if (!temp) {
-			imgres[bc.dst] = temp = newsurface(256, 256);
-			SDL_FillRect(temp, 0, SDL_MapRGB(imgres[bc.dst]->format, 0, 0, 0));
+			imgres[bc.dst].surface = temp = newsurface(256, 256);
+			SDL_FillRect(temp, 0, SDL_MapRGB(temp->format, 0, 0, 0));
 			SDL_SetColorKey(temp, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 		}
 		if (bc.x1 < 0) bc.x1 = 0;
 		if (bc.y1 < 0) bc.y1 = 0;
 		if (bc.x2 > bc.x1 + 256) bc.x2 = bc.x1 + 256;
 		if (bc.y2 > bc.y1 + 256) bc.y2 = bc.y1 + 256;
-		SDL_BlitSurface(imgres[bc.src], R(bc.x1, bc.y1, bc.x2-bc.x1, bc.y2-bc.y1),
+		SDL_BlitSurface(imgres[bc.src].surface, R(bc.x1, bc.y1, bc.x2-bc.x1, bc.y2-bc.y1),
 			temp, R(bc.dx, bc.dy, 0, 0));
 	}
 	XV_FREE(blitcmd);
@@ -771,8 +776,8 @@ static int get_bms_duration(void)
 
 		i = channel[j][cur[j]].index;
 		ttime = 0.0;
-		if (IS_NOTE_CHANNEL(j)) {
-			if (i && sndres[i].res) ttime = (int)(sndres[i].res->alen / 176.4);
+		if (IS_NOTE_CHANNEL(j) || j == BGM_CHANNEL) {
+			if (i && sndres[i].res) ttime = sndres[i].res->alen / 176.4;
 		} else if (j == BPM_CHANNEL) {
 			tmp = (channel[j][cur[j]].type == BPM_BY_INDEX ? bpmtab[i] : i);
 			if (tmp > 0) {
@@ -1109,7 +1114,7 @@ static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0;
 static double startoffset = -1, startshorten = 1;
 static int pcur[22], pfront[22], prear[22], pcheck[18], thru[22];
-static int bga[3] = {-1,-1,0}, poorbga = 0, bga_updated = 1;
+static int bga[3] = {-1,-1,0}, poorbga = 0;
 static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
 static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256, survival = 150;
@@ -1311,14 +1316,14 @@ static void play_show_stagefile(void)
 	if (opt_mode < EXCLUSIVE_MODE) {
 		/*
 		char ibuf[256];
-		sprintf(ibuf, "%s: %s - %s", VERSION, metadata[2], metadata[0]);
+		sprintf(ibuf, "%s: %s - %s", VERSION, metadata[M_ARTIST], metadata[M_TITLE]);
 		SDL_WM_SetCaption(ibuf, 0);
 		*/
 		printstr(screen, 248, 284, 2, "loading bms file...", 0x202020, 0x808080);
 		SDL_Flip(screen);
 
 		stagefile_tmp = newsurface(800, 20);
-		if (*metadata[3] && (temp = IMG_Load(adjust_path(metadata[3])))) {
+		if (*metadata[M_STAGEFILE] && (temp = IMG_Load(adjust_path(metadata[M_STAGEFILE])))) {
 			stagefile = SDL_DisplayFormat(temp);
 			bicubic_interpolation(stagefile, screen);
 			SDL_FreeSurface(temp);
@@ -1329,9 +1334,9 @@ static void play_show_stagefile(void)
 				for (j = 0; j < 42; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 				for (j = 580; j < 600; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 			}
-			printstr(screen, 6, 4, 2, metadata[0], 0x808080, 0xffffff);
-			printstr(screen, 792-8*strlen(metadata[1]), 4, 1, metadata[1], 0x808080, 0xffffff);
-			printstr(screen, 792-8*strlen(metadata[2]), 20, 1, metadata[2], 0x808080, 0xffffff);
+			printstr(screen, 6, 4, 2, metadata[M_TITLE], 0x808080, 0xffffff);
+			printstr(screen, 792-8*strlen(metadata[M_GENRE]), 4, 1, metadata[M_GENRE], 0x808080, 0xffffff);
+			printstr(screen, 792-8*strlen(metadata[M_ARTIST]), 20, 1, metadata[M_ARTIST], 0x808080, 0xffffff);
 			printstr(screen, 3, 582, 1, buf, 0x808080, 0xffffff);
 			SDL_BlitSurface(screen, R(0,580,800,20), stagefile_tmp, R(0,0,800,20));
 		}
@@ -1341,7 +1346,7 @@ static void play_show_stagefile(void)
 				"------------------------------------------------------------------------\n"
 				"Title:    %s\nGenre:    %s\nArtist:   %s\n%s\n"
 				"------------------------------------------------------------------------\n",
-				metadata[0], metadata[1], metadata[2], buf);
+				metadata[M_TITLE], metadata[M_GENRE], metadata[M_ARTIST], buf);
 	}
 
 	t = SDL_GetTicks() + 3000;
@@ -1367,13 +1372,6 @@ static void play_prepare(void)
 	for (i = 0; i < NMIXCHANNELS; ++i) sndchmap[i] = -1;
 	Mix_ChannelFinished(&play_sound_finished);
 	gradefactor = 1.5 - value[V_RANK] * .25;
-
-	/* video (if any) */
-	if (mpeg) {
-		imgres[imgmpeg] = newsurface(256, 256);
-		SMPEG_enablevideo(mpeg, 1);
-		SMPEG_setdisplay(mpeg, imgres[imgmpeg], NULL, NULL);
-	}
 
 	if (opt_mode >= EXCLUSIVE_MODE) return;
 
@@ -1519,28 +1517,35 @@ static int play_process(void)
 		while (prear[i] < nchannel[i] && channel[i][prear[i]].time <= top) ++prear[i];
 		while (pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line) {
 			j = channel[i][pcur[i]].index;
+			k = channel[i][pcur[i]].type;
 			if (i == BGM_CHANNEL) {
 				if (j) play_sound(j, 1);
 			} else if (i == BGA_CHANNEL) {
-				bga[channel[i][pcur[i]].type] = j;
-				bga_updated = 1;
+				if (bga[k] >= 0 && imgres[bga[k]].movie) {
+					SMPEG_stop(imgres[bga[k]].movie);
+				}
+				bga[k] = j;
+				if (j >= 0 && imgres[j].movie) {
+					SMPEG_rewind(imgres[j].movie);
+					SMPEG_play(imgres[j].movie);
+				}
 			} else if (i == BPM_CHANNEL) {
-				if ((tmp = (channel[i][pcur[i]].type == BPM_BY_INDEX ? bpmtab[j] : j))) {
+				if ((tmp = (k == BPM_BY_INDEX ? bpmtab[j] : j))) {
 					starttime = now;
 					startoffset = bottom;
 					bpm = tmp;
 				}
 			} else if (i == STOP_CHANNEL) {
 				if (now >= stoptime) stoptime = now;
-				if (channel[i][pcur[i]].type == STOP_BY_MSEC) {
+				if (k == STOP_BY_MSEC) {
 					stoptime += j;
 				} else { /* STOP_BY_192ND_OF_MEASURE */
 					stoptime += (int) MEASURE_TO_MSEC(stoptab[j] / 192.0, bpm);
 				}
 				startoffset = bottom;
-			} else if (opt_mode && channel[i][pcur[i]].type != INVNOTE) {
+			} else if (opt_mode && k != INVNOTE) {
 				if (j) play_sound(j, 0);
-				if (channel[i][pcur[i]].type != LNDONE) update_grade(4, 300);
+				if (k != LNDONE) update_grade(4, 300);
 			}
 			++pcur[i];
 		}
@@ -1716,7 +1721,6 @@ static int play_process(void)
 				printstr(screen, tpanel1/2-4*i, 288 - delta, 1, buf, 0x808080, 0xffffff);
 			}
 			if (opt_mode) printstr(screen, tpanel1/2-24, 302 - delta, 1, "(AUTO)", 0x404040, 0xc0c0c0);
-			if (!grademode) bga_updated = 1;
 		}
 		SDL_SetClipRect(screen, 0);
 
@@ -1749,20 +1753,13 @@ static int play_process(void)
 			"", i/600, i/10%60, i%10, j/600, j/10%60, j%10, bottom, bpm, scombo, nnotes);
 	}
 
-	if (opt_bga != NO_BGA && (bga_updated > 0 || (bga_updated < 0 && now >= poorbga) || (mpeg && SMPEG_status(mpeg) == SMPEG_PLAYING))) {
+	if (opt_bga != NO_BGA) {
 		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
-		for (i = 0; i < 3; ++i) {
-			if (bga_updated > 0 && bga[i] == imgmpeg && SMPEG_status(mpeg) != SMPEG_PLAYING) SMPEG_play(mpeg);
-		}
-		if (now < poorbga) {
-			if (bga[2] >= 0 && imgres[bga[2]])
-				SDL_BlitSurface(imgres[bga[2]], R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
-			bga_updated = -1;
-		} else {
-			for (i = 0; i < 2; ++i)
-				if (bga[i] >= 0 && imgres[bga[i]])
-					SDL_BlitSurface(imgres[bga[i]], R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
-			bga_updated = 0;
+		i = (now < poorbga ? 1<<POORBGA_LAYER : 1<<BGA_LAYER|1<<BGA2_LAYER);
+		for (j = 0; j < 2; ++j) {
+			if ((i>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
+				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
+			}
 		}
 	}
 
