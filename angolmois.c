@@ -1120,10 +1120,7 @@ static int gradetime = 0, grademode, gauge = 256, survival = 150;
 
 static SDL_Surface *sprite=0;
 static int keymap[SDLK_LAST]; /* -1: none, 0..17: notes, 18..19: speed down/up */
-#define MAXJOYB 20
-#define MAXJOYA 4
-static int joybmap[MAXJOYB]; /* arbitrary limitation but should be sufficient */
-static int joyamap[MAXJOYA];
+static XV(int) joybmap, joyamap;
 static int keypressed[2][18]; /* keypressed[0] for buttons, keypressed[1] for axes */
 static int tkeyleft[18] = {41,67,93,119,145,0,223,171,197, 578,604,630,656,682,760,537,708,734};
 static int tkeywidth[18] = {25,25,25,25,25,40,40,25,25, 25,25,25,25,25,40,40,25,25};
@@ -1163,12 +1160,12 @@ static void read_keymap(void)
 		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", 18, 20},
 	};
 	char *s, buf[256] = "";
-	int i, j, k, l, sep;
+	int i, j, k, l, sep, *p;
 	SDLKey key;
 
 	for (i = 0; i < SDLK_LAST; ++i) keymap[i] = -1;
-	for (i = 0; i < MAXJOYB; ++i) joybmap[i] = -1;
-	for (i = 0; i < MAXJOYA; ++i) joyamap[i] = -1;
+	XV_EACHPTR(p, joybmap) *p = -1;
+	XV_EACHPTR(p, joyamap) *p = -1;
 
 	for (i = 0; i < 3; ++i) {
 		s = getenv(envvars[i].name);
@@ -1182,10 +1179,10 @@ static void read_keymap(void)
 			key = get_sdlkey_from_name(s);
 			if (key != SDLK_UNKNOWN) {
 				keymap[key] = j;
-			} else if (sscanf(s, "button %d", &l) >= 1 && l >= 0 && l < MAXJOYB) {
-				joybmap[l] = j;
-			} else if (sscanf(s, "axis %d", &l) >= 1 && l >= 0 && l < MAXJOYA) {
-				joyamap[l] = j;
+			} else if (sscanf(s, "button %d", &l) >= 1) {
+				if (XV_CHECK(joybmap,l)) XV_AT(joybmap,l) = j;
+			} else if (sscanf(s, "axis %d", &l) >= 1) {
+				if (XV_CHECK(joyamap,l)) XV_AT(joyamap,l) = j;
 			} else {
 				die("Unknown key name in the environment variable %s: %s", envvars[i].name, s);
 			}
@@ -1230,6 +1227,8 @@ static int initialize(void)
 		SDL_JoystickEventState(SDL_ENABLE);
 		joystick = SDL_JoystickOpen(opt_joystick);
 		if (!joystick) die("SDL Joystick Initialization Failure: %s", SDL_GetError());
+		XV_RESIZE(joyamap, SDL_JoystickNumAxes(joystick));
+		XV_RESIZE(joybmap, SDL_JoystickNumButtons(joystick));
 	}
 	IMG_Init(IMG_INIT_JPG|IMG_INIT_PNG);
 	Mix_Init(MIX_INIT_OGG|MIX_INIT_MP3);
@@ -1583,12 +1582,12 @@ static int play_process(void)
 		case SDL_JOYBUTTONDOWN:
 		case SDL_JOYBUTTONUP:
 			i = (event.type == SDL_JOYBUTTONDOWN);
-			k = joybmap[event.jbutton.button];
+			k = XV_AT(joybmap, event.jbutton.button);
 			break;
 		case SDL_JOYAXISMOTION:
 			i = (event.jaxis.value < -3200 ? -1 : event.jaxis.value > 3200 ? 1 : 0);
 			j = 1;
-			k = joyamap[event.jaxis.axis];
+			k = XV_AT(joyamap, event.jaxis.axis);
 			break;
 		}
 
@@ -1670,7 +1669,7 @@ static int play_process(void)
 		}
 	}
 	if (bottom > length) {
-		if (opt_mode ? Mix_Playing(-1)==0 : Mix_GroupNewer(1)==-1) return 0;
+		if (opt_mode ? Mix_Playing(-1)==Mix_Playing(0) : Mix_GroupNewer(1)==-1) return 0;
 	} else if (bottom < -1) {
 		return 0;
 	}
