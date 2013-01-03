@@ -41,6 +41,8 @@ static const char *argv0 = "angolmois";
 
 #define INFO_INTERVAL 47 /* try not to refresh screen or console too fast (tops at 21fps) */
 #define NMIXCHANNELS 128
+#define MEASURE_TO_MSEC(measure,bpm) ((measure) * 24e4 / (bpm))
+#define MSEC_TO_MEASURE(msec,bpm) ((msec) * (bpm) / 24e4)
 
 /******************************************************************************/
 /* utility declarations */
@@ -750,47 +752,47 @@ static void get_bms_info(void)
 
 static int get_bms_duration(void)
 {
-	int cur[22] = {0};
-	int i, j, time, rtime, ttime;
+	int cur[22] = {0}, i, j;
+	double time, rtime, ttime;
 	double pos, xbpm, tmp;
 
 	xbpm = bpm;
-	time = rtime = 0;
+	time = rtime = 0.0;
 	pos = -1;
 	while (1) {
 		for (i = 0, j = -1; i < 22; ++i) {
 			if (cur[i] < nchannel[i] && (j < 0 || channel[i][cur[i]].time < channel[j][cur[j]].time)) j = i;
 		}
 		if (j < 0) {
-			time += (int)(adjust_object_position(pos, length) * 24e7 / xbpm);
+			time += MEASURE_TO_MSEC(adjust_object_position(pos, length), xbpm);
 			break;
 		}
-		time += (int)(adjust_object_position(pos, channel[j][cur[j]].time) * 24e7 / xbpm);
+		time += MEASURE_TO_MSEC(adjust_object_position(pos, channel[j][cur[j]].time), xbpm);
 
 		i = channel[j][cur[j]].index;
-		ttime = 0;
+		ttime = 0.0;
 		if (IS_NOTE_CHANNEL(j)) {
-			if (i && sndres[i].res) ttime = (int)(sndres[i].res->alen / .1764);
+			if (i && sndres[i].res) ttime = (int)(sndres[i].res->alen / 176.4);
 		} else if (j == BPM_CHANNEL) {
 			tmp = (channel[j][cur[j]].type == BPM_BY_INDEX ? bpmtab[i] : i);
 			if (tmp > 0) {
 				xbpm = tmp;
 			} else if (tmp < 0) {
-				time += (int)(adjust_object_position(-1, pos) * 24e7 / -tmp);
+				time += MEASURE_TO_MSEC(adjust_object_position(-1, pos), -tmp);
 				break;
 			}
 		} else if (j == STOP_CHANNEL) {
 			if (channel[j][cur[j]].type == STOP_BY_MSEC) {
 				time += i;
 			} else { /* STOP_BY_192ND_OF_MEASURE */
-				time += (int)(stoptab[i] * 125e4 * shorten[(int)(pos+1)-1] / xbpm);
+				time += MEASURE_TO_MSEC(stoptab[i] / 192.0, xbpm);
 			}
 		}
 		if (rtime < time + ttime) rtime = time + ttime;
 		pos = channel[j][cur[j]].time;
 		++cur[j];
 	}
-	return (time > rtime ? time : rtime) / 1000;
+	return (int) (time > rtime ? time : rtime);
 }
 
 static void shuffle_bms(int mode, int player)
@@ -1501,11 +1503,11 @@ static int play_process(void)
 		stoptime = 0;
 		bottom = startoffset;
 	} else {
-		bottom = startoffset + (now - starttime) * bpm / startshorten / 24e4;
+		bottom = startoffset + MSEC_TO_MEASURE(now - starttime, bpm) / startshorten;
 	}
 	ibottom = (int)(bottom + 1) - 1;
 	if (bottom > -1 && startshorten != shorten[ibottom]) {
-		starttime += (int)((ibottom - startoffset) * 24e4 * startshorten / bpm);
+		starttime += (int) (MEASURE_TO_MSEC(ibottom - startoffset, bpm) * startshorten);
 		startoffset = ibottom;
 		startshorten = shorten[ibottom];
 	}
@@ -1533,7 +1535,7 @@ static int play_process(void)
 				if (channel[i][pcur[i]].type == STOP_BY_MSEC) {
 					stoptime += j;
 				} else { /* STOP_BY_192ND_OF_MEASURE */
-					stoptime += (int)(stoptab[j] * 1250 * startshorten / bpm);
+					stoptime += (int) MEASURE_TO_MSEC(stoptab[j] / 192.0, bpm);
 				}
 				startoffset = bottom;
 			} else if (opt_mode && channel[i][pcur[i]].type != INVNOTE) {
@@ -1547,8 +1549,8 @@ static int play_process(void)
 				j = channel[i][pcheck[i]].type;
 				if (j < 0 || j == INVNOTE || (j == LNDONE && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]].time;
-				tmp = (line - tmp) * shorten[(int)tmp] / bpm * gradefactor;
-				if (tmp > 6e-4) update_grade(0, 0); else break;
+				tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten[(int)tmp] * gradefactor;
+				if (tmp > 144) update_grade(0, 0); else break;
 			}
 			if (pfront[i] < nchannel[i]) eop = 0;
 		}
@@ -1612,8 +1614,8 @@ static int play_process(void)
 			if (l && nchannel[k] && thru[k]) {
 				for (j = pcur[k]; channel[k][j].type != LNDONE; --j);
 				thru[k] = 0;
-				tmp = (channel[k][j].time - line) * shorten[(int)line] / bpm * gradefactor;
-				if (-6e-4 < tmp && tmp < 6e-4) {
+				tmp = MEASURE_TO_MSEC(channel[k][j].time - line, bpm) * shorten[(int)line] * gradefactor;
+				if (-144 < tmp && tmp < 144) {
 					channel[k][j].type ^= -1;
 				} else {
 					update_grade(0, 0);
@@ -1644,12 +1646,12 @@ static int play_process(void)
 				if (channel[k][l].type == LNDONE) {
 					if (thru[k]) update_grade(0, 0);
 				} else if (channel[k][l].type >= 0) {
-					tmp = (channel[k][l].time - line) * shorten[(int)line] / bpm * gradefactor;
+					tmp = MEASURE_TO_MSEC(channel[k][l].time - line, bpm) * shorten[(int)line] * gradefactor;
 					if (tmp < 0) tmp *= -1;
-					if (channel[k][l].type >= 0 && tmp < 6e-4) {
+					if (channel[k][l].type >= 0 && tmp < 144) {
 						if (channel[k][l].type == LNSTART) thru[k] = 1;
 						channel[k][l].type ^= -1;
-						update_grade(tmp<0.6e-4 ? 4 : tmp<2.0e-4 ? 3 : tmp<3.5e-4 ? 2 : 1, 300 - tmp * 5e5);
+						update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, 300 - tmp/144*300);
 					}
 				}
 			}
