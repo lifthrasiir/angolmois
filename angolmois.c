@@ -46,9 +46,37 @@ static const char *argv0 = "angolmois";
 /******************************************************************************/
 /* utility declarations */
 
-static void die(const char *msg, ...);
-static void warn(const char *msg, ...);
+static void die(const char *msg, ...); /* platform dependent */
 #define SHOULD(x) ((x) ? (void) 0 : die("assertion failure: %s", #x))
+
+static void warn(const char *msg, ...)
+{
+	va_list v;
+	fprintf(stderr, "*** Warning: ");
+	va_start(v, msg);
+	vfprintf(stderr, msg, v);
+	va_end(v);
+	fprintf(stderr, "\n");
+}
+
+static int charieq(int a, int b)
+{
+	if ('a' <= a && a <= 'z') a += 'A' - 'a';
+	if ('a' <= b && b <= 'z') b += 'A' - 'a';
+	return a == b;
+}
+
+static int strieq(const char *a, const char *b)
+{
+	while (*a && *b && charieq(*a, *b)) ++a, ++b;
+	return *a == *b;
+}
+
+static char *strcopy(const char *src)
+{
+	char *dest = malloc(strlen(src)+1);
+	return strcpy(dest, src);
+}
 
 struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV(...) struct { struct xv_base xv__base; __VA_ARGS__ *xv__ptr; }
@@ -77,12 +105,12 @@ struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV_IEACHPTR(i,p,xv) XV_LOOP(xv, ptrdiff_t, i, (p) = &XV_AT(xv,i), 0)
 #define XV_EACH(v,xv) XV_IEACH(xv__i_##__LINE__,v,xv)
 #define XV_EACHPTR(p,xv) XV_IEACHPTR(xv__i_##__LINE__,p,xv)
-#define XV_PUSH(xv,x) (XV_RESERVE(xv, XV_SIZE(xv)+1), XV_AT(xv, XV_SIZE(xv)++) = (x))
+#define XV_PUSH(xv,x) ((void) XV_RESERVE(xv, XV_SIZE(xv)+1), XV_AT(xv, XV_SIZE(xv)++) = (x))
 #define XV_POP(xv) (XV_PTR(xv)[--XV_SIZE(xv)])
 #define XV_COPYTO(p,xv,i,n) memcpy((p), XV_PTR(xv)+i, (n)*XV_ITEMSIZE(xv))
 #define XV_COPYFROM(xv,i,p,n) ((void) memcpy(XV_PTR(xv)+i, (p), (n)*XV_ITEMSIZE(xv)))
 #define XV_COPYPUSH(xv,p,n) \
-	(XV_RESERVE(xv, XV_SIZE(xv) + (ptrdiff_t) (n)), \
+	((void) XV_RESERVE(xv, XV_SIZE(xv) + (ptrdiff_t) (n)), \
 	 XV_COPYFROM(xv, XV_SIZE(xv), p, n), (void) (XV_SIZE(xv) += (n)))
 #define XV_ZEROIZE(xv,i,n) memset(XV_PTR(xv) + (i), 0, (n) * XV_ITEMSIZE(xv))
 #define XV_FREE(xv) if (XV_ALLOC(xv) == 0) { } else free(XV_PTR(xv))
@@ -113,8 +141,6 @@ static enum { NO_MODF, MIRROR_MODF, RANDOM_MODF, RANDOMEX_MODF, SHUFFLE_MODF, SH
 static enum { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA } opt_bga = BGA_AND_MOVIE;
 static int opt_joystick = -1;
 
-static char *bmspath, respath[512];
-
 enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3 };
 enum { V_PLAYER = 0, V_PLAYLEVEL = 1, V_RANK = 2, V_LNTYPE = 3, V_LNOBJ = 4 };
 
@@ -139,13 +165,8 @@ enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHAN
 enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
 enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 }; /* types for STOP_CHANNEL */
 
-typedef struct {
-	double time; /* time */
-	int type; /* type (see above). 0 if unspecified. <0 if removed somehow. */
-	int index; /* associated resource or key value (if any) */
-} bmsnote;
-
-static bmsnote *channel[22];
+static char *bmspath;
+static struct bmsnote { double time; int type, index; } *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22];
 static double length;
@@ -153,13 +174,28 @@ static int nkeys, haslongnote, haspedal, hasbpmchange;
 static int nnotes, maxscore, duration;
 
 /******************************************************************************/
-/* system dependent functions */
+/* path resolution & system dependent functions */
 
-#ifdef WIN32
+static const char *SOUND_EXTS[] = {".wav", ".ogg", ".mp3", NULL};
+static const char *IMAGE_EXTS[] = {".bmp", ".png", ".jpg", ".jpeg", ".gif", NULL};
+
+static int match_filename(const char *s, const char *t, const char **exts)
+{
+	const char *sbegin = s, *send = s + strlen(s);
+	while (*s && *t && charieq(*s, *t)) ++s, ++t;
+	if (*s == *t) return 1;
+	if (sbegin != s && exts) {
+		for (; *exts; ++exts) {
+			int l = (int) strlen(*exts);
+			if (send-s < l && strieq(send-l, *exts)) return 1;
+		}
+	}
+	return 0;
+}
+
+#ifdef _WIN32
 
 #include <windows.h>
-
-static const char sep = '\\';
 
 static int filedialog(char *buf)
 {
@@ -181,25 +217,55 @@ static int filedialog(char *buf)
 static void die(const char *msg, ...)
 {
 	va_list v;
-	char b[512];
+	char buf[512];
 	va_start(v, msg);
-	vsprintf(b, c, v);
-	va_end(a);
-	MessageBox(0, b, VERSION, 0);
+	vsnprintf(buf, sizeof buf, msg, v);
+	va_end(v);
+	MessageBox(0, buf, VERSION, 0);
 	exit(1);
 }
 
-static void dirinit(void) {}
-static void dirfinal(void) {}
-static const char *adjust_path_case(char *file) { return file; }
+static SDL_RWops *resolve_relative_path(char *path, const char **exts)
+{
+	HANDLE h;
+	WIN32_FIND_DATAA fdata;
+	char pathbuf[strlen(bmspath)+strlen(path)+4], *p, *basename = path;
+	SDL_RWops *ops = NULL;
 
-#else /* WIN32 */
+	strcpy(pathbuf, *bmspath ? bmspath : ".");
+	p = pathbuf + strlen(pathbuf);
+	for (*p++ = '\\'; *path; ) {
+		if (*path == '/' || *path == '\\') {
+			*p++ = '\\';
+			basename = ++path;
+		} else {
+			*p++ = *path++;
+		}
+	}
+	path = strrchr(pathbuf, '\\') + 1;
+	p = strrchr(path, '.');
+	if (p) strcpy(p, ".*");
+	h = FindFirstFileA(pathbuf, &fdata);
+	if (h == INVALID_HANDLE_VALUE) return NULL;
+	do {
+		if (match_filename(fdata.cFileName, basename, exts)) {
+			FILE *fp;
+			strcpy(path, fdata.cFileName);
+			fp = fopen(pathbuf, "rb");
+			if (!fp) continue;
+			ops = SDL_RWFromFP(fp, 1);
+			break;
+		}
+	} while (FindNextFileA(h, &fdata));
+	FindClose(h);
+	return ops;
+}
 
+#else /* _WIN32 */
+
+#include <fcntl.h>
+#include <unistd.h>
 #include <dirent.h>
-
-static const char sep = '/';
-static char *flist[2592];
-static int nfiles = 0;
 
 static int filedialog(char *buf)
 {
@@ -218,96 +284,63 @@ static void die(const char *msg, ...)
 	exit(1);
 }
 
-static int stricmp(const char *a, const char *b); /* DUMMY */
-static char *strcopy(const char*); /* DUMMY */
-
-static void dirinit(void)
+static SDL_RWops *resolve_relative_path(char *path, const char **exts)
 {
 	DIR *d;
 	struct dirent *e;
+	int origcwd, i;
+	char pathbuf[strlen(path)+1]; /* so that we won't overwrite the original path */
+	SDL_RWops *ops = NULL;
 
-	if ((d = opendir(bmspath))) {
-		while ((e = readdir(d))) flist[nfiles++] = strcopy(e->d_name);
+	path = strcpy(pathbuf, path);
+	origcwd = open(".", O_RDONLY);
+	if (origcwd < 0) return NULL;
+	if (*bmspath && chdir(bmspath) < 0) goto exit;
+	for (; path[i = strcspn(path, "\\/")]; ++path) {
+		if (i == 0) continue;
+		path[i] = '\0';
+		d = opendir(".");
+		if (!d) goto exit;
+		while ((e = readdir(d))) {
+			if (strieq(e->d_name, path)) {
+				if (chdir(e->d_name) < 0) {
+					closedir(d);
+					goto exit;
+				}
+				break;
+			}
+		}
 		closedir(d);
+		if (!e) goto exit;
+		path += i;
 	}
+	d = opendir(".");
+	if (!d) goto exit;
+	while ((e = readdir(d))) {
+		if (match_filename(e->d_name, path, exts)) {
+			FILE *fp = fopen(e->d_name, "rb");
+			if (!fp) continue;
+			ops = SDL_RWFromFP(fp, 1);
+			break;
+		}
+	}
+	closedir(d);
+exit:
+	fchdir(origcwd);
+	close(origcwd);
+	return ops;
 }
 
-static void dirfinal(void)
-{
-	while (nfiles--) free(flist[nfiles]);
-}
-
-static const char *adjust_path_case(char *file)
-{
-	int i;
-	for (i = 0; i < nfiles; ++i) {
-		if (stricmp(flist[i], file)) return flist[i];
-	}
-	return file; /* always nonexistent file */
-}
 #endif
-
-/******************************************************************************/
-/* general functions */
-
-static void warn(const char *msg, ...)
-{
-	va_list v;
-	fprintf(stderr, "*** Warning: ");
-	va_start(v, msg);
-	vfprintf(stderr, msg, v);
-	va_end(v);
-	fprintf(stderr, "\n");
-}
-
-static int stricmp(const char *a, const char *b)
-{
-	while (*a && *b && !((*a ^ *b) & ~32)) ++a, ++b;
-	return *a == *b;
-}
-
-static char *adjust_path(char *path)
-{
-	int i;
-	strcpy(respath, bmspath);
-	strcat(respath, adjust_path_case(path)); /* XXX could be overflow */
-	for (i = 0; respath[i]; ++i) {
-		if (respath[i] == '\\' || respath[i] == '/') respath[i] = sep;
-	}
-	return respath;
-}
-
-static char *adjust_path_with_ext(char *path, char *ext)
-{
-	int len = strlen(bmspath), i;
-	char *oldext;
-	strcpy(respath, bmspath);
-	strcpy(respath + len, path);
-	oldext = strrchr(respath + len, '.');
-	if (oldext) {
-		strcpy(oldext, ext);
-		strcpy(respath + len, adjust_path_case(respath + len));
-	}
-	for (i = 0; respath[i]; ++i) {
-		if (respath[i] == '\\' || respath[i] == '/') respath[i] = sep;
-	}
-	return respath;
-}
-
-static char *strcopy(const char *src)
-{
-	char *dest = malloc(strlen(src)+1);
-	return strcpy(dest, src);
-}
 
 /******************************************************************************/
 /* bms parser */
 
 static int getdigit(int n)
 {
-	n |= 32;
 	if ('0' <= n && n <= '9') return n - '0';
 	if ('a' <= n && n <= 'z') return (n - 'a') + 10;
+	if ('A' <= n && n <= 'Z') return (n - 'A') + 10;
 	return -1296;
 }
 
@@ -327,15 +360,14 @@ static int compare_bmsline(const void *a, const void *b)
 
 static int compare_bmsnote(const void *a, const void *b)
 {
-	const bmsnote *A = a, *B = b;
+	const struct bmsnote *A = a, *B = b;
 	return (A->time > B->time ? 1 : A->time < B->time ? -1 : A->type - B->type);
 }
 
 static void add_note(int chan, double time, int type, int index)
 {
-	bmsnote temp = {time, type, index};
-	channel[chan] = realloc(channel[chan], sizeof(bmsnote) * (nchannel[chan]+1));
-	channel[chan][nchannel[chan]++] = temp;
+	channel[chan] = realloc(channel[chan], sizeof(struct bmsnote) * (nchannel[chan]+1));
+	channel[chan][nchannel[chan]++] = (struct bmsnote) {.time=time, .type=type, .index=index};
 }
 
 static void remove_note(int chan, int index)
@@ -358,7 +390,7 @@ static int parse_bms(void)
 	FILE *fp;
 	int i, j, k, a, b, c;
 	int rnd = 1, ignore = 0;
-	int measure, chan, prev[18] = {0}, lprev[18] = {0};
+	int measure = 0, chan, prev[18] = {0}, lprev[18] = {0};
 	double t;
 	char linebuf[4096], buf1[4096], buf2[4096];
 	char *line;
@@ -571,7 +603,7 @@ static int sanitize_bms(void)
 
 	for (i = 0; i < 22; ++i) {
 		if (!channel[i]) continue;
-		qsort(channel[i], nchannel[i], sizeof(bmsnote), compare_bmsnote);
+		qsort(channel[i], nchannel[i], sizeof(struct bmsnote), compare_bmsnote);
 
 		if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 			b = 0;
@@ -654,9 +686,7 @@ static int load_resource(void)
 		sndres[i].ch = -1;
 		if (sndpath[i]) {
 			resource_loaded(sndpath[i]);
-			sndres[i].res = Mix_LoadWAV(adjust_path(sndpath[i]));
-			if (!sndres[i].res) sndres[i].res = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".mp3"));
-			if (!sndres[i].res) sndres[i].res = Mix_LoadWAV(adjust_path_with_ext(sndpath[i], ".ogg"));
+			sndres[i].res = Mix_LoadWAV_RW(resolve_relative_path(sndpath[i], SOUND_EXTS), 1);
 			if (!sndres[i].res) warn("failed to load sound #%d (%s)", i, sndpath[i]);
 			free(sndpath[i]);
 			sndpath[i] = 0;
@@ -664,21 +694,21 @@ static int load_resource(void)
 		if (imgpath[i]) {
 			char *ext = strrchr(imgpath[i], '.');
 			resource_loaded(imgpath[i]);
-			if (ext && stricmp(ext, ".mpg") && opt_bga < BGA_BUT_NO_MOVIE) {
-				SMPEG *movie = SMPEG_new(adjust_path(imgpath[i]), NULL, 0);
-				if (!movie) {
-					warn("failed to load image #%d (%s)", i, imgpath[i]);
-				} else {
-					imgres[i].surface = newsurface(256, 256);
-					imgres[i].movie = movie;
-					SMPEG_enablevideo(movie, 1);
-					SMPEG_loop(movie, 1);
-					SMPEG_setdisplay(movie, imgres[i].surface, NULL, NULL);
+			if (ext && strieq(ext, ".mpg")) {
+				if (opt_bga < BGA_BUT_NO_MOVIE) {
+					SMPEG *movie = SMPEG_new_rwops(resolve_relative_path(imgpath[i], NULL), NULL, 0);
+					if (!movie) {
+						warn("failed to load image #%d (%s)", i, imgpath[i]);
+					} else {
+						imgres[i].surface = newsurface(256, 256);
+						imgres[i].movie = movie;
+						SMPEG_enablevideo(movie, 1);
+						SMPEG_loop(movie, 1);
+						SMPEG_setdisplay(movie, imgres[i].surface, NULL, NULL);
+					}
 				}
 			} else if (opt_bga < NO_BGA) {
-				temp = IMG_Load(adjust_path(imgpath[i]));
-				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".png"));
-				if (!temp) temp = IMG_Load(adjust_path_with_ext(imgpath[i], ".jpg"));
+				temp = IMG_Load_RW(resolve_relative_path(imgpath[i], IMAGE_EXTS), 1);
 				if (temp) {
 					imgres[i].surface = SDL_DisplayFormat(temp);
 					SDL_FreeSurface(temp);
@@ -801,7 +831,7 @@ static int get_bms_duration(void)
 
 static void shuffle_bms(int mode, int player)
 {
-	bmsnote *tempchan, *result[18] = {0};
+	struct bmsnote *tempchan, *result[18] = {0};
 	int nresult[18] = {0};
 	int map[18], perm[18], nmap;
 	int ptr[18] = {0,}, thru[18] = {0}, target[18];
@@ -883,7 +913,7 @@ static void shuffle_bms(int mode, int player)
 						thru[j] = 1;
 					}
 				}
-				result[j] = realloc(result[j], sizeof(bmsnote) * (nresult[j]+1));
+				result[j] = realloc(result[j], sizeof(struct bmsnote) * (nresult[j]+1));
 				result[j][nresult[j]++] = channel[map[i]][ptr[map[i]]++];
 			}
 			for(i = 0; i < nmap; ++i) {
@@ -1146,7 +1176,7 @@ static SDLKey get_sdlkey_from_name(const char *str)
 
 	/* XXX maybe won't work in SDL 1.3 */
 	for (i = SDLK_FIRST; i < SDLK_LAST; ++i) {
-		if (stricmp(SDL_GetKeyName(i), str)) return i;
+		if (strieq(SDL_GetKeyName(i), str)) return i;
 	}
 	return SDLK_UNKNOWN;
 }
@@ -1207,11 +1237,11 @@ static void create_beep(void)
 
 static void init_video(void)
 {
-	int mode = (opt_fullscreen ? SDL_FULLSCREEN : SDL_SWSURFACE|SDL_DOUBLEBUF);
 	if (opt_mode < EXCLUSIVE_MODE) {
+		int mode = (opt_fullscreen ? SDL_FULLSCREEN : SDL_SWSURFACE|SDL_DOUBLEBUF);
 		screen = SDL_SetVideoMode(800, 600, 32, mode);
 	} else {
-		screen = SDL_SetVideoMode(256, 256, 32, mode);
+		screen = SDL_SetVideoMode(256, 256, 32, SDL_SWSURFACE|SDL_DOUBLEBUF);
 	}
 	if (!screen) die("SDL Video Initialization Failure: %s", SDL_GetError());
 	if (opt_mode < EXCLUSIVE_MODE) SDL_ShowCursor(SDL_DISABLE);
@@ -1235,7 +1265,7 @@ static int initialize(void)
 	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0)
 		die("SDL Mixer Initialization Failure: %s", Mix_GetError());
 
-	if (opt_mode < EXCLUSIVE_MODE) init_video();
+	if (opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA) init_video();
 
 	fontdecompress();
 	fontprocess(1);
@@ -1329,11 +1359,14 @@ static void play_show_stagefile(void)
 		SDL_Flip(screen);
 
 		stagefile_tmp = newsurface(800, 20);
-		if (*metadata[M_STAGEFILE] && (temp = IMG_Load(adjust_path(metadata[M_STAGEFILE])))) {
-			stagefile = SDL_DisplayFormat(temp);
-			bicubic_interpolation(stagefile, screen);
-			SDL_FreeSurface(temp);
-			SDL_FreeSurface(stagefile);
+		if (*metadata[M_STAGEFILE]) {
+			temp = IMG_Load_RW(resolve_relative_path(metadata[M_STAGEFILE], IMAGE_EXTS), 1);
+			if (temp) {
+				stagefile = SDL_DisplayFormat(temp);
+				bicubic_interpolation(stagefile, screen);
+				SDL_FreeSurface(temp);
+				SDL_FreeSurface(stagefile);
+			}
 		}
 		if (opt_showinfo) {
 			for (i = 0; i < 800; ++i) {
@@ -1798,18 +1831,12 @@ static int play(void)
 
 	/* get basename of bmspath */
 	pos1 = strrchr(bmspath, '/');
-	pos2 = strrchr(bmspath, '\\');
-	if (!pos1) pos1 = bmspath + 1;
-	if (!pos2) pos2 = bmspath + 1;
-	(pos1>pos2 ? pos1 : pos2)[1] = '\0';
-	if (pos1 == pos2) { /* will be pos1 = pos2 = bmspath + 1 */
-		bmspath[0] = '.';
-		bmspath[1] = sep;
-	}
+	if (!pos1) pos1 = bmspath;
+	pos2 = strrchr(pos1, '\\');
+	if (!pos2) pos2 = pos1;
+	*pos2 = '\0';
 
-	dirinit();
 	play_show_stagefile();
-	dirfinal();
 
 	duration = get_bms_duration();
 	play_prepare();
