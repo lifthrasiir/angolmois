@@ -1083,57 +1083,44 @@ static void fontdecompress(void)
 	}
 }
 
-static int _fontprocess(int x, int y, int z, int c, int s)
-{
-	int i, j;
-	for (i = 0; i < z; ++i) {
-		for (j = (s==1 ? z-i : s==3 ? i+1 : 0); j < (s==2 ? i : s==4 ? z-i-1 : z); ++j)
-			zoomfont[z][(y*z+i)*z+j][c] |= 1<<(7-x);
-	}
-	return z;
-}
-
 static void fontprocess(int z)
 {
-	int i, j, k, l, v;
-
+	int i, j, k, l, v, p, q, f;
 	zoomfont[z] = calloc(16*z*z, 96);
 	for (i = l = 0; i < 96; ++i) {
 		for (j = 0; j < 16; ++j, l+=2) {
 			v = fontdata[l] << 16 | fontdata[l+1];
 			for (k = 0; k < 8; ++k, v >>= 4) {
-				if ((v & 15) == 15) _fontprocess(k, j, z, i, 0); /* XXX? */
-				if (v & 1) _fontprocess(k, j, z, i, 1); /* /| */
-				if (v & 2) _fontprocess(k, j, z, i, 2); /* |\ */
-				if (v & 4) _fontprocess(k, j, z, i, 3); /* \| */
-				if (v & 8) _fontprocess(k, j, z, i, 4); /* |/ */
+				for (p = 0; p < z; ++p) {
+					for (q = 0; q < z; ++q) {
+						f = (p+q>=z) | (p>q)<<1 | (p<q)<<2 | (p+q<z-1)<<3;
+						if ((v&f) || (v&15)==15) { /* 1 /|, 2 |\, 4 \|, 8 |/, 15 square */
+							zoomfont[z][(j*z+p)*z+q][i] |= 1<<(7-k);
+						}
+					}
+				}
 			}
 		}
 	}
 }
 
-static int printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v)
+static void printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v)
 {
 	int i, j;
-
-	if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
-		c -= (c<0 ? -96 : c<33 || c>126 ? c : 32);
-		for (i = 0; i < 16*z; ++i) {
-			for (j = 0; j < 8*z; ++j) {
-				if (zoomfont[z][i*z+j%z][c] & (1<<(7-j/z)))
-					putpixel(s, x+j, y+i, blend(u, v, i, 16*z-1));
-			}
+	if (c == ' ' || c == '\t' || c == '\n' || c == '\r') return;
+	c -= (c<0 ? -96 : c<33 || c>126 ? c : 32);
+	for (i = 0; i < 16*z; ++i) {
+		for (j = 0; j < 8*z; ++j) {
+			if (zoomfont[z][i*z+j%z][c] & (1<<(7-j/z)))
+				putpixel(s, x+j, y+i, blend(u, v, i, 16*z-1));
 		}
 	}
-
-	return 8*z;
 }
 
-static void printstr(SDL_Surface *s, int x, int y, int z, const char *c, int u, int v)
+static void printstr(SDL_Surface *s, int x, int y, int z, int a, const char *c, int u, int v)
 {
-	while (*c) {
-		x += printchar(s, x, y, z, (Uint8)*c++, u, v);
-	}
+	if (a) x -= strlen(c) * a * (4*z);
+	for (; *c; x += 8*z) printchar(s, x, y, z, (Uint8)*c++, u, v);
 }
 
 /******************************************************************************/
@@ -1162,10 +1149,8 @@ static int tkeycolor[18] = {
 	WHITE, BLUE, WHITE, BLUE, WHITE, 0xff8080, 0x80ff80, BLUE, WHITE};
 #undef WHITE
 #undef BLUE
-static char *tgradestr[5] = {"MISS", "BAD", "GOOD", "GREAT", "COOL"};
-static int tgradecolor[5][2] = {
-	{0xff4040, 0xffc0c0}, {0xff40ff, 0xffc0ff}, {0xffff40, 0xffffc0},
-	{0x40ff40, 0xc0ffc0}, {0x4040ff, 0xc0c0ff}};
+static const char *tgradestr[] = {"MISS", "BAD", "GOOD", "GREAT", "COOL"};
+static const int tgradecolor[] = {0xff4040, 0xff40ff, 0xffff40, 0x40ff40, 0x4040ff};
 
 static Mix_Chunk *beep;
 static SDL_Joystick *joystick;
@@ -1326,7 +1311,7 @@ static void resource_loaded(const char *path)
 		if (opt_mode < EXCLUSIVE_MODE) {
 			if (!path) path = "loading...";
 			SDL_BlitSurface(stagefile_tmp, R(0,0,800,20), screen, R(0,580,800,20));
-			printstr(screen, 797-8*strlen(path), 582, 1, path, 0x808080, 0xc0c0c0);
+			printstr(screen, 797, 582, 1, 2, path, 0x808080, 0xc0c0c0);
 			SDL_Flip(screen);
 		} else {
 			if (path) {
@@ -1355,7 +1340,7 @@ static void play_show_stagefile(void)
 		sprintf(ibuf, "%s: %s - %s", VERSION, metadata[M_ARTIST], metadata[M_TITLE]);
 		SDL_WM_SetCaption(ibuf, 0);
 		*/
-		printstr(screen, 248, 284, 2, "loading bms file...", 0x202020, 0x808080);
+		printstr(screen, 400, 284, 2, 1, "loading bms file...", 0x202020, 0x808080);
 		SDL_Flip(screen);
 
 		stagefile_tmp = newsurface(800, 20);
@@ -1373,10 +1358,10 @@ static void play_show_stagefile(void)
 				for (j = 0; j < 42; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 				for (j = 580; j < 600; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 			}
-			printstr(screen, 6, 4, 2, metadata[M_TITLE], 0x808080, 0xffffff);
-			printstr(screen, 792-8*strlen(metadata[M_GENRE]), 4, 1, metadata[M_GENRE], 0x808080, 0xffffff);
-			printstr(screen, 792-8*strlen(metadata[M_ARTIST]), 20, 1, metadata[M_ARTIST], 0x808080, 0xffffff);
-			printstr(screen, 3, 582, 1, buf, 0x808080, 0xffffff);
+			printstr(screen, 6, 4, 2, 0, metadata[M_TITLE], 0x808080, 0xffffff);
+			printstr(screen, 792, 4, 1, 2, metadata[M_GENRE], 0x808080, 0xffffff);
+			printstr(screen, 792, 20, 1, 2, metadata[M_ARTIST], 0x808080, 0xffffff);
+			printstr(screen, 3, 582, 1, 0, buf, 0x808080, 0xffffff);
 			SDL_BlitSurface(screen, R(0,580,800,20), stagefile_tmp, R(0,0,800,20));
 		}
 		SDL_Flip(screen);
@@ -1496,7 +1481,7 @@ static void update_grade(int grade, int delta)
 	++scocnt[grade];
 	grademode = grade;
 	gradetime = now + 700;
-	score += (int)(delta * (1 + 1. * scombo / nnotes));
+	score += delta + delta * scombo / nnotes;
 
 	if (grade < 1) {
 		scombo = 0;
@@ -1753,13 +1738,13 @@ static int play_process(void)
 		if (now < gradetime) {
 			int delta = (gradetime - now - 400) / 15;
 			if (delta < 0) delta = 0;
-			printstr(screen, tpanel1/2-8*strlen(tgradestr[grademode]), 260 - delta, 2,
-					tgradestr[grademode], tgradecolor[grademode][0], tgradecolor[grademode][1]);
+			j = tgradecolor[grademode];
+			printstr(screen, tpanel1/2, 260 - delta, 2, 1, tgradestr[grademode], j, j|((j<<1)&0xfefefe));
 			if (scombo > 1) {
-				i = sprintf(buf, "%d COMBO", scombo);
-				printstr(screen, tpanel1/2-4*i, 288 - delta, 1, buf, 0x808080, 0xffffff);
+				sprintf(buf, "%d COMBO", scombo);
+				printstr(screen, tpanel1/2, 288 - delta, 1, 1, buf, 0x808080, 0xffffff);
 			}
-			if (opt_mode) printstr(screen, tpanel1/2-24, 302 - delta, 1, "(AUTO)", 0x404040, 0xc0c0c0);
+			if (opt_mode) printstr(screen, tpanel1/2, 302 - delta, 1, 1, "(AUTO)", 0x404040, 0xc0c0c0);
 		}
 		SDL_SetClipRect(screen, 0);
 
@@ -1769,11 +1754,11 @@ static int play_process(void)
 				score, 0, targetspeed, 0, i/60, i%60, j/60, j%60, 0, bottom, 0, bpm);
 		SDL_BlitSurface(sprite, R(0,0,800,30), screen, R(0,0,0,0));
 		SDL_BlitSurface(sprite, R(0,520,800,80), screen, R(0,520,0,0));
-		printstr(screen, 10, 8, 1, buf, 0, 0);
-		printstr(screen, 5, 522, 2, buf+14, 0, 0);
-		printstr(screen, tpanel1-94, 565, 1, buf+20, 0, 0x404040);
-		printstr(screen, 95, 538, 1, buf+34, 0, 0);
-		printstr(screen, 95, 522, 1, buf+45, 0, 0);
+		printstr(screen, 10, 8, 1, 0, buf, 0, 0);
+		printstr(screen, 5, 522, 2, 0, buf+14, 0, 0);
+		printstr(screen, tpanel1-94, 565, 1, 0, buf+20, 0, 0x404040);
+		printstr(screen, 95, 538, 1, 0, buf+34, 0, 0);
+		printstr(screen, 95, 522, 1, 0, buf+45, 0, 0);
 		i = (now - origintime) * tpanel1 / duration;
 		printchar(screen, 6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
 		if (!tpanel2 && !opt_mode) {
