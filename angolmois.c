@@ -1135,20 +1135,13 @@ static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
 static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256, survival = 150;
 
-static SDL_Surface *sprite=0;
+static SDL_Surface *sprite = NULL;
 static int keymap[SDLK_LAST]; /* -1: none, 0..17: notes, 18..19: speed down/up */
 static XV(int) joybmap, joyamap;
 static int keypressed[2][18]; /* keypressed[0] for buttons, keypressed[1] for axes */
-static int tkeyleft[18] = {41,67,93,119,145,0,223,171,197, 578,604,630,656,682,760,537,708,734};
-static int tkeywidth[18] = {25,25,25,25,25,40,40,25,25, 25,25,25,25,25,40,40,25,25};
-static int tpanel1 = 264, tpanel2 = 536, tbgax = 0, tbgay = 0;
-#define WHITE 0x808080
-#define BLUE 0x8080ff
-static int tkeycolor[18] = {
-	WHITE, BLUE, WHITE, BLUE, WHITE, 0xff8080, 0x80ff80, BLUE, WHITE,
-	WHITE, BLUE, WHITE, BLUE, WHITE, 0xff8080, 0x80ff80, BLUE, WHITE};
-#undef WHITE
-#undef BLUE
+static const struct tkeykind { int spriteleft, width, color; } *tkey[18], tkeykinds[] =
+	{{0,0,0}, {0,25,0x808080}, {25,25,0x8080ff}, {50,40,0xff8080}, {90,40,0x80ff80}};
+static int tkeyleft[18], tpanel1 = 0, tpanel2 = 800, tbgax = 0, tbgay = 0;
 static const char *tgradestr[] = {"MISS", "BAD", "GOOD", "GREAT", "COOL"};
 static const int tgradecolor[] = {0xff4040, 0xff40ff, 0xffff40, 0x40ff40, 0x4040ff};
 
@@ -1387,6 +1380,8 @@ static void play_show_stagefile(void)
 
 static void play_prepare(void)
 {
+	int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
+	int keykind[18] = {3,1,2,1,2,1,2,1,4, 4,1,2,1,2,1,2,1,3};
 	int i, j, c;
 
 	/* configuration */
@@ -1400,45 +1395,36 @@ static void play_prepare(void)
 	if (opt_mode >= EXCLUSIVE_MODE) return;
 
 	/* panel position */
-	if (haspedal == 0) {
-		tkeyleft[6] = tkeyleft[15] = -1;
-		tpanel1 -= tkeywidth[6] + 1;
-		tpanel2 += tkeywidth[15] + 1;
+	if (nkeys == 5) keykind[6] = keykind[7] = keykind[15] = keykind[16] = 0;
+	if (!haspedal) keykind[8] = keykind[9] = 0;
+	j = (value[V_PLAYER] == 3 ? 18 : 9);
+	for (i = 0; i < j; ++i) {
+		if (!keykind[i]) continue;
+		tkey[keyorder[i]] = &tkeykinds[keykind[i]];
+		tkeyleft[keyorder[i]] = tpanel1;
+		tpanel1 += tkeykinds[keykind[i]].width + 1;
 	}
-	if (nkeys == 5) {
-		tkeyleft[7] = tkeyleft[8] = tkeyleft[16] = tkeyleft[17] = -1;
-		for (i = 9; i < 16; ++i) {
-			if (i != 14 && tkeyleft[i] >= 0)
-				tkeyleft[i] += tkeywidth[16] + tkeywidth[17] + 2;
+	if (value[V_PLAYER] == 2) {
+		for (i = 17; i >= 9; --i) {
+			if (!keykind[i]) continue;
+			tpanel2 -= tkeykinds[keykind[i]].width + 1;
+			tkey[keyorder[i]] = &tkeykinds[keykind[i]];
+			tkeyleft[keyorder[i]] = tpanel2 + 1;
 		}
-		if (tkeyleft[6] > 0)
-			tkeyleft[6] -= tkeywidth[7] + tkeywidth[8] + 2;
-		tpanel1 -= tkeywidth[7] + tkeywidth[8] + 2;
-		tpanel2 += tkeywidth[16] + tkeywidth[17] + 2;
 	}
-	if (value[V_PLAYER] == 1) {
-		for (i = 9; i < 18; ++i) tkeyleft[i] = -1;
-	} else if (value[V_PLAYER] == 3) {
-		for (i = 9; i < 18; ++i) tkeyleft[i] += tpanel1 - tpanel2;
-		tpanel1 += 801 - tpanel2;
-	}
-	if (value[V_PLAYER] % 2) {
-		tpanel2 = 0;
-		tbgax = tpanel1 / 2 + 282;
-	} else {
-		tbgax = 272;
-	}
-	tbgay = 172;
+	tbgax = tpanel1 + (tpanel2 - tpanel1 - 256) / 2;
+	tbgay = (640 - 256) / 2;
+	if (tpanel2 == 800) tpanel2 = 0;
 
 	/* sprite */
 	sprite = newsurface(1200, 600);
-	for (i = 0; i < 18; ++i) {
-		if (tkeyleft[i] < 0) continue;
-		for (j = 140; j < 520; ++j)
-			SDL_FillRect(sprite, R(tkeyleft[i],j,tkeywidth[i],1), blend(tkeycolor[i], 0, j-140, 1000));
-		if (i < 9) {
-			for (j = 0; j*2 < tkeywidth[i]; ++j)
-				SDL_FillRect(sprite, R(800+tkeyleft[i]+j,0,tkeywidth[i]-2*j,600), blend(tkeycolor[i], 0xffffff, tkeywidth[i]-j, tkeywidth[i]));
+	for (i = 0; i < (int) (sizeof(tkeykinds) / sizeof(*tkeykinds)); ++i) {
+		const struct tkeykind *k = &tkeykinds[i];
+		for (j = 140; j < 520; ++j) {
+			SDL_FillRect(sprite, R(k->spriteleft,j,k->width,1), blend(k->color, 0, j-140, 1000));
+		}
+		for (j = 0; j*2 < k->width; ++j) {
+			SDL_FillRect(sprite, R(k->spriteleft+800+j,0,k->width-2*j,600), blend(k->color, 0xffffff, k->width-j, k->width));
 		}
 	}
 	for (j = -244; j < 556; ++j) {
@@ -1631,7 +1617,7 @@ static int play_process(void)
 			Mix_PlayChannel(0, beep, 0);
 		}
 
-		if (opt_mode || k < 0 || k >= 18 || tkeyleft[k] < 0) continue;
+		if (opt_mode || k < 0 || k >= 18 || !tkey[k]) continue;
 
 		if (!i || (j && i != keypressed[j][k])) { /* up, or down with the reverse direction */
 			l = 1;
@@ -1696,18 +1682,18 @@ static int play_process(void)
 		SDL_FillRect(screen, R(0,30,tpanel1,490), map(0x404040));
 		if (tpanel2) SDL_FillRect(screen, R(tpanel2,30,800-tpanel2,490), map(0x404040));
 		for (i = 0; i < 18; ++i) {
-			if (tkeyleft[i] < 0) continue;
-			SDL_FillRect(screen, R(tkeyleft[i],30,tkeywidth[i],490), map(0));
+			if (!tkey[i]) continue;
+			SDL_FillRect(screen, R(tkeyleft[i],30,tkey[i]->width,490), map(0));
 			if (keypressed[0][i] || keypressed[1][i]) {
-				SDL_BlitSurface(sprite, R(tkeyleft[i],140,tkeywidth[i],380), screen, R(tkeyleft[i],140,0,0));
+				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft,140,tkey[i]->width,380), screen, R(tkeyleft[i],140,0,0));
 			}
 		}
 		SDL_SetClipRect(screen, R(0,30,800,490));
 		for (i = 0; i < 18; ++i) {
-			if (tkeyleft[i] < 0) continue;
+			if (!tkey[i]) continue;
 			for (j = pfront[i]; j < prear[i] && channel[i][j].type == INVNOTE; ++j);
 			if (j==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==LNDONE) {
-				SDL_BlitSurface(sprite, R(800+tkeyleft[i%9],0,tkeywidth[i%9],490), screen, R(tkeyleft[i],30,0,0));
+				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), screen, R(tkeyleft[i],30,0,0));
 			}
 			for (; j < prear[i]; ++j) {
 				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, channel[i][j].time));
@@ -1726,7 +1712,7 @@ static int play_process(void)
 					continue;
 				}
 				if (k > 0 && l > k) {
-					SDL_BlitSurface(sprite, R(800+tkeyleft[i%9],0,tkeywidth[i%9],l-k), screen, R(tkeyleft[i],k,0,0));
+					SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,l-k), screen, R(tkeyleft[i],k,0,0));
 				}
 			}
 		}
