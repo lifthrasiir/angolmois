@@ -511,9 +511,8 @@ static int parse_bms(void)
 
 	qsort(XV_PTR(bmsline), XV_SIZE(bmsline), XV_ITEMSIZE(bmsline), compare_bmsline);
 	XV_EACH(line, bmsline) {
-		j = atoi(line);
-		measure = j / 100;
-		chan = j % 100;
+		measure = (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
+		chan = key2index(line+3);
 		if (chan == 2) {
 			shorten[measure] = atof(line+6);
 		} else {
@@ -525,7 +524,7 @@ static int parse_bms(void)
 				if (chan == 1) {
 					if (b) add_note(BGM_CHANNEL, t, 0, b);
 				} else if (chan == 3) {
-					if (b/36<16 && b%36<16) add_note(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36);
+					if (b && b/36<16 && b%36<16) add_note(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36);
 				} else if (chan == 4) {
 					if (b) add_note(BGA_CHANNEL, t, BGA_LAYER, b);
 				} else if (chan == 6) {
@@ -536,44 +535,45 @@ static int parse_bms(void)
 					if (b) add_note(BPM_CHANNEL, t, BPM_BY_INDEX, b);
 				} else if (chan == 9) {
 					if (b) add_note(STOP_CHANNEL, t, STOP_BY_192ND_OF_MEASURE, b);
-				} else if (chan >= 10 && chan < 30 && chan % 10 != 0) {
-					if (b) {
-						c = NOTE_CHANNEL(chan>20, chan%10);
-						if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
-							if (nchannel[c] && channel[c][nchannel[c]-1].type==NOTE) {
-								channel[c][nchannel[c]-1].type = LNSTART;
-								add_note(c, t, LNDONE, b);
-							}
-						} else {
-							add_note(c, t, NOTE, b);
-						}
-					}
-				} else if (chan >= 30 && chan < 50 && chan % 10 != 0) {
-					if (b) add_note(NOTE_CHANNEL(chan>40, chan%10), t, INVNOTE, b);
-				} else if (chan >= 50 && chan < 70 && chan % 10 != 0) {
-					c = NOTE_CHANNEL(chan>60, chan%10);
-					if (value[V_LNTYPE] == 1 && b) {
-						if (prev[c]) {
-							prev[c] = 0;
-							add_note(c, t, LNDONE, 0);
-						} else {
-							prev[c] = b;
-							add_note(c, t, LNSTART, b);
-						}
-					} else if (value[V_LNTYPE] == 2) {
-						if (prev[c] || prev[c] != b) {
-							if (prev[c]) {
-								if (lprev[c] + 1 < measure) {
-									add_note(c, lprev[c]+1, LNDONE, 0);
-								} else if (prev[c] != b) {
-									add_note(c, t, LNDONE, 0);
+				} else if (chan >= 1*36 && chan < 7*36 && chan%36 >= 1 && chan%36 <= 9) {
+					c = NOTE_CHANNEL((chan/36-1)%2, chan%36);
+					if (chan < 3*36) { /* channel 11-29 */
+						if (b) {
+							if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
+								if (nchannel[c] && channel[c][nchannel[c]-1].type==NOTE) {
+									channel[c][nchannel[c]-1].type = LNSTART;
+									add_note(c, t, LNDONE, b);
 								}
+							} else {
+								add_note(c, t, NOTE, b);
 							}
-							if (b && (prev[c]!=b || lprev[c]+1<measure)) {
+						}
+					} else if (chan < 5*36) { /* channel 31-49 */
+						if (b) add_note(c, t, INVNOTE, b);
+					} else { /* channel 51-69 */
+						if (value[V_LNTYPE] == 1 && b) {
+							if (prev[c]) {
+								prev[c] = 0;
+								add_note(c, t, LNDONE, 0);
+							} else {
+								prev[c] = b;
 								add_note(c, t, LNSTART, b);
 							}
-							lprev[c] = measure;
-							prev[c] = b;
+						} else if (value[V_LNTYPE] == 2) {
+							if (prev[c] || prev[c] != b) {
+								if (prev[c]) {
+									if (lprev[c] + 1 < measure) {
+										add_note(c, lprev[c]+1, LNDONE, 0);
+									} else if (prev[c] != b) {
+										add_note(c, t, LNDONE, 0);
+									}
+								}
+								if (b && (prev[c]!=b || lprev[c]+1<measure)) {
+									add_note(c, t, LNSTART, b);
+								}
+								lprev[c] = measure;
+								prev[c] = b;
+							}
 						}
 					}
 				}
