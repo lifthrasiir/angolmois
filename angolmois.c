@@ -59,16 +59,14 @@ static void warn(const char *msg, ...)
 	fprintf(stderr, "\n");
 }
 
-static int charieq(int a, int b)
+static int uppercase(int c)
 {
-	if ('a' <= a && a <= 'z') a += 'A' - 'a';
-	if ('a' <= b && b <= 'z') b += 'A' - 'a';
-	return a == b;
+	return ('a' <= c && c <= 'z' ? c + ('A' - 'a') : c);
 }
 
 static int strieq(const char *a, const char *b)
 {
-	while (*a && *b && charieq(*a, *b)) ++a, ++b;
+	while (*a && *b && uppercase(*a) == uppercase(*b)) ++a, ++b;
 	return *a == *b;
 }
 
@@ -182,7 +180,7 @@ static const char *IMAGE_EXTS[] = {".bmp", ".png", ".jpg", ".jpeg", ".gif", NULL
 static int match_filename(const char *s, const char *t, const char **exts)
 {
 	const char *sbegin = s, *send = s + strlen(s);
-	while (*s && *t && charieq(*s, *t)) ++s, ++t;
+	while (*s && *t && uppercase(*s) == uppercase(*t)) ++s, ++t;
 	if (*s == *t) return 1;
 	if (sbegin != s && exts) {
 		for (; *exts; ++exts) {
@@ -344,9 +342,10 @@ static int getdigit(int n)
 	return -1296;
 }
 
-static int key2index(const char *a)
+static int key2index(const char *s, int *v)
 {
-	return getdigit(*a) * 36 + getdigit(a[1]);
+	*v = getdigit(s[0]) * 36 + getdigit(s[1]);
+	return (*v >= 0);
 }
 
 static int compare_bmsline(const void *a, const void *b)
@@ -378,22 +377,22 @@ static void remove_note(int chan, int index)
 	channel[chan][index].type = -1;
 }
 
-#define KEY_PATTERN "%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]"
+#define KEY_STRING "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+#define KEY_PATTERN "%2[" KEY_STRING "]"
 
 static int parse_bms(void)
 {
 	static const char *bmsheader[] = {
-		"title", "genre", "artist", "stagefile", "bpm", "player", "playlevel",
-		"rank", "lntype", "lnobj", "wav", "bmp", "bga", "stop", "stp", "random",
-		"if", "else", "endif", 0};
+		"TITLE", "GENRE", "ARTIST", "STAGEFILE", "BPM", "PLAYER", "PLAYLEVEL",
+		"RANK", "LNTYPE", "LNOBJ", "WAV", "BMP", "BGA", "STOP", "STP", "RANDOM",
+		"IF", "ELSE", "ENDIF", 0};
 
 	FILE *fp;
 	int i, j, k, a, b, c;
 	int rnd = 1, ignore = 0;
 	int measure = 0, chan, prev[18] = {0}, lprev[18] = {0};
 	double t;
-	char linebuf[4096], buf1[4096], buf2[4096];
-	char *line;
+	char *line, linebuf[4096], buf1[4096], buf2[4096];
 	struct blitcmd bc;
 	XV(char*) bmsline = XV_EMPTY;
 
@@ -407,7 +406,7 @@ static int parse_bms(void)
 
 		for (i = 0; bmsheader[i]; ++i) {
 			for (j = 0; bmsheader[i][j]; ++j) {
-				if ((bmsheader[i][j] ^ line[j]) & ~32) break;
+				if (bmsheader[i][j] != uppercase(line[j])) break;
 			}
 			if (!bmsheader[i][j]) {
 				line += j;
@@ -427,9 +426,8 @@ static int parse_bms(void)
 		case 4: /* bpm */
 			if (sscanf(line, "%*[ ]%lf", &bpm) >= 1) {
 				/* do nothing, bpm is set */
-			} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2) {
-				i = key2index(buf1);
-				if (i >= 0) bpmtab[i] = t;
+			} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2 && key2index(buf1, &i)) {
+				bpmtab[i] = t;
 			}
 			break;
 
@@ -441,36 +439,31 @@ static int parse_bms(void)
 			break;
 
 		case 9: /* lnobj */
-			if (sscanf(line, "%*[ ]" KEY_PATTERN, buf1) >= 1) {
-				value[V_LNOBJ] = key2index(buf1);
+			if (sscanf(line, "%*[ ]" KEY_PATTERN, buf1) >= 1 && key2index(buf1, &i)) {
+				value[V_LNOBJ] = i;
 			}
 			break;
 
 		case 10: /* wav## */
 		case 11: /* bmp## */
-			if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2) {
-				j = key2index(buf1);
-				if (j >= 0) {
-					char **path = (i==10 ? sndpath : imgpath);
-					free(path[j]);
-					path[j] = strcopy(buf2);
-				}
+			if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2 && key2index(buf1, &j)) {
+				char **path = (i==10 ? sndpath : imgpath);
+				free(path[j]);
+				path[j] = strcopy(buf2);
 			}
 			break;
 
 		case 12: /* bga## */
 			if (sscanf(line, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
-					buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8) {
-				bc.dst = key2index(buf1);
-				bc.src = key2index(buf2);
-				if (bc.dst >= 0 && bc.src >= 0) XV_PUSH(blitcmd, bc);
+			           buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8 &&
+					key2index(buf1, &bc.dst) && key2index(buf2, &bc.src)) {
+				XV_PUSH(blitcmd, bc);
 			}
 			break;
 
 		case 13: /* stop## */
-			if (sscanf(line, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2) {
-				i = key2index(buf1);
-				if (i >= 0) stoptab[i] = j;
+			if (sscanf(line, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2 && key2index(buf1, &i)) {
+				stoptab[i] = j;
 			}
 			break;
 
@@ -502,7 +495,8 @@ static int parse_bms(void)
 
 		case 19: /* #####:... */
 			/* only check validity, do not store them yet */
-			if (sscanf(line, "%*5c:%c", buf1) >= 1) {
+			if (sscanf(line, "%*1[0123456789]%*1[0123456789]%*1[0123456789]"
+			           "%*1[" KEY_STRING "]%*1[" KEY_STRING "]:%c", buf1) >= 1) {
 				XV_PUSH(bmsline, strcopy(line));
 			}
 		}
@@ -512,14 +506,14 @@ static int parse_bms(void)
 	qsort(XV_PTR(bmsline), XV_SIZE(bmsline), XV_ITEMSIZE(bmsline), compare_bmsline);
 	XV_EACH(line, bmsline) {
 		measure = (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
-		chan = key2index(line+3);
+		if (!key2index(line+3, &chan)) continue;
 		if (chan == 2) {
 			shorten[measure] = atof(line+6);
 		} else {
 			j = 6 + strspn(line+6, " \t\r\n");
 			a = strcspn(line+j, " \t\r\n") / 2;
 			for (k = 0; k < a; ++k, j+=2) {
-				b = key2index(line+j);
+				if (!key2index(line+j, &b)) continue;
 				t = measure + 1. * k / a;
 				if (chan == 1) {
 					if (b) add_note(BGM_CHANNEL, t, 0, b);
@@ -687,7 +681,9 @@ static int load_resource(void)
 		if (sndpath[i]) {
 			resource_loaded(sndpath[i]);
 			sndres[i].res = Mix_LoadWAV_RW(resolve_relative_path(sndpath[i], SOUND_EXTS), 1);
-			if (!sndres[i].res) warn("failed to load sound #%d (%s)", i, sndpath[i]);
+			if (!sndres[i].res) {
+				warn("failed to load sound #WAV%c%c (%s)", KEY_STRING[i/36], KEY_STRING[i%36], sndpath[i]);
+			}
 			free(sndpath[i]);
 			sndpath[i] = 0;
 		}
@@ -698,7 +694,7 @@ static int load_resource(void)
 				if (opt_bga < BGA_BUT_NO_MOVIE) {
 					SMPEG *movie = SMPEG_new_rwops(resolve_relative_path(imgpath[i], NULL), NULL, 0);
 					if (!movie) {
-						warn("failed to load image #%d (%s)", i, imgpath[i]);
+						warn("failed to load image #BMP%c%c (%s)", KEY_STRING[i/36], KEY_STRING[i%36], imgpath[i]);
 					} else {
 						imgres[i].surface = newsurface(256, 256);
 						imgres[i].movie = movie;
@@ -714,7 +710,7 @@ static int load_resource(void)
 					SDL_FreeSurface(temp);
 					SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 				} else {
-					warn("failed to load image #%d (%s)", i, imgpath[i]);
+					warn("failed to load image #BMP%c%c (%s)", KEY_STRING[i/36], KEY_STRING[i%36], imgpath[i]);
 				}
 			}
 			free(imgpath[i]);
