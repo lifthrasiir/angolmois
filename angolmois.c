@@ -59,21 +59,13 @@ static void warn(const char *msg, ...)
 	fprintf(stderr, "\n");
 }
 
-static int uppercase(int c)
-{
-	return ('a' <= c && c <= 'z' ? c + ('A' - 'a') : c);
-}
+#define UPPERCASE(c) ('a' <= (c) && (c) <= 'z' ? (c) + ('A' - 'a') : (c))
+#define STRACOPY(s) strcpy(malloc(strlen(s) + 1), (s))
 
 static int strieq(const char *a, const char *b)
 {
-	while (*a && *b && uppercase(*a) == uppercase(*b)) ++a, ++b;
+	while (*a && *b && UPPERCASE(*a) == UPPERCASE(*b)) ++a, ++b;
 	return *a == *b;
-}
-
-static char *strcopy(const char *src)
-{
-	char *dest = malloc(strlen(src)+1);
-	return strcpy(dest, src);
 }
 
 struct xv_base { ptrdiff_t xv__size, xv__alloc; };
@@ -180,7 +172,7 @@ static const char *IMAGE_EXTS[] = {".bmp", ".png", ".jpg", ".jpeg", ".gif", NULL
 static int match_filename(const char *s, const char *t, const char **exts)
 {
 	const char *sbegin = s, *send = s + strlen(s);
-	while (*s && *t && uppercase(*s) == uppercase(*t)) ++s, ++t;
+	while (*s && *t && UPPERCASE(*s) == UPPERCASE(*t)) ++s, ++t;
 	if (*s == *t) return 1;
 	if (sbegin != s && exts) {
 		for (; *exts; ++exts) {
@@ -379,6 +371,7 @@ static void remove_note(int chan, int index)
 
 #define KEY_STRING "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 #define KEY_PATTERN "%2[" KEY_STRING "]"
+#define TO_KEY(key) (&(char[3]){ KEY_STRING[(key)/36], KEY_STRING[(key)%36], '\0' })
 
 static int parse_bms(void)
 {
@@ -406,7 +399,7 @@ static int parse_bms(void)
 
 		for (i = 0; bmsheader[i]; ++i) {
 			for (j = 0; bmsheader[i][j]; ++j) {
-				if (bmsheader[i][j] != uppercase(line[j])) break;
+				if (bmsheader[i][j] != UPPERCASE(line[j])) break;
 			}
 			if (!bmsheader[i][j]) {
 				line += j;
@@ -449,7 +442,7 @@ static int parse_bms(void)
 			if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2 && key2index(buf1, &j)) {
 				char **path = (i==10 ? sndpath : imgpath);
 				free(path[j]);
-				path[j] = strcopy(buf2);
+				path[j] = STRACOPY(buf2);
 			}
 			break;
 
@@ -497,7 +490,7 @@ static int parse_bms(void)
 			/* only check validity, do not store them yet */
 			if (sscanf(line, "%*1[0123456789]%*1[0123456789]%*1[0123456789]"
 			           "%*1[" KEY_STRING "]%*1[" KEY_STRING "]:%c", buf1) >= 1) {
-				XV_PUSH(bmsline, strcopy(line));
+				XV_PUSH(bmsline, STRACOPY(line));
 			}
 		}
 	}
@@ -682,7 +675,7 @@ static int load_resource(void)
 			resource_loaded(sndpath[i]);
 			sndres[i].res = Mix_LoadWAV_RW(resolve_relative_path(sndpath[i], SOUND_EXTS), 1);
 			if (!sndres[i].res) {
-				warn("failed to load sound #WAV%c%c (%s)", KEY_STRING[i/36], KEY_STRING[i%36], sndpath[i]);
+				warn("failed to load sound #WAV%s (%s)", TO_KEY(i), sndpath[i]);
 			}
 			free(sndpath[i]);
 			sndpath[i] = 0;
@@ -694,7 +687,7 @@ static int load_resource(void)
 				if (opt_bga < BGA_BUT_NO_MOVIE) {
 					SMPEG *movie = SMPEG_new_rwops(resolve_relative_path(imgpath[i], NULL), NULL, 0);
 					if (!movie) {
-						warn("failed to load image #BMP%c%c (%s)", KEY_STRING[i/36], KEY_STRING[i%36], imgpath[i]);
+						warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
 					} else {
 						imgres[i].surface = newsurface(256, 256);
 						imgres[i].movie = movie;
@@ -710,7 +703,7 @@ static int load_resource(void)
 					SDL_FreeSurface(temp);
 					SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 				} else {
-					warn("failed to load image #BMP%c%c (%s)", KEY_STRING[i/36], KEY_STRING[i%36], imgpath[i]);
+					warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
 				}
 			}
 			free(imgpath[i]);
@@ -1061,7 +1054,7 @@ static void fontdecompress(void)
 		"8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
 	int i, c = 0, d;
-	for (i = 0; i < (int) (sizeof(words) / sizeof(int)); ++i) {
+	for (i = 0; i < (int) (sizeof(words) / sizeof(*words)); ++i) {
 		c += words[i];
 		words[i] = c;
 	}
@@ -1403,7 +1396,7 @@ static void play_prepare(void)
 		}
 	}
 	tbgax = tpanel1 + (tpanel2 - tpanel1 - 256) / 2;
-	tbgay = (640 - 256) / 2;
+	tbgay = (600 - 256) / 2;
 	if (tpanel2 == 800) tpanel2 = 0;
 
 	/* sprite */
