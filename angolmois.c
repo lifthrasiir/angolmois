@@ -1038,47 +1038,42 @@ static Uint8 (*zoomfont[16])[96] = {NULL};
 
 static void fontdecompress(void)
 {
-	/* delta coded words */
-	static int words[] = {0, 0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15,
-		1521, 15, 1537, 16, 48, 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8,
-		3, 4097, 4080, 16, 16128, 240, 1, 2, 9, 3, 8177, 15, 16385, 240, 15,
-		1, 47, 721, 143, 2673, 2, 6, 7, 1, 31, 17, 16, 63, 64, 33, 0, 1, 2,
-		1, 8, 3};
-	/* LZ77-compressed indices to words */
-	static const char *indices =
-		"!!7a/&w7a!!g'M*Qg(O&J!!&Je!!g2Qg-B!!u2cQ[b7b2[[Q7b2[bQ!c!i&d>UT2c&"
-		"b>WT!b2eGW&!c!i2MbUbD!.8(M$UQCb-b!!l'U*2eTXb2Gb5b>9ZW!!k*e8(J$b!!u"
-		"*8(M$Q!h#b'O*?!!k#Q'O*?b!h8(M$Q!!m&JTLcG_&J>]TLc&J!!o&Je7[&Je!!{&J"
-		"dM$Q!!s7[!!}e&Je!!m0b3b.8(M$U!Cb-b!o>UQ2Ub]ba9Y[SbQCb2GW!!k*MbQbBb"
-		"!kaQ!!k>UQ2Ub]bG8.M(U$[!Ca[!!k>UQ2d!IJQ!d2cGW!!k78bM6U2Cb2ea[2!c!l"
-		"a[!2e>[Q!d2cGW!!k>UQ2c!b>[Q2gGW!!ka[Q!UbDb.8(J&h!!k>UQ2eIXQ2gGW!!k"
-		">UQ2gaWQ!b2cGW!!m&Je!!e&Je!!m&Je!!e&JdM$Q!!k3b.8(M$U!H#W'O,?4!!t7["
-		"!!c7[!!r:#W'O,?5!.8(M$U!Cb!k>UQ2cUbD!.8(J!!&Jc!!k>UJ)LKKhGb!)7W!!k"
-		"'8,M=UWCQ2ca[Q2e!!k>[Q2eI[Q2gG[!!k>MSUQC!2gQ:RWGO!!k,[<2WbQhUbDb.["
-		"!!ka[!2e7[!2ga[!!ka[!2e7[!2j!k>MSUQC!2c[bWbQ:RWGO!!kQ2ga[Q2i!!k7[&"
-		"Jo7[!!kQm2eGW!!kU2Db.9([$b#b'b,@<2Wb!!l2qa[!!kU:^[adT2cQh!!kQ2d:R["
-		"Vba@_2WbQd!!k,M=UWCQ2gU:EW.O!!k>[Q2gG[!2h!k>UQ2iVbabIW_!Wb!j>[Q2gI"
-		"[Q2g!!k>UQ2c!b>WQ!d2cGW!!k7[&Jq!!kQ2qGW!!kQ2kU:EW.O(?!!kQ2gTfa[CW2"
-		"Q!!kM+U:^[GW.O,M>U`[WCO-!!kM'U,D<.W(O&Ji!!ka[Q!Ub]bG8.M(U$[!Ca[!!k"
-		"*Q!p*b!!n+b:#W'O,?4!1b!p*Qb!pQ!!g'8,M=UWCO-!!}oa[!!i#Q'O,?4!!}b>QQ"
-		"!caUQ2eaW!!l2e>[Q2iG[!!o>UQ2c!dQdGW!!kQfaUQ2iaW!!o>UQ2ea[!2UbGW!!k"
-		">8TJc&b7[&Ji!!oaUQ2gaWQ!b2cGW!!f2e>[Q2m!!k&Jc!!&Jm!!kQd!dQi2eGW!!h"
-		"2cUbDb.9(['b,@<2Wb!!k*Jb?b!o!p;[abT2gQd!!o>[Q2m!!o>UQ2kGW!!o>[Q2kG"
-		"[!2f!iaUQ2kaWQ!e!j>[Q2c!k!o>UW2!b>WQ!d:GW!!k&Jc7[&JeTfG?!!oQ2mGW!!"
-		"oQ2gU:EW.O(?!!oQ2eTfa[FW!!oM+U:EW.O,M=UWCO-!!oQ2f:RWGO.A(M$U!Cb!ka"
-		"[]!G8.M(U$[!Ca[!!i78&Jg%[&Jg7?!!e&J}c!!c#[&Jg7A&Jg$[!!k#]NaaPG?!!}"
-		"o7[.W(O";
+	int words[] = /* delta coded words */
+		{0, 0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537, 16, 48,
+		 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8, 3, 4097, 4080, 16,
+		 16128, 240, 1, 2, 9, 3, 8177, 15, 16385, 240, 15, 1, 47, 721, 143,
+		 2673, 2, 6, 7, 1, 31, 17, 16, 63, 64, 33, 0, 1, 2, 1, 8, 3};
+	const char *indices = /* LZ77-compressed indices to words */
+		"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!Qi>"
+		"&!&!>UT2T2&2>WT!c*T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ252>9ZWk"
+		"@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfejcNl!&JTLTLG_&J>]c*&Jm@cB&J&J7"
+		"[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ2GWk@*M*Q*B*"
+		"!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u"
+		"`>Uc4d@b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U"
+		"!H#W'O,?4m_f!7[i&n!:eX5ghCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,"
+		"M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWGOk@,[<2WfZQ2U2D2.l`a[eZ7"
+		"f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi$d^GWk"
+		"@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M="
+		"UWCgZU:EW.Ok@>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J"
+		"&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a[CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W("
+		"O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'O,?4!1n;c`*!*!l$h`"
+		"'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@"
+		"l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e"
+		"0i!bph(d$dbGWhA2!2U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6"
+		"i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`fVlZf@UWb6>eX:GWk<&J&J7[c&&JTJTb$"
+		"G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(M$U!Ck@a[]!G"
+		"8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
-	int i, ch = 0;
+	int i, c = 0, d;
 	for (i = 0; i < (int) (sizeof(words) / sizeof(int)); ++i) {
-		ch += words[i];
-		words[i] = ch;
+		c += words[i];
+		words[i] = c;
 	}
-	for (i = 0; (ch = *indices++); ) {
-		if (ch > 97) {
-			while (ch-- > 97) fontdata[i] = fontdata[i-2], ++i;
-		} else if (ch > 32) {
-			fontdata[i++] = words[ch - 33];
+	for (i = 0; (c = *indices++); ) {
+		if (c >= 98) {
+			for (d = *indices++ - 32; c-- >= 96; ++i) fontdata[i] = fontdata[i-d];
+		} else if (c >= 33) {
+			fontdata[i++] = words[c - 33];
 		}
 	}
 }
@@ -1198,7 +1193,6 @@ static void read_keymap(void)
 			s += k;
 		}
 	}
-	
 }
 
 static void create_beep(void)

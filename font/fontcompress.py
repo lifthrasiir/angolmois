@@ -400,35 +400,34 @@ for i in fontdata:
     for j in range(0,32,literalsize)[::-1]:
         indices.append(items.index(i >> j & literalmask))
 
-distance = int(sys.argv[1]) # use fixed distance, as it is very common case
 literalbase = 33
 lengthbase = 33 + len(items)
-maxlength = 126 - lengthbase
+distancebase = 33
 divisor = 1
 print '// literalbase=%d lengthbase=%d' % (literalbase, lengthbase)
-lengthbase -= 1 # actually lengthbase should encode length=1
+lengthbase -= 3 # lengthbase should encode length=3
+distancebase -= 1 # distancebase should encode distance=1
+maxlength = 126 - lengthbase
+maxdistance = 126 - distancebase
 indicesdata = ''
 length = 0
-for i in xrange(len(indices)):
-    if i < distance or indices[i-distance] != indices[i]:
-        if length:
-            if length >= divisor:
-                indicesdata += chr(length / divisor + lengthbase)
-            indicesdata += chr(indices[i] + literalbase) * (length % divisor)
-        length = 0
-        indicesdata += chr(indices[i] + literalbase)
+i = 0
+while i < len(indices):
+    candidates = []
+    for idist in xrange(1, min(i-1,maxdistance)+1):
+        if chr(idist + distancebase) in '"\\': continue
+        ilen = 0
+        while i + ilen < len(indices) and ilen < maxlength and indices[i-idist+ilen] == indices[i+ilen]: ilen += 1
+        if ilen >= 3: candidates.append((-ilen, idist))
+    candidates.sort()
+    if candidates:
+        slen, sdist = candidates[0]
+        indicesdata += chr(-slen + lengthbase) + chr(sdist + distancebase)
+        i += -slen
     else:
-        if length / divisor == maxlength:
-            indicesdata += chr(length / divisor + lengthbase)
-            length = 0
-        length += 1
-else:
-    if length:
-        if length >= divisor:
-            indicesdata += chr(length / divisor + lengthbase)
-        indicesdata += chr(indices[i] + literalbase) * (length % divisor)
+        indicesdata += chr(indices[i] + literalbase)
+        i += 1
 
 indicesdata = indicesdata.replace('\\', '\\\\').replace('"', '\\"')
 print 'static const char *fontdataindices = "%s";' % indicesdata
-
 
