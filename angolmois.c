@@ -586,55 +586,51 @@ static int parse_bms(void)
 
 static int sanitize_bms(void)
 {
-	int i, j, k, b, c;
+	int i, j, k;
 
 	for (i = 0; i < 22; ++i) {
 		if (!channel[i]) continue;
 		qsort(channel[i], nchannel[i], sizeof(struct bmsnote), compare_bmsnote);
 
 		if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
-			b = 0;
+			int inside = 0;
 			j = 0;
 			while (j < nchannel[i]) {
-				k = j;
-				c = 0;
+				int types = 0;
 				for (k = j; k < nchannel[i] && channel[i][k].time <= channel[i][j].time; ++k) {
-					if (c & 1 << channel[i][k].type) {
-						remove_note(i, k);
-					} else {
-						c |= 1 << channel[i][k].type;
-					}
+					if (types & (1 << channel[i][k].type)) remove_note(i, k);
+					types |= 1 << channel[i][k].type;
 				}
 
-				if (b) {
+				if (inside) {
 					/* remove starting longnote if there's no ending longnote */
-					c &= ~(c & 1 ? 0 : 2);
+					if (!(types & (1<<LNDONE))) types &= ~(1<<LNSTART);
 					/* remove visible note */
-					c &= ~4;
+					types &= ~(1<<NOTE);
 					/* remove invisible note if there is any longnote */
-					c &= ~(c & 3 ? 8 : 0);
+					if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
 
-					b = !(c & 1);
+					inside = !(types & (1<<LNDONE));
 				} else {
 					/* remove starting longnote if there's also ending longnote */
-					c &= ~(c & 1 ? 2 : 0);
+					if (types & (1<<LNDONE)) types &= ~(1<<LNSTART);
 					/* remove ending longnote */
-					c &= ~1;
+					types &= ~(1<<LNDONE);
 					/* keep only one note, in the order of importance */
-					c &= -c;
+					types &= -types;
 
-					b = (c & 2);
+					inside = (types & (1<<LNSTART));
 				}
 
 				for (; j < k; ++j) {
 					if (channel[i][j].type < 0) continue;
 
-					if (IS_NOTE_CHANNEL(i) && !(c & 1 << channel[i][j].type)) {
+					if (IS_NOTE_CHANNEL(i) && !(types & (1 << channel[i][j].type))) {
 						remove_note(i, j);
 					}
 				}
 			}
-			if (IS_NOTE_CHANNEL(i) && b) {
+			if (IS_NOTE_CHANNEL(i) && inside) {
 				/* remove last starting longnote which is unfinished */
 				while (j >= 0 && channel[i][--j].type < 0);
 				if (j >= 0 && channel[i][j].type == LNSTART) remove_note(i, j);
