@@ -1485,11 +1485,11 @@ static int play_process(void)
 	now = SDL_GetTicks();
 	if (now < stoptime) {
 		bottom = startoffset;
-	} else if (stoptime) {
-		starttime = now;
-		stoptime = 0;
-		bottom = startoffset;
 	} else {
+		if (stoptime) {
+			starttime = stoptime;
+			stoptime = 0;
+		}
 		bottom = startoffset + MSEC_TO_MEASURE(now - starttime, bpm) / startshorten;
 	}
 	ibottom = (int)(bottom + 1) - 1;
@@ -1531,7 +1531,7 @@ static int play_process(void)
 				} else { /* STOP_BY_192ND_OF_MEASURE */
 					stoptime += (int) MEASURE_TO_MSEC(stoptab[j] / 192.0, bpm);
 				}
-				startoffset = bottom;
+				startoffset = channel[i][pcur[i]].time;
 			} else if (opt_mode && k != INVNOTE) {
 				if (j) play_sound(j, 0);
 				if (k != LNDONE) update_grade(4, 300);
@@ -1745,7 +1745,7 @@ static int play_process(void)
 	if (opt_bga != NO_BGA) {
 		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
 		i = (now < poorbga ? 1<<POORBGA_LAYER : 1<<BGA_LAYER|1<<BGA2_LAYER);
-		for (j = 0; j < 2; ++j) {
+		for (j = 0; j < 3; ++j) {
 			if ((i>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
 				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
 			}

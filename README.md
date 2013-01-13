@@ -403,7 +403,7 @@ The keys for Angolmois can be controlled with the environment variables
 	specified as a SDL virtual key name, such as `a`, `right shift`, or `f1`.
 	(See the list in the [SDL wiki][sdlkeys].) The name is case-insensitive.
 
-	Multiple keys can be set, by splitting each key name with `%`. (It looks
+	Multiple keys can be set, by separating each key name with `%`. (It looks
 	obscure, but SDL uses lots of punctuations as a key name so we have no
 	other choices.) Angolmois considers that the key is being pressed when
 	the first actual key mapped to it is being pressed, and the key is being
@@ -488,7 +488,7 @@ stop the development due to the [legal and personal concerns][whystopbm98]),
 and its plain text nature allowed other programs (now called "BMS players")
 can use and extend it at their own needs. The entire BMS subculture has
 emerged (this is comparable to the modern [demoscene][demoscene]), and it was
-a _de facto_ gateway for amateur musicians until mid-2010s when the websites
+a _de facto_ gateway for amateur musicians until mid-2000s when the websites
 like _Nico Nico Douga_ have taken this role. Nevertheless, the BMS scene is
 very much alive to this day, and thousands of original BMSes are produced
 every year.
