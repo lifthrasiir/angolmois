@@ -127,7 +127,7 @@ static void *xv_do_resize(struct xv_base *base, void *ptr, ptrdiff_t n, ptrdiff_
 static enum { PLAY_MODE, AUTOPLAY_MODE, EXCLUSIVE_MODE } opt_mode = PLAY_MODE;
 static int opt_showinfo = 1;
 static int opt_fullscreen = 1;
-static enum { NO_MODF, MIRROR_MODF, RANDOM_MODF, RANDOMEX_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF } opt_modf = NO_MODF;
+static enum { NO_MODF, MIRROR_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF, RANDOM_MODF, RANDOMEX_MODF } opt_modf = NO_MODF;
 static enum { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA } opt_bga = BGA_AND_MOVIE;
 static int opt_joystick = -1;
 
@@ -161,6 +161,7 @@ static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22];
 static double length;
 static int nkeys, haslongnote, haspedal, hasbpmchange;
+static int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
 static int nnotes, maxscore, duration;
 
 /******************************************************************************/
@@ -767,6 +768,12 @@ static void get_bms_info(void)
 	for (i = 0; i < nnotes; ++i) {
 		maxscore += (int)(300 * (1 + 1. * i / nnotes));
 	}
+
+	if (nkeys == 5) keyorder[6] = keyorder[7] = keyorder[15] = keyorder[16] = -1;
+	if (!haspedal) keyorder[8] = keyorder[9] = -1;
+	if (value[V_PLAYER] == 1) {
+		for (i = 9; i < 18; ++i) keyorder[i] = -1;
+	}
 }
 
 static int get_bms_duration(void)
@@ -814,38 +821,19 @@ static int get_bms_duration(void)
 	return (int) (time > rtime ? time : rtime);
 }
 
-static void shuffle_bms(int mode, int player)
+static void shuffle_bms(int mode, int begin, int end)
 {
-	struct bmsnote *tempchan, *result[18] = {0};
-	int nresult[18] = {0};
-	int map[18], perm[18], nmap;
-	int ptr[18] = {0,}, thru[18] = {0}, target[18];
-	int thrumap[18], thrurmap[18];
-	int i, j, flag = 1, temp;
-	double t;
+	struct bmsnote *tempchan;
+	int map[18], nmap = 0;
+	int i, j, temp;
 
 	srand(time(0));
-	for (i = 0; i < 18; ++i) map[i] = perm[i] = i;
-	if (!nchannel[7] && !nchannel[8] && !nchannel[16] && !nchannel[17]) {
-		map[7] = map[8] = map[16] = map[17] = -1;
+	for (i = begin; i < end; ++i) {
+		j = keyorder[i];
+		if (j < 0) continue;
+		if (mode != SHUFFLEEX_MODF && mode != RANDOMEX_MODF && (j%9==5 || j%9==6)) continue;
+		map[nmap++] = j;
 	}
-	if (!nchannel[6] && !nchannel[15]) {
-		map[6] = map[15] = -1;
-	}
-	if (mode != SHUFFLEEX_MODF && mode != RANDOMEX_MODF) {
-		map[5] = map[6] = map[14] = map[15] = -1;
-	}
-	if (player) {
-		for (i = 0; i < 9; ++i) map[player==1 ? i+9 : i] = -1;
-	}
-	for (i = j = 0; i < 18; ++i) {
-		if (map[i] < 0) {
-			++j;
-		} else {
-			map[i-j] = map[i];
-		}
-	}
-	nmap = 18 - j;
 
 #define SWAP(x,y,t) (t)=(x);(x)=(y);(y)=(t);
 
@@ -861,12 +849,19 @@ static void shuffle_bms(int mode, int player)
 			SWAP(nchannel[map[i]], nchannel[map[j]], temp);
 		}
 	} else if (mode <= RANDOMEX_MODF) { /* random */
+		struct bmsnote *result[18] = {NULL};
+		int nresult[18] = {0};
+		int perm[18], ptr[18] = {0}, thru[18] = {0}, target[18];
+		int thrumap[18], thrurmap[18];
+		int flag = 1;
+
+		for (i = 0; i < nmap; ++i) perm[i] = i;
 		while (flag) {
+			double t = 1e4;
 			for (i = nmap-1; i > 0; --i) {
 				j = rand() % i;
 				SWAP(perm[i], perm[j], temp);
 			}
-			t = 1e4;
 			flag = 0;
 			for (i = 0; i < nmap; ++i) {
 				if (ptr[map[i]] < nchannel[map[i]]) {
@@ -901,7 +896,7 @@ static void shuffle_bms(int mode, int player)
 				result[j] = realloc(result[j], sizeof(struct bmsnote) * (nresult[j]+1));
 				result[j][nresult[j]++] = channel[map[i]][ptr[map[i]]++];
 			}
-			for(i = 0; i < nmap; ++i) {
+			for (i = 0; i < nmap; ++i) {
 				if (thru[i] == 2) thru[i] = 0;
 			}
 		}
@@ -1359,8 +1354,7 @@ static void play_show_stagefile(void)
 
 static void play_prepare(void)
 {
-	int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
-	int keykind[18] = {3,1,2,1,2,1,2,1,4, 4,1,2,1,2,1,2,1,3};
+	static const int keykind[18] = {3,1,2,1,2,1,2,1,4, 4,1,2,1,2,1,2,1,3};
 	int i, j, c;
 
 	/* configuration */
@@ -1374,18 +1368,16 @@ static void play_prepare(void)
 	if (opt_mode >= EXCLUSIVE_MODE) return;
 
 	/* panel position */
-	if (nkeys == 5) keykind[6] = keykind[7] = keykind[15] = keykind[16] = 0;
-	if (!haspedal) keykind[8] = keykind[9] = 0;
-	j = (value[V_PLAYER] == 3 ? 18 : 9);
+	j = (value[V_PLAYER] == 2 ? 9 : 18);
 	for (i = 0; i < j; ++i) {
-		if (!keykind[i]) continue;
+		if (keyorder[i] < 0) continue;
 		tkey[keyorder[i]] = &tkeykinds[keykind[i]];
 		tkeyleft[keyorder[i]] = tpanel1;
 		tpanel1 += tkeykinds[keykind[i]].width + 1;
 	}
 	if (value[V_PLAYER] == 2) {
 		for (i = 17; i >= 9; --i) {
-			if (!keykind[i]) continue;
+			if (keyorder[i] < 0) continue;
 			tpanel2 -= tkeykinds[keykind[i]].width + 1;
 			tkey[keyorder[i]] = &tkeykinds[keykind[i]];
 			tkeyleft[keyorder[i]] = tpanel2 + 1;
@@ -1769,15 +1761,15 @@ static int play(void)
 	if (parse_bms() || sanitize_bms()) {
 		die("Couldn't load BMS file: %s", bmspath);
 	}
+	get_bms_info();
 	if (opt_modf) {
-		if (value[V_PLAYER] == 3) {
-			shuffle_bms(opt_modf, 0);
+		if (value[V_PLAYER] == 2) {
+			shuffle_bms(opt_modf, 0, 9);
+			shuffle_bms(opt_modf, 9, 18);
 		} else {
-			shuffle_bms(opt_modf, 1);
-			if (value[V_PLAYER] != 1) shuffle_bms(opt_modf, 2);
+			shuffle_bms(opt_modf, 0, 18);
 		}
 	}
-	get_bms_info();
 
 	/* get basename of bmspath */
 	pos1 = strrchr(bmspath, '/');
