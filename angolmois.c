@@ -696,9 +696,14 @@ static int load_resource(void)
 			} else if (opt_bga < NO_BGA) {
 				temp = IMG_Load_RW(resolve_relative_path(imgpath[i], IMAGE_EXTS), 1);
 				if (temp) {
-					imgres[i].surface = SDL_DisplayFormat(temp);
+					if (temp->format->Amask) {
+						imgres[i].surface = SDL_DisplayFormatAlpha(temp);
+						SDL_SetAlpha(imgres[i].surface, SDL_SRCALPHA|SDL_RLEACCEL, 255);
+					} else {
+						imgres[i].surface = SDL_DisplayFormat(temp);
+						SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+					}
 					SDL_FreeSurface(temp);
-					SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 				} else {
 					warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
 				}
