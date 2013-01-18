@@ -41,6 +41,7 @@ static const char *argv0 = "angolmois";
 #define STRINGIFY(x) STRINGIFY_(x)
 
 #define R(x,y,w,h) &(SDL_Rect){x,y,w,h}
+#define ARRAYSIZE(arr) ((int) (sizeof(arr) / sizeof(*(arr))))
 
 #define MEASURE_TO_MSEC(measure,bpm) ((measure) * 24e4 / (bpm))
 #define MSEC_TO_MEASURE(msec,bpm) ((msec) * (bpm) / 24e4)
@@ -304,10 +305,10 @@ static double bpmtab[1296];
 #define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define IS_NOTE_CHANNEL(c) ((c) < 18)
 enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
-enum { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 }; /* types for NOTE_CHANNEL */
-enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHANNEL */
-enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
-enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 }; /* types for STOP_CHANNEL */
+enum NOTE_type { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 };
+enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3 };
+enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
+enum STOP_type { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 };
 
 static struct bmsnote { double time; int type, index; } *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
@@ -1042,7 +1043,7 @@ static void fontdecompress(void)
 		"8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
 	int i, c = 0, d;
-	for (i = 0; i < (int) (sizeof(words) / sizeof(*words)); ++i) {
+	for (i = 0; i < ARRAYSIZE(words); ++i) {
 		c += words[i];
 		words[i] = c;
 	}
@@ -1106,10 +1107,11 @@ static enum bga opt_bga = BGA_AND_MOVIE;
 static int opt_joystick = -1;
 
 static double playspeed = 1, targetspeed;
-static int now, origintime, starttime, stoptime = 0, adjustspeed = 0;
+static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit = 0;
 static double startoffset = -1, startshorten = 1;
 static int pcur[22], pfront[22], prear[22], pcheck[18], thru[22];
-static int bga[3] = {-1,-1,0}, poorbga = 0;
+static int bga[] = {[BGA_LAYER]=-1, [BGA2_LAYER]=-1, [BGA3_LAYER]=-1, [POORBGA_LAYER]=0};
+static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER), poormask = (1<<POORBGA_LAYER);
 static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
 static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256, survival = 150;
@@ -1150,7 +1152,7 @@ static void read_keymap(void)
 	int i, j, k, l, sep, *p;
 	SDLKey key;
 
-	for (i = 0; i < SDLK_LAST; ++i) keymap[i] = -1;
+	for (i = 0; i < ARRAYSIZE(keymap); ++i) keymap[i] = -1;
 	XV_EACHPTR(p, joybmap) *p = -1;
 	XV_EACHPTR(p, joyamap) *p = -1;
 
@@ -1394,7 +1396,7 @@ static void play_prepare(void)
 
 	/* sprite */
 	sprite = newsurface(1200, 600);
-	for (i = 0; i < (int) (sizeof(tkeykinds) / sizeof(*tkeykinds)); ++i) {
+	for (i = 0; i < ARRAYSIZE(tkeykinds); ++i) {
 		const struct tkeykind *k = &tkeykinds[i];
 		for (j = 140; j < 520; ++j) {
 			SDL_FillRect(sprite, R(k->spriteleft,j,k->width,1), blend(k->color, 0, j-140, 1000));
@@ -1448,7 +1450,7 @@ static void update_grade(int grade, int delta)
 	if (grade < 1) {
 		scombo = 0;
 		gauge -= 30;
-		poorbga = now + 600;
+		poorlimit = now + 600;
 	} else if (grade < 2) {
 		scombo = 0;
 		gauge -= 15;
@@ -1741,8 +1743,8 @@ static int play_process(void)
 
 	if (opt_bga != NO_BGA) {
 		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
-		i = (now < poorbga ? 1<<POORBGA_LAYER : 1<<BGA_LAYER|1<<BGA2_LAYER);
-		for (j = 0; j < 3; ++j) {
+		i = (now < poorlimit ? poormask : bgamask);
+		for (j = 0; j < ARRAYSIZE(bga); ++j) {
 			if ((i>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
 				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
 			}
