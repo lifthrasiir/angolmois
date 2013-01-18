@@ -47,7 +47,7 @@ static const char *argv0 = "angolmois";
 #define MSEC_TO_MEASURE(msec,bpm) ((msec) * (bpm) / 24e4)
 
 static void die(const char *msg, ...); /* platform dependent */
-#define SHOULD(x) ((x) ? (void) 0 : die("assertion failure: %s", #x))
+#define SHOULD(x) ((x) ? (void) 0 : die("assertion failure at line %d: %s", __LINE__, #x))
 
 static void warn(const char *msg, ...)
 {
@@ -88,7 +88,7 @@ struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV_RESIZE(xv,n) (XV_SIZE(xv) = (ptrdiff_t) (n), XV_RESERVE(xv, XV_SIZE(xv)))
 #define XV_RESIZEBY(xv,n) XV_RESIZE(xv, XV_SIZE(xv) + (ptrdiff_t) (n))
 #define XV_AT(xv,i) (XV_PTR(xv)[(ptrdiff_t) (i)])
-#define XV_END(xv) (XV_PTR(xv)[XV_SIZE(xv)-1])
+#define XV_LAST(xv) (XV_PTR(xv)[XV_SIZE(xv)-1])
 #define XV_LOOP(xv,itype,i,before,after) \
 	for (itype (i) = 0; (ptrdiff_t) (i) < XV_SIZE(xv) && ((void) (before), 1); \
 	     (void) (after), ++(i))
@@ -426,7 +426,7 @@ static int parse_bms(struct rngstate *r)
 			}
 		}
 
-		switch (XV_END(rnd).skip || XV_END(rnd).ignore ? -i : i) {
+		switch (XV_LAST(rnd).skip || XV_LAST(rnd).ignore ? -i : i) {
 		case 1: /* title */
 		case 2: /* genre */
 		case 3: /* artist */
@@ -488,7 +488,7 @@ static int parse_bms(struct rngstate *r)
 		case 17: case -17: /* setrandom */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
 				/* do not generate a random value if the entire block is skipped */
-				k = (XV_END(rnd).ignore || XV_END(rnd).skip);
+				k = (XV_LAST(rnd).ignore || XV_LAST(rnd).skip);
 				if (i == 16 && !k && j > 0) j = rng_gen(r, j) + 1;
 				XV_PUSH(rnd, ((struct rnd) {.val=j, .inside=0, .ignore=0, .skip=k}));
 			}
@@ -501,24 +501,24 @@ static int parse_bms(struct rngstate *r)
 		case 19: case -19: /* if */
 		case 20: case -20: /* elseif */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
-				XV_END(rnd).inside = 1;
-				if (i == 19 || XV_END(rnd).ignore > 0) {
-					XV_END(rnd).ignore = (j <= 0 || XV_END(rnd).val != j);
+				XV_LAST(rnd).inside = 1;
+				if (i == 19 || XV_LAST(rnd).ignore > 0) {
+					XV_LAST(rnd).ignore = (j <= 0 || XV_LAST(rnd).val != j);
 				} else {
-					XV_END(rnd).ignore = -1; /* ignore further branches */
+					XV_LAST(rnd).ignore = -1; /* ignore further branches */
 				}
 			}
 			break;
 
 		case 21: case -21: /* else */
-			XV_END(rnd).inside = 1;
-			XV_END(rnd).ignore = (XV_END(rnd).ignore > 0 ? 0 : -1);
+			XV_LAST(rnd).inside = 1;
+			XV_LAST(rnd).ignore = (XV_LAST(rnd).ignore > 0 ? 0 : -1);
 			break;
 
 		case 23: case -23: /* end(if) but not endsw */
 			for (j = (int) XV_SIZE(rnd); j > 0 && XV_AT(rnd,j).inside != 1; --j);
-			if (j > 0) XV_SIZE(rnd) = j + 1;
-			XV_END(rnd).inside = XV_END(rnd).ignore = 0;
+			if (j > 0) XV_SIZE(rnd) = j + 1; /* implicitly closes #RANDOMs if needed */
+			XV_LAST(rnd).inside = XV_LAST(rnd).ignore = 0;
 			break;
 
 		case ARRAYSIZE(bmsheader): /* #####:... */
@@ -535,7 +535,7 @@ static int parse_bms(struct rngstate *r)
 	qsort(XV_PTR(bmsline), XV_SIZE(bmsline), XV_ITEMSIZE(bmsline), compare_bmsline);
 	XV_EACH(line, bmsline) {
 		measure = (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
-		if (!key2index(line+3, &chan)) continue;
+		if (!key2index(line+3, &chan)) SHOULD(0);
 		if (chan == 2) {
 			shorten[measure] = atof(line+6);
 		} else {
