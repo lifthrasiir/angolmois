@@ -68,6 +68,7 @@ static int strieq(const char *a, const char *b)
 	return *a == *b;
 }
 
+/* generic extensible vector */
 struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV(...) struct { struct xv_base xv__base; __VA_ARGS__ *xv__ptr; }
 #define XV_BASE(xv) ((xv).xv__base)
@@ -87,7 +88,7 @@ struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV_RESIZE(xv,n) (XV_SIZE(xv) = (ptrdiff_t) (n), XV_RESERVE(xv, XV_SIZE(xv)))
 #define XV_RESIZEBY(xv,n) XV_RESIZE(xv, XV_SIZE(xv) + (ptrdiff_t) (n))
 #define XV_AT(xv,i) (XV_PTR(xv)[(ptrdiff_t) (i)])
-#define XV_ATEND(xv,i) (XV_PTR(xv)[XV_SIZE(xv) - (ptrdiff_t) (i) - 1])
+#define XV_END(xv) (XV_PTR(xv)[XV_SIZE(xv)-1])
 #define XV_LOOP(xv,itype,i,before,after) \
 	for (itype (i) = 0; (ptrdiff_t) (i) < XV_SIZE(xv) && ((void) (before), 1); \
 	     (void) (after), ++(i))
@@ -119,6 +120,32 @@ static void *xv_do_resize(struct xv_base *base, void *ptr, ptrdiff_t n, ptrdiff_
 	if (!ptr) die("memory error");
 	base->xv__alloc = n;
 	return ptr;
+}
+
+/* George Marsaglia's MWC256 generator (period 2^8222) */
+struct rngstate { uint32_t state[257]; uint8_t index; }; /* state[256] for carry */
+
+static void rng_seed(struct rngstate *r, uint32_t seed)
+{
+	int i;
+	r->index = 0;
+	r->state[256] = seed;
+	for (i = 255; i >= 0; --i) {
+		r->state[i] = 1812433253ull * (r->state[i+1] ^ (r->state[i+1] >> 30)) + i;
+	}
+}
+
+static uint32_t rng_gen(struct rngstate *r, uint32_t range)
+{
+	uint32_t div = 0xffffffffull / range, max = div * range, x; /* so max < 2^32 */
+	do {
+		uint64_t t = 1540315826ull * r->state[++r->index] + r->state[256];
+		r->state[256] = t >> 32;
+		x = r->state[256] + (t & 0xffffffffull);
+		if (x < r->state[256]) ++x, ++r->state[256];
+		r->state[r->index] = x;
+	} while (x >= max);
+	return x / div;
 }
 
 /******************************************************************************/
@@ -365,31 +392,31 @@ static void remove_note(int chan, int index)
 #define KEY_PATTERN "%2[" KEY_STRING "]"
 #define TO_KEY(key) (&(char[3]){ KEY_STRING[(key)/36], KEY_STRING[(key)%36], '\0' })
 
-static int parse_bms(void)
+static int parse_bms(struct rngstate *r)
 {
 	static const char *bmsheader[] = {
-		"TITLE", "GENRE", "ARTIST", "STAGEFILE", "BPM", "PLAYER", "PLAYLEVEL",
+		NULL, "TITLE", "GENRE", "ARTIST", "STAGEFILE", "BPM", "PLAYER", "PLAYLEVEL",
 		"RANK", "LNTYPE", "LNOBJ", "WAV", "BMP", "BGA", "STOP", "STP", "RANDOM",
-		"IF", "ELSE", "ENDIF", 0};
+		"SETRANDOM", "ENDRANDOM", "IF", "ELSEIF", "ELSE", "ENDSW", "END"};
 
 	FILE *fp;
 	int i, j, k, a, b, c;
-	int rnd = 1, ignore = 0;
 	int measure = 0, chan, prev[18] = {0}, lprev[18] = {0};
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
 	struct blitcmd bc;
+	XV(struct rnd { int val, ignore, skip; }) rnd = XV_EMPTY;
 	XV(char*) bmsline = XV_EMPTY;
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
 
-	srand(time(0));
+	XV_PUSH(rnd, ((struct rnd) {.val=0, .ignore=0, .skip=0}));
 	while (fgets(line = linebuf, sizeof linebuf, fp)) {
 		while (*line == ' ' || *line == '\t') ++line;
 		if (*line++ != '#') continue;
 
-		for (i = 0; bmsheader[i]; ++i) {
+		for (i = 1; i < ARRAYSIZE(bmsheader); ++i) {
 			for (j = 0; bmsheader[i][j]; ++j) {
 				if (bmsheader[i][j] != UPPERCASE(line[j])) break;
 			}
@@ -398,17 +425,17 @@ static int parse_bms(void)
 				break;
 			}
 		}
-		if (ignore) i = ~i;
+		if (XV_END(rnd).skip || XV_END(rnd).ignore) i = ~i;
 
 		switch (i) {
-		case 0: /* title */
-		case 1: /* genre */
-		case 2: /* artist */
-		case 3: /* stagefile */
-			sscanf(line, "%*[ ]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i]);
+		case 1: /* title */
+		case 2: /* genre */
+		case 3: /* artist */
+		case 4: /* stagefile */
+			sscanf(line, "%*[ ]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i-1]);
 			break;
 
-		case 4: /* bpm */
+		case 5: /* bpm */
 			if (sscanf(line, "%*[ ]%lf", &bpm) >= 1) {
 				/* do nothing, bpm is set */
 			} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2 && key2index(buf1, &i)) {
@@ -416,29 +443,29 @@ static int parse_bms(void)
 			}
 			break;
 
-		case 5: /* player */
-		case 6: /* playlevel */
-		case 7: /* rank */
-		case 8: /* lntype */
-			sscanf(line, "%*[ ]%d", &value[i-5]);
+		case 6: /* player */
+		case 7: /* playlevel */
+		case 8: /* rank */
+		case 9: /* lntype */
+			sscanf(line, "%*[ ]%d", &value[i-6]);
 			break;
 
-		case 9: /* lnobj */
+		case 10: /* lnobj */
 			if (sscanf(line, "%*[ ]" KEY_PATTERN, buf1) >= 1 && key2index(buf1, &i)) {
 				value[V_LNOBJ] = i;
 			}
 			break;
 
-		case 10: /* wav## */
-		case 11: /* bmp## */
+		case 11: /* wav## */
+		case 12: /* bmp## */
 			if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2 && key2index(buf1, &j)) {
-				char **path = (i==10 ? sndpath : imgpath);
+				char **path = (i==11 ? sndpath : imgpath);
 				free(path[j]);
 				path[j] = STRACOPY(buf2);
 			}
 			break;
 
-		case 12: /* bga## */
+		case 13: /* bga## */
 			if (sscanf(line, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
 			           buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8 &&
 					key2index(buf1, &bc.dst) && key2index(buf2, &bc.src)) {
@@ -446,39 +473,52 @@ static int parse_bms(void)
 			}
 			break;
 
-		case 13: /* stop## */
+		case 14: /* stop## */
 			if (sscanf(line, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2 && key2index(buf1, &i)) {
 				stoptab[i] = j;
 			}
 			break;
 
-		case 14: /* stp## */
+		case 15: /* stp## */
 			if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
 				add_note(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k);
 			}
 			break;
 
-		case 15: case ~15: /* random */
+		case 16: case ~16: /* random */
+		case 17: case ~17: /* setrandom */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
-				rnd = rand() % abs(j) + 1;
+				/* do not generate a random value if the entire block is skipped */
+				k = (XV_END(rnd).ignore || XV_END(rnd).skip);
+				if ((i==16 || i==~16) && !k && j > 0) j = rng_gen(r, j) + 1;
+				XV_PUSH(rnd, ((struct rnd) {.val=j, .ignore=0, .skip=k}));
 			}
 			break;
 
-		case 16: case ~16: /* if */
+		case 18: case ~18: /* endrandom */
+			if (XV_SIZE(rnd) > 1) --XV_SIZE(rnd);
+			break;
+
+		case 19: case ~19: /* if */
+		case 20: case ~20: /* elseif */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
-				ignore = (rnd != j);
+				if ((i==19 || i==~19) || XV_END(rnd).ignore > 0) {
+					XV_END(rnd).ignore = (j <= 0 || XV_END(rnd).val != j);
+				} else {
+					XV_END(rnd).ignore = -1; /* ignore further branches */
+				}
 			}
 			break;
 
-		case 17: case ~17: /* else */
-			ignore = !ignore;
+		case 21: case ~21: /* else */
+			XV_END(rnd).ignore = (XV_END(rnd).ignore > 0 ? 0 : -1);
 			break;
 
-		case 18: case ~18: /* endif */
-			ignore = 0;
+		case 23: case ~23: /* end(if) but not endsw */
+			XV_END(rnd).ignore = 0;
 			break;
 
-		case 19: /* #####:... */
+		case ARRAYSIZE(bmsheader): /* #####:... */
 			/* only check validity, do not store them yet */
 			if (sscanf(line, "%*1[0123456789]%*1[0123456789]%*1[0123456789]"
 			           "%*1[" KEY_STRING "]%*1[" KEY_STRING "]:%c", buf1) >= 1) {
@@ -487,6 +527,7 @@ static int parse_bms(void)
 		}
 	}
 	fclose(fp);
+	XV_FREE(rnd);
 
 	qsort(XV_PTR(bmsline), XV_SIZE(bmsline), XV_ITEMSIZE(bmsline), compare_bmsline);
 	XV_EACH(line, bmsline) {
@@ -576,7 +617,7 @@ static int parse_bms(void)
 	return 0;
 }
 
-static int sanitize_bms(void)
+static void sanitize_bms(void)
 {
 	int i, j, k;
 
@@ -643,8 +684,6 @@ static int sanitize_bms(void)
 		if (_shorten[i] <= .001)
 			_shorten[i] = 1;
 	}
-
-	return 0;
 }
 
 /* forward declarations to keep things apart */
@@ -819,13 +858,12 @@ static int get_bms_duration(void)
 }
 
 enum modf { NO_MODF, MIRROR_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF, RANDOM_MODF, RANDOMEX_MODF };
-static void shuffle_bms(enum modf mode, int begin, int end)
+static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 {
 	struct bmsnote *tempchan;
 	int map[18], nmap = 0;
 	int i, j, temp;
 
-	srand(time(0));
 	for (i = begin; i < end; ++i) {
 		j = keyorder[i];
 		if (j < 0) continue;
@@ -842,7 +880,7 @@ static void shuffle_bms(enum modf mode, int begin, int end)
 		}
 	} else if (mode <= SHUFFLEEX_MODF) { /* shuffle */
 		for (i = nmap-1; i > 0; --i) {
-			j = rand() % i;
+			j = rng_gen(r, i);
 			SWAP(channel[map[i]], channel[map[j]], tempchan);
 			SWAP(nchannel[map[i]], nchannel[map[j]], temp);
 		}
@@ -857,7 +895,7 @@ static void shuffle_bms(enum modf mode, int begin, int end)
 		while (flag) {
 			double t = 1e4;
 			for (i = nmap-1; i > 0; --i) {
-				j = rand() % i;
+				j = rng_gen(r, i);
 				SWAP(perm[i], perm[j], temp);
 			}
 			flag = 0;
@@ -1762,19 +1800,20 @@ static int play(void)
 {
 	int i;
 	char *pos1, *pos2;
+	struct rngstate r;
 
 	if (initialize()) return 1;
+	rng_seed(&r, (uint32_t) time(0));
 
-	if (parse_bms() || sanitize_bms()) {
-		die("Couldn't load BMS file: %s", bmspath);
-	}
+	if (parse_bms(&r)) die("Couldn't load BMS file: %s", bmspath);
+	sanitize_bms();
 	get_bms_info();
 	if (opt_modf) {
 		if (value[V_PLAYER] == 2) {
-			shuffle_bms(opt_modf, 0, 9);
-			shuffle_bms(opt_modf, 9, 18);
+			shuffle_bms(opt_modf, &r, 0, 9);
+			shuffle_bms(opt_modf, &r, 9, 18);
 		} else {
-			shuffle_bms(opt_modf, 0, 18);
+			shuffle_bms(opt_modf, &r, 0, 18);
 		}
 	}
 
