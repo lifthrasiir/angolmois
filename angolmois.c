@@ -405,13 +405,13 @@ static int parse_bms(struct rngstate *r)
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
 	struct blitcmd bc;
-	XV(struct rnd { int val, ignore, skip; }) rnd = XV_EMPTY;
+	XV(struct rnd { int val, inside, ignore, skip; }) rnd = XV_EMPTY;
 	XV(char*) bmsline = XV_EMPTY;
 
 	fp = fopen(bmspath, "r");
 	if (!fp) return 1;
 
-	XV_PUSH(rnd, ((struct rnd) {.val=0, .ignore=0, .skip=0}));
+	XV_PUSH(rnd, ((struct rnd) {.val=0, .inside=0, .ignore=0, .skip=0}));
 	while (fgets(line = linebuf, sizeof linebuf, fp)) {
 		while (*line == ' ' || *line == '\t') ++line;
 		if (*line++ != '#') continue;
@@ -425,9 +425,8 @@ static int parse_bms(struct rngstate *r)
 				break;
 			}
 		}
-		if (XV_END(rnd).skip || XV_END(rnd).ignore) i = ~i;
 
-		switch (i) {
+		switch (XV_END(rnd).skip || XV_END(rnd).ignore ? -i : i) {
 		case 1: /* title */
 		case 2: /* genre */
 		case 3: /* artist */
@@ -485,24 +484,25 @@ static int parse_bms(struct rngstate *r)
 			}
 			break;
 
-		case 16: case ~16: /* random */
-		case 17: case ~17: /* setrandom */
+		case 16: case -16: /* random */
+		case 17: case -17: /* setrandom */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
 				/* do not generate a random value if the entire block is skipped */
 				k = (XV_END(rnd).ignore || XV_END(rnd).skip);
-				if ((i==16 || i==~16) && !k && j > 0) j = rng_gen(r, j) + 1;
-				XV_PUSH(rnd, ((struct rnd) {.val=j, .ignore=0, .skip=k}));
+				if (i == 16 && !k && j > 0) j = rng_gen(r, j) + 1;
+				XV_PUSH(rnd, ((struct rnd) {.val=j, .inside=0, .ignore=0, .skip=k}));
 			}
 			break;
 
-		case 18: case ~18: /* endrandom */
+		case 18: case -18: /* endrandom */
 			if (XV_SIZE(rnd) > 1) --XV_SIZE(rnd);
 			break;
 
-		case 19: case ~19: /* if */
-		case 20: case ~20: /* elseif */
+		case 19: case -19: /* if */
+		case 20: case -20: /* elseif */
 			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
-				if ((i==19 || i==~19) || XV_END(rnd).ignore > 0) {
+				XV_END(rnd).inside = 1;
+				if (i == 19 || XV_END(rnd).ignore > 0) {
 					XV_END(rnd).ignore = (j <= 0 || XV_END(rnd).val != j);
 				} else {
 					XV_END(rnd).ignore = -1; /* ignore further branches */
@@ -510,12 +510,15 @@ static int parse_bms(struct rngstate *r)
 			}
 			break;
 
-		case 21: case ~21: /* else */
+		case 21: case -21: /* else */
+			XV_END(rnd).inside = 1;
 			XV_END(rnd).ignore = (XV_END(rnd).ignore > 0 ? 0 : -1);
 			break;
 
-		case 23: case ~23: /* end(if) but not endsw */
-			XV_END(rnd).ignore = 0;
+		case 23: case -23: /* end(if) but not endsw */
+			for (j = (int) XV_SIZE(rnd); j > 0 && XV_AT(rnd,j).inside != 1; --j);
+			if (j > 0) XV_SIZE(rnd) = j + 1;
+			XV_END(rnd).inside = XV_END(rnd).ignore = 0;
 			break;
 
 		case ARRAYSIZE(bmsheader): /* #####:... */
