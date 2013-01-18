@@ -34,17 +34,16 @@
 static const char VERSION[] = "Angolmois 2.0.0 alpha 2";
 static const char *argv0 = "angolmois";
 
+/******************************************************************************/
+/* utility declarations */
+
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 
 #define R(x,y,w,h) &(SDL_Rect){x,y,w,h}
 
-#define INFO_INTERVAL 47 /* try not to refresh screen or console too fast (tops at 21fps) */
 #define MEASURE_TO_MSEC(measure,bpm) ((measure) * 24e4 / (bpm))
 #define MSEC_TO_MEASURE(msec,bpm) ((msec) * (bpm) / 24e4)
-
-/******************************************************************************/
-/* utility declarations */
 
 static void die(const char *msg, ...); /* platform dependent */
 #define SHOULD(x) ((x) ? (void) 0 : die("assertion failure: %s", #x))
@@ -122,50 +121,9 @@ static void *xv_do_resize(struct xv_base *base, void *ptr, ptrdiff_t n, ptrdiff_
 }
 
 /******************************************************************************/
-/* constants, variables */
-
-static enum { PLAY_MODE, AUTOPLAY_MODE, EXCLUSIVE_MODE } opt_mode = PLAY_MODE;
-static int opt_showinfo = 1;
-static int opt_fullscreen = 1;
-static enum { NO_MODF, MIRROR_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF, RANDOM_MODF, RANDOMEX_MODF } opt_modf = NO_MODF;
-static enum { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA } opt_bga = BGA_AND_MOVIE;
-static int opt_joystick = -1;
-
-enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3 };
-enum { V_PLAYER = 0, V_PLAYLEVEL = 1, V_RANK = 2, V_LNTYPE = 3, V_LNOBJ = 4 };
-
-#define MAXMETADATA 1023
-static char metadata[4][MAXMETADATA+1];
-static double bpm = 130;
-static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [V_LNOBJ]=0};
-
-static char *sndpath[1296], *imgpath[1296];
-static XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
-static struct { Mix_Chunk *res; int ch; } sndres[1296];
-static XV(int) sndchmap;
-static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
-static int stoptab[1296];
-static double bpmtab[1296];
-
-#define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
-#define IS_NOTE_CHANNEL(c) ((c) < 18)
-enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
-enum { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 }; /* types for NOTE_CHANNEL */
-enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHANNEL */
-enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
-enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 }; /* types for STOP_CHANNEL */
-
-static char *bmspath;
-static struct bmsnote { double time; int type, index; } *channel[22];
-static double _shorten[2005], *shorten = _shorten + 1;
-static int nchannel[22];
-static double length;
-static int nkeys, haslongnote, haspedal, hasbpmchange;
-static int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
-static int nnotes, maxscore, duration;
-
-/******************************************************************************/
 /* path resolution & system dependent functions */
+
+static char *bmspath; /* initially a path to BMS file, later a dirname of it */
 
 static const char *SOUND_EXTS[] = {".wav", ".ogg", ".mp3", NULL};
 static const char *IMAGE_EXTS[] = {".bmp", ".png", ".jpg", ".jpeg", ".gif", NULL};
@@ -326,6 +284,38 @@ exit:
 
 /******************************************************************************/
 /* bms parser */
+
+enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3 };
+enum { V_PLAYER = 0, V_PLAYLEVEL = 1, V_RANK = 2, V_LNTYPE = 3, V_LNOBJ = 4 };
+
+#define MAXMETADATA 1023
+static char metadata[4][MAXMETADATA+1];
+static double bpm = 130;
+static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [V_LNOBJ]=0};
+
+static char *sndpath[1296], *imgpath[1296];
+static XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
+static struct { Mix_Chunk *res; int ch; } sndres[1296];
+static XV(int) sndchmap;
+static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
+static int stoptab[1296];
+static double bpmtab[1296];
+
+#define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
+#define IS_NOTE_CHANNEL(c) ((c) < 18)
+enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
+enum { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 }; /* types for NOTE_CHANNEL */
+enum { BGA_LAYER = 0, BGA2_LAYER = 1, POORBGA_LAYER = 2 }; /* types for BGA_CHANNEL */
+enum { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 }; /* types for BPM_CHANNEL */
+enum { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 }; /* types for STOP_CHANNEL */
+
+static struct bmsnote { double time; int type, index; } *channel[22];
+static double _shorten[2005], *shorten = _shorten + 1;
+static int nchannel[22];
+static double length;
+static int nkeys, haslongnote, haspedal, hasbpmchange;
+static int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
+static int nnotes, maxscore, duration;
 
 static int getdigit(int n)
 {
@@ -660,7 +650,8 @@ static int sanitize_bms(void)
 static SDL_Surface *newsurface(int w, int h);
 static void resource_loaded(const char *path);
 
-static int load_resource(void)
+enum bga { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA };
+static int load_resource(enum bga range)
 {
 	SDL_Surface *temp;
 	struct blitcmd bc;
@@ -681,7 +672,7 @@ static int load_resource(void)
 			char *ext = strrchr(imgpath[i], '.');
 			resource_loaded(imgpath[i]);
 			if (ext && strieq(ext, ".mpg")) {
-				if (opt_bga < BGA_BUT_NO_MOVIE) {
+				if (range < BGA_BUT_NO_MOVIE) {
 					SMPEG *movie = SMPEG_new_rwops(resolve_relative_path(imgpath[i], NULL), NULL, 0);
 					if (!movie) {
 						warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
@@ -693,7 +684,7 @@ static int load_resource(void)
 						SMPEG_setdisplay(movie, imgres[i].surface, NULL, NULL);
 					}
 				}
-			} else if (opt_bga < NO_BGA) {
+			} else if (range < NO_BGA) {
 				temp = IMG_Load_RW(resolve_relative_path(imgpath[i], IMAGE_EXTS), 1);
 				if (temp) {
 					if (temp->format->Amask) {
@@ -826,7 +817,8 @@ static int get_bms_duration(void)
 	return (int) (time > rtime ? time : rtime);
 }
 
-static void shuffle_bms(int mode, int begin, int end)
+enum modf { NO_MODF, MIRROR_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF, RANDOM_MODF, RANDOMEX_MODF };
+static void shuffle_bms(enum modf mode, int begin, int end)
 {
 	struct bmsnote *tempchan;
 	int map[18], nmap = 0;
@@ -1106,6 +1098,13 @@ static void printstr(SDL_Surface *s, int x, int y, int z, int a, const char *c, 
 /******************************************************************************/
 /* main routines */
 
+static enum mode { PLAY_MODE, AUTOPLAY_MODE, EXCLUSIVE_MODE } opt_mode = PLAY_MODE;
+static int opt_showinfo = 1;
+static int opt_fullscreen = 1;
+static enum modf opt_modf = NO_MODF;
+static enum bga opt_bga = BGA_AND_MOVIE;
+static int opt_joystick = -1;
+
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0;
 static double startoffset = -1, startshorten = 1;
@@ -1262,6 +1261,7 @@ static void play_sound(int i, int group)
 	XV_AT(sndchmap,ch) = i;
 }
 
+static const int INFO_INTERVAL = 47; /* try not to refresh screen or console too fast (tops at 21fps) */
 static SDL_Surface *stagefile_tmp;
 static int lastinfo;
 
@@ -1347,7 +1347,7 @@ static void play_show_stagefile(void)
 
 	t = SDL_GetTicks() + 3000;
 	lastinfo = -1000;
-	load_resource();
+	load_resource(opt_bga);
 	if (opt_showinfo) {
 		lastinfo = -1000; /* force update */
 		resource_loaded(0);
