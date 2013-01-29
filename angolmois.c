@@ -337,7 +337,7 @@ enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3
 enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
 enum STOP_type { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 };
 
-static struct bmsnote { double time; int type, index; } *channel[22];
+static struct bmsnote { double time; int type, index, nograding:1; } *channel[22];
 static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel[22];
 static double length;
@@ -1542,9 +1542,9 @@ static int play_process(void)
 	top = adjust_object_time(bottom, 1.25/playspeed);
 	eop = 1;
 	for (i = 0; i < 22; ++i) {
-		while (pfront[i] < nchannel[i] && channel[i][pfront[i]].time < bottom) ++pfront[i];
-		while (prear[i] < nchannel[i] && channel[i][prear[i]].time <= top) ++prear[i];
-		while (pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line) {
+		for (; pfront[i] < nchannel[i] && channel[i][pfront[i]].time < bottom; ++pfront[i]);
+		for (; prear[i] < nchannel[i] && channel[i][prear[i]].time <= top; ++prear[i]);
+		for (; pcur[i] < nchannel[i] && channel[i][pcur[i]].time < line; ++pcur[i]) {
 			j = channel[i][pcur[i]].index;
 			k = channel[i][pcur[i]].type;
 			if (i == BGM_CHANNEL) {
@@ -1576,12 +1576,12 @@ static int play_process(void)
 				if (j) play_sound(j, 0);
 				if (k != LNDONE) update_grade(4, 300);
 			}
-			++pcur[i];
 		}
 		if (i<18 && !opt_mode) {
 			for (; pcheck[i] < pcur[i]; ++pcheck[i]) {
+				if (channel[i][pcheck[i]].nograding) continue;
 				j = channel[i][pcheck[i]].type;
-				if (j < 0 || j == INVNOTE || (j == LNDONE && !thru[i])) continue;
+				if (j == INVNOTE || (j == LNDONE && !thru[i])) continue;
 				tmp = channel[i][pcheck[i]].time;
 				tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten[(int)tmp] * gradefactor;
 				if (tmp > 144) update_grade(0, 0); else break;
@@ -1650,7 +1650,7 @@ static int play_process(void)
 				thru[k] = 0;
 				tmp = MEASURE_TO_MSEC(channel[k][j].time - line, bpm) * shorten[(int)line] * gradefactor;
 				if (-144 < tmp && tmp < 144) {
-					channel[k][j].type ^= -1;
+					channel[k][j].nograding = 1;
 				} else {
 					update_grade(0, 0);
 				}
@@ -1679,12 +1679,12 @@ static int play_process(void)
 
 				if (channel[k][l].type == LNDONE) {
 					if (thru[k]) update_grade(0, 0);
-				} else if (channel[k][l].type >= 0) {
+				} else if (!channel[k][l].nograding) {
 					tmp = MEASURE_TO_MSEC(channel[k][l].time - line, bpm) * shorten[(int)line] * gradefactor;
 					if (tmp < 0) tmp *= -1;
-					if (channel[k][l].type >= 0 && tmp < 144) {
+					if (tmp < 144) {
 						if (channel[k][l].type == LNSTART) thru[k] = 1;
-						channel[k][l].type ^= -1;
+						channel[k][l].nograding = 1;
 						update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, 300 - tmp/144*300);
 					}
 				}
@@ -1710,8 +1710,8 @@ static int play_process(void)
 		SDL_SetClipRect(screen, R(0,30,800,490));
 		for (i = 0; i < 18; ++i) {
 			if (!tkey[i]) continue;
-			for (j = pfront[i]; j < prear[i] && channel[i][j].type == INVNOTE; ++j);
-			if (j==prear[i] && prear[i]<nchannel[i] && channel[i][prear[i]].type==LNDONE) {
+			for (j = pfront[i]; j < nchannel[i] && channel[i][j].type == INVNOTE; ++j);
+			if (prear[i] <= j && j < nchannel[i] && channel[i][j].type == LNDONE) {
 				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), screen, R(tkeyleft[i],30,0,0));
 			}
 			for (; j < prear[i]; ++j) {
