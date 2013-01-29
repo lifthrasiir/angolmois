@@ -401,7 +401,7 @@ static int parse_bms(struct rngstate *r)
 
 	FILE *fp;
 	int i, j, k, a, b, c;
-	int measure = 0, chan, prev[18] = {0}, lprev[18] = {0};
+	int measure = 0, chan, prev[18] = {0}, lprev[18] = {0}, iprev[18] = {0};
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
 	struct blitcmd bc;
@@ -563,12 +563,14 @@ static int parse_bms(struct rngstate *r)
 					if (chan < 3*36) { /* channel 11-29 */
 						if (b) {
 							if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
-								if (nchannel[c] && channel[c][nchannel[c]-1].type==NOTE) {
-									channel[c][nchannel[c]-1].type = LNSTART;
+								if (iprev[c] && channel[c][iprev[c]-1].type==NOTE) {
+									channel[c][iprev[c]-1].type = LNSTART;
 									add_note(c, t, LNDONE, b);
+									iprev[c] = 0;
 								}
 							} else {
 								add_note(c, t, NOTE, b);
+								iprev[c] = nchannel[c];
 							}
 						}
 					} else if (chan < 5*36) { /* channel 31-49 */
@@ -694,7 +696,7 @@ static SDL_Surface *newsurface(int w, int h);
 static void resource_loaded(const char *path);
 
 enum bga { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA };
-static int load_resource(enum bga range)
+static void load_resource(enum bga range)
 {
 	SDL_Surface *temp;
 	struct blitcmd bc;
@@ -763,8 +765,6 @@ static int load_resource(enum bga range)
 			temp, R(bc.dx, bc.dy, 0, 0));
 	}
 	XV_FREE(blitcmd);
-
-	return 0;
 }
 
 static double adjust_object_time(double base, double offset)
