@@ -173,6 +173,7 @@ static int match_filename(const char *s, const char *t, const char **exts)
 #ifdef _WIN32
 
 #include <windows.h>
+static const char DIRSEP = '\\';
 
 static int filedialog(char *buf)
 {
@@ -243,6 +244,7 @@ static SDL_RWops *resolve_relative_path(char *path, const char **exts)
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+static const char DIRSEP = '/';
 
 static int filedialog(char *buf)
 {
@@ -274,7 +276,7 @@ static SDL_RWops *resolve_relative_path(char *path, const char **exts)
 	if (origcwd < 0) return NULL;
 	if (*bmspath && chdir(bmspath) < 0) goto exit;
 	for (; path[i = strcspn(path, "\\/")]; ++path) {
-		if (i == 0) continue;
+		if (i == 0) continue; /* skips "//" or trailing "/" etc. */
 		path[i] = '\0';
 		d = opendir(".");
 		if (!d) goto exit;
@@ -313,11 +315,11 @@ exit:
 /******************************************************************************/
 /* bms parser */
 
-enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3 };
+enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3, M_BASEPATH = 4 };
 enum { V_PLAYER = 0, V_PLAYLEVEL = 1, V_RANK = 2, V_LNTYPE = 3, V_LNOBJ = 4 };
 
 #define MAXMETADATA 1023
-static char metadata[4][MAXMETADATA+1];
+static char metadata[5][MAXMETADATA+1];
 static double bpm = 130;
 static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [V_LNOBJ]=0};
 
@@ -387,9 +389,9 @@ static void add_note(int chan, double time, int type, int index)
 static int parse_bms(struct rngstate *r)
 {
 	static const char *bmsheader[] = {
-		NULL, "TITLE", "GENRE", "ARTIST", "STAGEFILE", "BPM", "PLAYER", "PLAYLEVEL",
-		"RANK", "LNTYPE", "LNOBJ", "WAV", "BMP", "BGA", "STOP", "STP", "RANDOM",
-		"SETRANDOM", "ENDRANDOM", "IF", "ELSEIF", "ELSE", "ENDSW", "END"};
+		NULL, "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM", "PLAYER",
+		"PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP", "BGA", "STOP", "STP",
+		"RANDOM", "SETRANDOM", "ENDRANDOM", "IF", "ELSEIF", "ELSE", "ENDSW", "END"};
 
 	FILE *fp;
 	int i, j, k, a, b, c;
@@ -423,78 +425,79 @@ static int parse_bms(struct rngstate *r)
 		case 2: /* genre */
 		case 3: /* artist */
 		case 4: /* stagefile */
-			sscanf(line, "%*[ ]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i-1]);
+		case 5: /* path_wav */
+			sscanf(line, "%*[ \t]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i-1]);
 			break;
 
-		case 5: /* bpm */
-			if (sscanf(line, "%*[ ]%lf", &bpm) >= 1) {
+		case 6: /* bpm */
+			if (sscanf(line, "%*[ \t]%lf", &bpm) >= 1) {
 				/* do nothing, bpm is set */
 			} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2 && key2index(buf1, &i)) {
 				bpmtab[i] = t;
 			}
 			break;
 
-		case 6: /* player */
-		case 7: /* playlevel */
-		case 8: /* rank */
-		case 9: /* lntype */
-			sscanf(line, "%*[ ]%d", &value[i-6]);
+		case 7: /* player */
+		case 8: /* playlevel */
+		case 9: /* rank */
+		case 10: /* lntype */
+			sscanf(line, "%*[ \t]%d", &value[i-7]);
 			break;
 
-		case 10: /* lnobj */
-			if (sscanf(line, "%*[ ]" KEY_PATTERN, buf1) >= 1 && key2index(buf1, &i)) {
+		case 11: /* lnobj */
+			if (sscanf(line, "%*[ \t]" KEY_PATTERN, buf1) >= 1 && key2index(buf1, &i)) {
 				value[V_LNOBJ] = i;
 			}
 			break;
 
-		case 11: /* wav## */
-		case 12: /* bmp## */
-			if (sscanf(line, KEY_PATTERN "%*[ ]%[^\r\n]", buf1, buf2) >= 2 && key2index(buf1, &j)) {
-				char **path = (i==11 ? sndpath : imgpath);
+		case 12: /* wav## */
+		case 13: /* bmp## */
+			if (sscanf(line, KEY_PATTERN "%*[ \t]%[^\r\n]", buf1, buf2) >= 2 && key2index(buf1, &j)) {
+				char **path = (i==12 ? sndpath : imgpath);
 				free(path[j]);
 				path[j] = STRACOPY(buf2);
 			}
 			break;
 
-		case 13: /* bga## */
-			if (sscanf(line, KEY_PATTERN "%*[ ]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
+		case 14: /* bga## */
+			if (sscanf(line, KEY_PATTERN "%*[ \t]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
 			           buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8 &&
 					key2index(buf1, &bc.dst) && key2index(buf2, &bc.src)) {
 				XV_PUSH(blitcmd, bc);
 			}
 			break;
 
-		case 14: /* stop## */
-			if (sscanf(line, KEY_PATTERN "%*[ ]%d", buf1, &j) >= 2 && key2index(buf1, &i)) {
+		case 15: /* stop## */
+			if (sscanf(line, KEY_PATTERN "%*[ \t]%d", buf1, &j) >= 2 && key2index(buf1, &i)) {
 				stoptab[i] = j;
 			}
 			break;
 
-		case 15: /* stp## */
+		case 16: /* stp## */
 			if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
 				add_note(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k);
 			}
 			break;
 
-		case 16: case -16: /* random */
-		case 17: case -17: /* setrandom */
-			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
+		case 17: case -17: /* random */
+		case 18: case -18: /* setrandom */
+			if (sscanf(line, "%*[ \t]%d", &j) >= 1) {
 				/* do not generate a random value if the entire block is skipped */
 				k = (XV_LAST(rnd).ignore || XV_LAST(rnd).skip);
-				if (i == 16 && !k && j > 0) j = rng_gen(r, j) + 1;
+				if (i == 17 && !k && j > 0) j = rng_gen(r, j) + 1;
 				XV_PUSH(rnd, ((struct rnd) {.val=j, .inside=0, .ignore=0, .skip=k}));
 			}
 			break;
 
-		case 18: case -18: /* endrandom */
+		case 19: case -19: /* endrandom */
 			if (XV_SIZE(rnd) > 1) --XV_SIZE(rnd);
 			break;
 
-		case 19: case -19: /* if */
-		case 20: case -20: /* elseif */
-			if (sscanf(line, "%*[ ]%d", &j) >= 1) {
+		case 20: case -20: /* if */
+		case 21: case -21: /* elseif */
+			if (sscanf(line, "%*[ \t]%d", &j) >= 1) {
 				XV_LAST(rnd).inside = 1;
-				if (i == 19 || XV_LAST(rnd).ignore > 0) {
+				if (i == 20 || XV_LAST(rnd).ignore > 0) {
 					XV_LAST(rnd).ignore = (j <= 0 || XV_LAST(rnd).val != j);
 				} else {
 					XV_LAST(rnd).ignore = -1; /* ignore further branches */
@@ -502,12 +505,12 @@ static int parse_bms(struct rngstate *r)
 			}
 			break;
 
-		case 21: case -21: /* else */
+		case 22: case -22: /* else */
 			XV_LAST(rnd).inside = 1;
 			XV_LAST(rnd).ignore = (XV_LAST(rnd).ignore > 0 ? 0 : -1);
 			break;
 
-		case 23: case -23: /* end(if) but not endsw */
+		case 24: case -24: /* end(if) but not endsw */
 			for (j = (int) XV_SIZE(rnd); j > 0 && XV_AT(rnd,j).inside != 1; --j);
 			if (j > 0) XV_SIZE(rnd) = j + 1; /* implicitly closes #RANDOMs if needed */
 			XV_LAST(rnd).inside = XV_LAST(rnd).ignore = 0;
@@ -693,14 +696,15 @@ static void resource_loaded(const char *path);
 enum bga { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA };
 static void load_resource(enum bga range)
 {
-	SDL_Surface *temp;
+	SDL_RWops *rwops;
 	struct blitcmd bc;
 
 	for (int i = 0; i < 1296; ++i) {
 		sndres[i].ch = -1;
 		if (sndpath[i]) {
 			resource_loaded(sndpath[i]);
-			sndres[i].res = Mix_LoadWAV_RW(resolve_relative_path(sndpath[i], SOUND_EXTS), 1);
+			rwops = resolve_relative_path(sndpath[i], SOUND_EXTS);
+			if (rwops) sndres[i].res = Mix_LoadWAV_RW(rwops, 1);
 			if (!sndres[i].res) {
 				warn("failed to load sound #WAV%s (%s)", TO_KEY(i), sndpath[i]);
 			}
@@ -712,7 +716,9 @@ static void load_resource(enum bga range)
 			resource_loaded(imgpath[i]);
 			if (ext && strieq(ext, ".mpg")) {
 				if (range < BGA_BUT_NO_MOVIE) {
-					SMPEG *movie = SMPEG_new_rwops(resolve_relative_path(imgpath[i], NULL), NULL, 0);
+					SMPEG *movie = NULL;
+					rwops = resolve_relative_path(imgpath[i], NULL);
+					if (rwops) movie = SMPEG_new_rwops(rwops, NULL, 0);
 					if (!movie) {
 						warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
 					} else {
@@ -724,16 +730,18 @@ static void load_resource(enum bga range)
 					}
 				}
 			} else if (range < NO_BGA) {
-				temp = IMG_Load_RW(resolve_relative_path(imgpath[i], IMAGE_EXTS), 1);
-				if (temp) {
-					if (temp->format->Amask) {
-						imgres[i].surface = SDL_DisplayFormatAlpha(temp);
+				SDL_Surface *image = NULL;
+				rwops = resolve_relative_path(imgpath[i], IMAGE_EXTS);
+				if (rwops) image = IMG_Load_RW(rwops, 1);
+				if (image) {
+					if (image->format->Amask) {
+						imgres[i].surface = SDL_DisplayFormatAlpha(image);
 						SDL_SetAlpha(imgres[i].surface, SDL_SRCALPHA|SDL_RLEACCEL, 255);
 					} else {
-						imgres[i].surface = SDL_DisplayFormat(temp);
+						imgres[i].surface = SDL_DisplayFormat(image);
 						SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 					}
-					SDL_FreeSurface(temp);
+					SDL_FreeSurface(image);
 				} else {
 					warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
 				}
@@ -744,19 +752,19 @@ static void load_resource(enum bga range)
 	}
 
 	XV_EACH(bc, blitcmd) {
+		SDL_Surface *target = imgres[bc.dst].surface;
 		if (imgres[bc.dst].movie || imgres[bc.src].movie || !imgres[bc.src].surface) continue;
-		temp = imgres[bc.dst].surface;
-		if (!temp) {
-			imgres[bc.dst].surface = temp = newsurface(256, 256);
-			SDL_FillRect(temp, 0, SDL_MapRGB(temp->format, 0, 0, 0));
-			SDL_SetColorKey(temp, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
+		if (!target) {
+			imgres[bc.dst].surface = target = newsurface(256, 256);
+			SDL_FillRect(target, 0, SDL_MapRGB(target->format, 0, 0, 0));
+			SDL_SetColorKey(target, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
 		}
 		if (bc.x1 < 0) bc.x1 = 0;
 		if (bc.y1 < 0) bc.y1 = 0;
 		if (bc.x2 > bc.x1 + 256) bc.x2 = bc.x1 + 256;
 		if (bc.y2 > bc.y1 + 256) bc.y2 = bc.y1 + 256;
 		SDL_BlitSurface(imgres[bc.src].surface, R(bc.x1, bc.y1, bc.x2-bc.x1, bc.y2-bc.y1),
-			temp, R(bc.dx, bc.dy, 0, 0));
+			target, R(bc.dx, bc.dy, 0, 0));
 	}
 	XV_FREE(blitcmd);
 }
@@ -1736,7 +1744,6 @@ static int play_process(void)
 
 static int play(void)
 {
-	char *pos1, *pos2;
 	struct rngstate r;
 
 	if (initialize()) return 1;
@@ -1754,12 +1761,19 @@ static int play(void)
 		}
 	}
 
-	/* get basename of bmspath */
-	pos1 = strrchr(bmspath, '/');
-	if (!pos1) pos1 = bmspath;
-	pos2 = strrchr(pos1, '\\');
-	if (!pos2) pos2 = pos1;
-	*pos2 = '\0';
+	/* get basename of bmspath, or use #PATH_WAV if any */
+	if (*metadata[M_BASEPATH]) {
+		bmspath = metadata[M_BASEPATH];
+		for (int i = 0; bmspath[i]; ++i) {
+			if (bmspath[i] == '\\') bmspath[i] = '/';
+		}
+	} else {
+		char *pos1 = strrchr(bmspath, '/');
+		char *pos2 = strrchr(bmspath, '\\');
+		if (!pos1) pos1 = bmspath;
+		if (!pos2) pos2 = bmspath;
+		*(pos1>pos2 ? pos1 : pos2) = '\0';
+	}
 
 	play_show_stagefile();
 
