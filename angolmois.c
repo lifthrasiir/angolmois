@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <limits.h>
+#include <float.h>
 #include <time.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
@@ -627,9 +628,12 @@ static void sanitize_bms(void)
 {
 	int i, j, k;
 
+	for (i = 0; i < ARRAYSIZE(_shorten); ++i) {
+		if (_shorten[i] <= .001) _shorten[i] = 1;
+	}
+
 	if (!channel) return;
 	qsort(channel, nchannel, sizeof(struct bmsnote), compare_bmsnote);
-
 	for (i = 0; i < 22; ++i) {
 		if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 			int inside = 0;
@@ -686,10 +690,6 @@ static void sanitize_bms(void)
 		}
 	}
 	nchannel -= k;
-
-	for (i = 0; i < ARRAYSIZE(_shorten); ++i) {
-		if (_shorten[i] <= .001) _shorten[i] = 1;
-	}
 }
 
 /* forward declarations to keep things apart */
@@ -770,11 +770,9 @@ static void load_resource(enum bga range)
 static double adjust_object_time(double base, double offset)
 {
 	int i = (int)(base+1)-1;
-	if ((i + 1 - base) * shorten[i] > offset)
-		return base + offset / shorten[i];
+	if ((i + 1 - base) * shorten[i] > offset) return base + offset / shorten[i];
 	offset -= (i + 1 - base) * shorten[i];
-	while (shorten[++i] <= offset)
-		offset -= shorten[i];
+	while (shorten[++i] <= offset) offset -= shorten[i];
 	return i + offset / shorten[i];
 }
 
@@ -877,7 +875,7 @@ static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 		}
 		for (int i = 0; i < nchannel; ++i) channel[i].chan = perm[channel[i].chan];
 	} else if (mode <= RANDOMEX_MODF) { /* random */
-		double lasttime = -9e9;
+		double lasttime = DBL_MIN;
 		for (int i = 0; i < nchannel; ++i) {
 			if (IS_NOTE_CHANNEL(channel[i].chan) && channel[i].type == LNSTART) {
 				int j;
@@ -924,9 +922,9 @@ static int putpixel(SDL_Surface *s, int x, int y, int c)
 
 static int blend(int x, int y, int a, int b)
 {
-	int i = 0;
-	for (; i < 24; i += 8)
+	for (int i = 0; i < 24; i += 8) {
 		y += ((x>>i&255) - (y>>i&255))*a/b << i;
+	}
 	return y;
 }
 
@@ -1170,16 +1168,14 @@ static void read_keymap(void)
 	}
 }
 
-static void create_beep(void)
+static Mix_Chunk *create_beep(void)
 {
 	Sint32 samples[12000]; /* approx. 0.14 seconds */
-	int i;
-
-	for (i = 0; i < 12000; ++i) {
+	for (int i = 0; i < 12000; ++i) {
 		/* sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds. */
 		samples[i] = (i%28-14)*(i<2000 ? 2000 : (12000-i)*(12000-i)/50000);
 	}
-	beep = Mix_QuickLoad_RAW((Uint8*)samples, sizeof samples);
+	return Mix_QuickLoad_RAW((Uint8*)samples, sizeof samples);
 }
 
 static void init_video(void)
@@ -1197,8 +1193,9 @@ static void init_video(void)
 
 static int initialize(void)
 {
-	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK) < 0) {
 		die("SDL Initialization Failure: %s", SDL_GetError());
+	}
 	atexit(SDL_Quit);
 	if (opt_joystick >= 0) {
 		SDL_JoystickEventState(SDL_ENABLE);
@@ -1209,8 +1206,9 @@ static int initialize(void)
 	}
 	IMG_Init(IMG_INIT_JPG|IMG_INIT_PNG);
 	Mix_Init(MIX_INIT_OGG|MIX_INIT_MP3);
-	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0)
+	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0) {
 		die("SDL Mixer Initialization Failure: %s", Mix_GetError());
+	}
 
 	if (opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA) init_video();
 
@@ -1219,7 +1217,7 @@ static int initialize(void)
 	fontprocess(2);
 	fontprocess(3);
 	read_keymap(); /* this is unfortunate, but get_sdlkey_from_name depends on SDL_Init. */
-	create_beep();
+	beep = create_beep();
 	return 0;
 }
 
@@ -1615,14 +1613,14 @@ static int play_process(void)
 			if (pressed && nchannel) {
 				for (j = pcur; j < nchannel && !(channel[j].chan == key); ++j);
 				for (l = pcur - 1; l >= 0 && !(channel[l].chan == key); --l);
-				tmp = (l >= 0 ? line - channel[l].time : 0);
-				if (l < 0 || (j < nchannel && tmp > channel[j].time - line)) l = j;
-				if (channel[l].index) play_sound(channel[l].index, 0);
+				tmp = (l >= 0 ? line - channel[l].time : DBL_MAX);
+				if (j < nchannel && tmp > channel[j].time - line) l = j;
+				if (l >= 0 && channel[l].index) play_sound(channel[l].index, 0);
 
 				for (j = pcur; j < nchannel && !(channel[j].chan == key && channel[j].type != INVNOTE); ++j);
 				for (l = pcur - 1; l >= 0 && !(channel[l].chan == key && channel[l].type != INVNOTE); --l);
-				tmp = (l >= 0 ? line - channel[l].time : 0);
-				if (l < 0 || (j < nchannel && tmp > channel[j].time - line)) l = j;
+				tmp = (l >= 0 ? line - channel[l].time : DBL_MAX);
+				if (j < nchannel && tmp > channel[j].time - line) l = j;
 				if (l < pcheck[key]) continue;
 
 				if (channel[l].type == LNDONE) {
@@ -1788,8 +1786,9 @@ static int play(void)
 	if (!opt_mode && pcur == nchannel) {
 		if (gauge >= survival) {
 			printf("*** CLEARED! ***\n");
-			for (int i = 4; i >= 0; --i)
-				printf("%-5s %4d    %s", tgradestr[i], scocnt[i], "\n"+(i!=2));
+			for (int i = 4; i >= 0; --i) {
+				printf("%-5s %4d    %s", tgradestr[i], scocnt[i], i == 2 ? "\n" : "");
+			}
 			printf("MAX COMBO %d\nSCORE %07d (max %07d)\n", smaxcombo, score, maxscore);
 		} else {
 			printf("YOU FAILED!\n");
@@ -1855,7 +1854,7 @@ int main(int argc, char **argv)
 		 " --info", "q--no-info", "m--mirror", "s--shuffle", "S--shuffle-ex",
 		 "r--random", "R--random-ex", " --bga", "B--no-bga", " --movie", "M--no-movie",
 		 "j--joystick", NULL};
-	char buf[512]={0}, *arg;
+	char buf[512] = "", *arg;
 	int i, j, cont;
 
 	argv0 = argv[0];
