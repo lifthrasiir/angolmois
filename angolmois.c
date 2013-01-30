@@ -328,8 +328,7 @@ static XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV
 static struct { Mix_Chunk *res; int ch; } sndres[1296];
 static XV(int) sndchmap;
 static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
-static int stoptab[1296];
-static double bpmtab[1296];
+static double bpmtab[1296], stoptab[1296];
 
 #define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
 #define IS_NOTE_CHANNEL(c) ((c) < 18)
@@ -337,7 +336,7 @@ enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 }
 enum NOTE_type { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 };
 enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3 };
 enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
-enum STOP_type { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 };
+enum STOP_type { STOP_BY_MEASURE = 0, STOP_BY_MSEC = 1 };
 
 static struct bmsnote { double time; int chan, type, index, nograding:1; } *objs;
 static int nobjs;
@@ -469,7 +468,7 @@ static int parse_bms(struct rngstate *r)
 
 		case 15: /* stop## */
 			if (sscanf(line, KEY_PATTERN "%*[ \t]%d", buf1, &j) >= 2 && key2index(buf1, &i)) {
-				stoptab[i] = j;
+				stoptab[i] = j / 192.0;
 			}
 			break;
 
@@ -552,7 +551,7 @@ static int parse_bms(struct rngstate *r)
 				} else if (chan == 8) {
 					if (b) add_note(BPM_CHANNEL, t, BPM_BY_INDEX, b);
 				} else if (chan == 9) {
-					if (b) add_note(STOP_CHANNEL, t, STOP_BY_192ND_OF_MEASURE, b);
+					if (b) add_note(STOP_CHANNEL, t, STOP_BY_MEASURE, b);
 				} else if (chan >= 1*36 && chan < 7*36 && chan%36 >= 1 && chan%36 <= 9) {
 					c = NOTE_CHANNEL((chan/36-1)%2, chan%36);
 					if (chan < 3*36) { /* channel 11-29 */
@@ -840,8 +839,8 @@ static int get_bms_duration(void)
 		} else if (chan == STOP_CHANNEL) {
 			if (type == STOP_BY_MSEC) {
 				time += index;
-			} else { /* STOP_BY_192ND_OF_MEASURE */
-				time += MEASURE_TO_MSEC(stoptab[index] / 192.0, xbpm);
+			} else { /* STOP_BY_MEASURE */
+				time += MEASURE_TO_MSEC(stoptab[index], xbpm);
 			}
 		}
 		if (rtime < time + ttime) rtime = time + ttime;
@@ -1515,8 +1514,8 @@ static int play_process(void)
 			if (now >= stoptime) stoptime = now;
 			if (type == STOP_BY_MSEC) {
 				stoptime += index;
-			} else { /* STOP_BY_192ND_OF_MEASURE */
-				stoptime += (int) MEASURE_TO_MSEC(stoptab[index] / 192.0, bpm);
+			} else { /* STOP_BY_MEASURE */
+				stoptime += (int) MEASURE_TO_MSEC(stoptab[index], bpm);
 			}
 			startoffset = objs[pcur].time;
 		} else if (opt_mode && type != INVNOTE) {
