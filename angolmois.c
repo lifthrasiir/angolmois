@@ -626,70 +626,64 @@ static void remove_note(int index)
 
 static void sanitize_bms(void)
 {
-	int i, j, k;
-
-	for (i = 0; i < ARRAYSIZE(_shorten); ++i) {
+	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
 		if (_shorten[i] <= .001) _shorten[i] = 1;
 	}
 
 	if (!objs) return;
+
 	qsort(objs, nobjs, sizeof(struct bmsnote), compare_bmsnote);
-	for (i = 0; i < 22; ++i) {
-		if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
-			int inside = 0;
-			j = 0;
-			while (j < nobjs) {
-				int types = 0;
-				for (k = j; k < nobjs && objs[k].time <= objs[j].time; ++k) {
-					if (objs[k].chan != i) continue;
-					if (types & (1 << objs[k].type)) remove_note(k);
-					types |= 1 << objs[k].type;
-				}
-
-				if (inside) {
-					/* remove starting longnote if there's no ending longnote */
-					if (!(types & (1<<LNDONE))) types &= ~(1<<LNSTART);
-					/* remove visible note */
-					types &= ~(1<<NOTE);
-					/* remove invisible note if there is any longnote */
-					if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
-
-					inside = !(types & (1<<LNDONE));
-				} else {
-					/* remove starting longnote if there's also ending longnote */
-					if (types & (1<<LNDONE)) types &= ~(1<<LNSTART);
-					/* remove ending longnote */
-					types &= ~(1<<LNDONE);
-					/* keep only one note, in the order of importance */
-					types &= -types;
-
-					inside = (types & (1<<LNSTART));
-				}
-
-				for (; j < k; ++j) {
-					if (objs[j].chan != i) continue;
-
-					if (IS_NOTE_CHANNEL(i) && !(types & (1 << objs[j].type))) {
-						remove_note(j);
-					}
-				}
+	for (int i = 0; i < 22; ++i) if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
+		int inside = 0, j = 0;
+		while (j < nobjs) {
+			int k = j, types = 0;
+			for (; k < nobjs && objs[k].time <= objs[j].time; ++k) if (objs[k].chan == i) {
+				if (types & (1 << objs[k].type)) remove_note(k);
+				types |= 1 << objs[k].type;
 			}
-			if (IS_NOTE_CHANNEL(i) && inside) {
-				/* remove last starting longnote which is unfinished */
-				while (j >= 0 && objs[j].chan != i) --j;
-				if (j >= 0 && objs[j].type == LNSTART) remove_note(j);
+
+			if (inside) {
+				/* remove starting longnote if there's no ending longnote */
+				if (!(types & (1<<LNDONE))) types &= ~(1<<LNSTART);
+				/* remove visible note */
+				types &= ~(1<<NOTE);
+				/* remove invisible note if there is any longnote */
+				if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
+
+				inside = !(types & (1<<LNDONE));
+			} else {
+				/* remove starting longnote if there's also ending longnote */
+				if (types & (1<<LNDONE)) types &= ~(1<<LNSTART);
+				/* remove ending longnote */
+				types &= ~(1<<LNDONE);
+				/* keep only one note, in the order of importance */
+				types &= -types;
+
+				inside = (types & (1<<LNSTART));
+			}
+
+			for (; j < k; ++j) if (objs[i].chan == i) {
+				if (IS_NOTE_CHANNEL(i) && !(types & (1 << objs[j].type))) {
+					remove_note(j);
+				}
 			}
 		}
+		if (IS_NOTE_CHANNEL(i) && inside) {
+			/* remove last starting longnote which is unfinished */
+			for (j = nobjs - 1; j >= 0 && objs[j].chan != i; --j);
+			if (j >= 0 && objs[j].type == LNSTART) remove_note(j);
+		}
 	}
-	k = 0;
-	for (j = 0; j < nobjs; ++j) {
-		if (objs[j].chan >= 0) {
-			objs[j-k] = objs[j];
+
+	int removed = 0;
+	for (int i = 0; i < nobjs; ++i) {
+		if (objs[i].chan >= 0) {
+			objs[i - removed] = objs[i];
 		} else {
-			++k;
+			++removed;
 		}
 	}
-	nobjs -= k;
+	nobjs -= removed;
 }
 
 /* forward declarations to keep things apart */
@@ -1364,15 +1358,13 @@ static void play_prepare(void)
 
 	/* panel position */
 	j = (value[V_PLAYER] == 2 ? 9 : 18);
-	for (i = 0; i < j; ++i) {
-		if (keyorder[i] < 0) continue;
+	for (i = 0; i < j; ++i) if (keyorder[i] >= 0) {
 		tkey[keyorder[i]] = &tkeykinds[keykind[i]];
 		tkeyleft[keyorder[i]] = tpanel1;
 		tpanel1 += tkeykinds[keykind[i]].width + 1;
 	}
 	if (value[V_PLAYER] == 2) {
-		for (i = 17; i >= 9; --i) {
-			if (keyorder[i] < 0) continue;
+		for (i = 17; i >= 9; --i) if (keyorder[i] >= 0) {
 			tpanel2 -= tkeykinds[keykind[i]].width + 1;
 			tkey[keyorder[i]] = &tkeykinds[keykind[i]];
 			tkeyleft[keyorder[i]] = tpanel2 + 1;
@@ -1526,8 +1518,7 @@ static int play_process(void)
 	}
 	if (!opt_mode) {
 		for (i = 0; i < 18; ++i) {
-			for (; pcheck[i] < pcur; ++pcheck[i]) {
-				if (objs[pcheck[i]].chan != i) continue;
+			for (; pcheck[i] < pcur; ++pcheck[i]) if (objs[pcheck[i]].chan == i) {
 				j = objs[pcheck[i]].type;
 				if (objs[pcheck[i]].nograding || j == INVNOTE || (j == LNDONE && !pthru[i])) continue;
 				tmp = objs[pcheck[i]].time;
@@ -1646,22 +1637,19 @@ static int play_process(void)
 	if (opt_mode < EXCLUSIVE_MODE) {
 		SDL_FillRect(screen, R(0,30,tpanel1,490), map(0x404040));
 		if (tpanel2) SDL_FillRect(screen, R(tpanel2,30,800-tpanel2,490), map(0x404040));
-		for (i = 0; i < 18; ++i) {
-			if (!tkey[i]) continue;
+		for (i = 0; i < 18; ++i) if (tkey[i]) {
 			SDL_FillRect(screen, R(tkeyleft[i],30,tkey[i]->width,490), map(0));
 			if (keypressed[0][i] || keypressed[1][i]) {
 				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft,140,tkey[i]->width,380), screen, R(tkeyleft[i],140,0,0));
 			}
 		}
 		SDL_SetClipRect(screen, R(0,30,800,490));
-		for (i = 0; i < 18; ++i) {
-			if (!tkey[i]) continue;
+		for (i = 0; i < 18; ++i) if (tkey[i]) {
 			for (j = pfront; j < nobjs && !(objs[j].chan == i && objs[j].type != INVNOTE); ++j);
 			if (prear <= j && j < nobjs && objs[j].type == LNDONE) {
 				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), screen, R(tkeyleft[i],30,0,0));
 			}
-			for (; j < prear; ++j) {
-				if (objs[j].chan != i) continue;
+			for (; j < prear; ++j) if (objs[j].chan == i) {
 				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, objs[j].time));
 				if (objs[j].type == LNSTART) {
 					l = k + 5;
