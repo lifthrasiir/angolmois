@@ -315,11 +315,11 @@ exit:
 /******************************************************************************/
 /* bms parser */
 
-enum { M_TITLE = 0, M_GENRE = 1, M_ARTIST = 2, M_STAGEFILE = 3, M_BASEPATH = 4 };
+enum { S_TITLE = 0, S_GENRE = 1, S_ARTIST = 2, S_STAGEFILE = 3, S_BASEPATH = 4 };
 enum { V_PLAYER = 0, V_PLAYLEVEL = 1, V_RANK = 2, V_LNTYPE = 3, V_LNOBJ = 4 };
 
-#define MAXMETADATA 1023
-static char metadata[5][MAXMETADATA+1];
+#define MAXSTRING 1023
+static char string[5][MAXSTRING+1];
 static double bpm = 130;
 static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [V_LNOBJ]=0};
 
@@ -426,7 +426,7 @@ static int parse_bms(struct rngstate *r)
 		case 3: /* artist */
 		case 4: /* stagefile */
 		case 5: /* path_wav */
-			sscanf(line, "%*[ \t]%" STRINGIFY(MAXMETADATA) "[^\r\n]", metadata[i-1]);
+			sscanf(line, "%*[ \t]%" STRINGIFY(MAXSTRING) "[^\r\n]", string[i-1]);
 			break;
 
 		case 6: /* bpm */
@@ -1301,15 +1301,15 @@ static void play_show_stagefile(void)
 	if (opt_mode < EXCLUSIVE_MODE) {
 		/*
 		char ibuf[256];
-		sprintf(ibuf, "%s: %s - %s", VERSION, metadata[M_ARTIST], metadata[M_TITLE]);
+		sprintf(ibuf, "%s: %s - %s", VERSION, string[S_ARTIST], string[S_TITLE]);
 		SDL_WM_SetCaption(ibuf, 0);
 		*/
 		printstr(screen, 400, 284, 2, 1, "loading bms file...", 0x202020, 0x808080);
 		SDL_Flip(screen);
 
 		stagefile_tmp = newsurface(800, 20);
-		if (*metadata[M_STAGEFILE]) {
-			temp = IMG_Load_RW(resolve_relative_path(metadata[M_STAGEFILE], IMAGE_EXTS), 1);
+		if (*string[S_STAGEFILE]) {
+			temp = IMG_Load_RW(resolve_relative_path(string[S_STAGEFILE], IMAGE_EXTS), 1);
 			if (temp) {
 				stagefile = SDL_DisplayFormat(temp);
 				bicubic_interpolation(stagefile, screen);
@@ -1322,9 +1322,9 @@ static void play_show_stagefile(void)
 				for (j = 0; j < 42; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 				for (j = 580; j < 600; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
 			}
-			printstr(screen, 6, 4, 2, 0, metadata[M_TITLE], 0x808080, 0xffffff);
-			printstr(screen, 792, 4, 1, 2, metadata[M_GENRE], 0x808080, 0xffffff);
-			printstr(screen, 792, 20, 1, 2, metadata[M_ARTIST], 0x808080, 0xffffff);
+			printstr(screen, 6, 4, 2, 0, string[S_TITLE], 0x808080, 0xffffff);
+			printstr(screen, 792, 4, 1, 2, string[S_GENRE], 0x808080, 0xffffff);
+			printstr(screen, 792, 20, 1, 2, string[S_ARTIST], 0x808080, 0xffffff);
 			printstr(screen, 3, 582, 1, 0, buf, 0x808080, 0xffffff);
 			SDL_BlitSurface(screen, R(0,580,800,20), stagefile_tmp, R(0,0,800,20));
 		}
@@ -1334,7 +1334,7 @@ static void play_show_stagefile(void)
 				"------------------------------------------------------------------------\n"
 				"Title:    %s\nGenre:    %s\nArtist:   %s\n%s\n"
 				"------------------------------------------------------------------------\n",
-				metadata[M_TITLE], metadata[M_GENRE], metadata[M_ARTIST], buf);
+				string[S_TITLE], string[S_GENRE], string[S_ARTIST], buf);
 	}
 
 	t = SDL_GetTicks() + 3000;
@@ -1762,8 +1762,8 @@ static int play(void)
 	}
 
 	/* get basename of bmspath, or use #PATH_WAV if any */
-	if (*metadata[M_BASEPATH]) {
-		bmspath = metadata[M_BASEPATH];
+	if (*string[S_BASEPATH]) {
+		bmspath = string[S_BASEPATH];
 		for (int i = 0; bmspath[i]; ++i) {
 			if (bmspath[i] == '\\') bmspath[i] = '/';
 		}
