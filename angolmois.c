@@ -127,10 +127,9 @@ struct rngstate { uint32_t state[257]; uint8_t index; }; /* state[256] for carry
 
 static void rng_seed(struct rngstate *r, uint32_t seed)
 {
-	int i;
 	r->index = 0;
 	r->state[256] = seed;
-	for (i = 255; i >= 0; --i) {
+	for (int i = 255; i >= 0; --i) {
 		r->state[i] = 1812433253ull * (r->state[i+1] ^ (r->state[i+1] >> 30)) + i;
 	}
 }
@@ -338,8 +337,8 @@ enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
 enum STOP_type { STOP_BY_192ND_OF_MEASURE = 0, STOP_BY_MSEC = 1 };
 
 static struct bmsnote { double time; int chan, type, index, nograding:1; } *channel;
-static double _shorten[2005], *shorten = _shorten + 1;
 static int nchannel;
+static double _shorten[2005], *shorten = _shorten + 1;
 static double length;
 static int nkeys, haslongnote, haspedal, hasbpmchange;
 static int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
@@ -673,7 +672,7 @@ static void sanitize_bms(void)
 			}
 			if (IS_NOTE_CHANNEL(i) && inside) {
 				/* remove last starting longnote which is unfinished */
-				while (j >= 0 && channel[j].chan != i);
+				while (j >= 0 && channel[j].chan != i) --j;
 				if (j >= 0 && channel[j].type == LNSTART) remove_note(j);
 			}
 		}
@@ -688,9 +687,8 @@ static void sanitize_bms(void)
 	}
 	nchannel -= k;
 
-	for (i = 0; i < 2005; ++i) {
-		if (_shorten[i] <= .001)
-			_shorten[i] = 1;
+	for (i = 0; i < ARRAYSIZE(_shorten); ++i) {
+		if (_shorten[i] <= .001) _shorten[i] = 1;
 	}
 }
 
@@ -703,9 +701,8 @@ static void load_resource(enum bga range)
 {
 	SDL_Surface *temp;
 	struct blitcmd bc;
-	int i;
 
-	for (i = 0; i < 1296; ++i) {
+	for (int i = 0; i < 1296; ++i) {
 		sndres[i].ch = -1;
 		if (sndpath[i]) {
 			resource_loaded(sndpath[i]);
@@ -791,109 +788,105 @@ static double adjust_object_position(double base, double time)
 
 static void get_bms_info(void)
 {
-	int i, j;
-
 	nkeys = 5;
-	haspedal = hasbpmchange = haslongnote = nnotes = 0;
-	for (j = 0; j < nchannel; ++j) {
-		i = channel[j].chan;
-		if (i == 7 || i == 8 || i == 16 || i == 17) nkeys = 7;
-		if (i == 6 || i == 15) haspedal = 1;
-		if (i == BPM_CHANNEL) hasbpmchange = 1;
-		if (IS_NOTE_CHANNEL(i)) {
-			if (channel[j].type == LNSTART) {
+	haspedal = hasbpmchange = haslongnote = nnotes = maxscore = 0;
+	for (int i = 0; i < nchannel; ++i) {
+		int chan = channel[i].chan, type = channel[i].type;
+		if (chan == 7 || chan == 8 || chan == 16 || chan == 17) nkeys = 7;
+		if (chan == 6 || chan == 15) haspedal = 1;
+		if (chan == BPM_CHANNEL) hasbpmchange = 1;
+		if (IS_NOTE_CHANNEL(chan)) {
+			if (type == LNSTART) {
 				haslongnote = 1;
 				++nnotes;
-			} else if (channel[j].type == NOTE) {
+			} else if (type == NOTE) {
 				++nnotes;
 			}
 		}
 	}
-	for (i = 0; i < nnotes; ++i) {
+	for (int i = 0; i < nnotes; ++i) {
 		maxscore += (int)(300 * (1 + 1. * i / nnotes));
 	}
 
 	if (nkeys == 5) keyorder[6] = keyorder[7] = keyorder[15] = keyorder[16] = -1;
 	if (!haspedal) keyorder[8] = keyorder[9] = -1;
 	if (value[V_PLAYER] == 1) {
-		for (i = 9; i < 18; ++i) keyorder[i] = -1;
+		for (int i = 9; i < 18; ++i) keyorder[i] = -1;
 	}
 }
 
 static int get_bms_duration(void)
 {
-	int cur, i, j;
 	double time, rtime, ttime;
 	double pos, xbpm, tmp;
 
 	xbpm = bpm;
 	time = rtime = 0.0;
 	pos = -1;
-	for (cur = 0; cur < nchannel; ++cur) {
-		time += MEASURE_TO_MSEC(adjust_object_position(pos, channel[cur].time), xbpm);
-		i = channel[cur].index;
-		j = channel[cur].chan;
+	for (int i = 0; i < nchannel; ++i) {
+		int chan = channel[i].chan, type = channel[i].type, index = channel[i].index;
+		time += MEASURE_TO_MSEC(adjust_object_position(pos, channel[i].time), xbpm);
 		ttime = 0.0;
-		if (IS_NOTE_CHANNEL(j) || j == BGM_CHANNEL) {
-			if (i && sndres[i].res) ttime = sndres[i].res->alen / 176.4;
-		} else if (j == BPM_CHANNEL) {
-			tmp = (channel[cur].type == BPM_BY_INDEX ? bpmtab[i] : i);
+		if (IS_NOTE_CHANNEL(chan) || chan == BGM_CHANNEL) {
+			if (index && sndres[index].res) ttime = sndres[index].res->alen / 176.4;
+		} else if (chan == BPM_CHANNEL) {
+			tmp = (type == BPM_BY_INDEX ? bpmtab[index] : index);
 			if (tmp > 0) {
 				xbpm = tmp;
 			} else if (tmp < 0) {
 				time += MEASURE_TO_MSEC(adjust_object_position(-1, pos), -tmp);
-				break;
+				goto earlyexit;
 			}
-		} else if (j == STOP_CHANNEL) {
-			if (channel[cur].type == STOP_BY_MSEC) {
-				time += i;
+		} else if (chan == STOP_CHANNEL) {
+			if (type == STOP_BY_MSEC) {
+				time += index;
 			} else { /* STOP_BY_192ND_OF_MEASURE */
-				time += MEASURE_TO_MSEC(stoptab[i] / 192.0, xbpm);
+				time += MEASURE_TO_MSEC(stoptab[index] / 192.0, xbpm);
 			}
 		}
 		if (rtime < time + ttime) rtime = time + ttime;
-		pos = channel[cur].time;
+		pos = channel[i].time;
 	}
-	if (cur == nchannel) time += MEASURE_TO_MSEC(adjust_object_position(pos, length), xbpm);
+	time += MEASURE_TO_MSEC(adjust_object_position(pos, length), xbpm);
+earlyexit:
 	return (int) (time > rtime ? time : rtime);
 }
 
 enum modf { NO_MODF, MIRROR_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF, RANDOM_MODF, RANDOMEX_MODF };
 static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 {
-	int map[18], perm[22], nmap = 0;
-	int i, j, temp;
+	int perm[22], map[18], nmap = 0;
 
-	for (i = begin; i < end; ++i) {
-		j = keyorder[i];
+	for (int i = 0; i < ARRAYSIZE(perm); ++i) perm[i] = i;
+	for (int i = begin; i < end; ++i) {
+		int j = keyorder[i];
 		if (j < 0) continue;
 		if (mode != SHUFFLEEX_MODF && mode != RANDOMEX_MODF && (j%9==5 || j%9==6)) continue;
 		map[nmap++] = j;
 	}
-	for (i = 0; i < ARRAYSIZE(perm); ++i) perm[i] = i;
 
-#define SWAP(x,y) do { temp = (x); (x) = (y); (y) = temp; } while (0)
+#define SWAP(x,y) do { int temp = (x); (x) = (y); (y) = temp; } while (0)
 
 	if (mode <= MIRROR_MODF) { /* mirror */
-		for (i = 0, j = nmap-1; i < j; ++i, --j) SWAP(perm[map[i]], perm[map[j]]);
-		for (i = 0; i < nchannel; ++i) channel[i].chan = perm[channel[i].chan];
+		for (int i = 0, j = nmap-1; i < j; ++i, --j) SWAP(perm[map[i]], perm[map[j]]);
+		for (int i = 0; i < nchannel; ++i) channel[i].chan = perm[channel[i].chan];
 	} else if (mode <= SHUFFLEEX_MODF) { /* shuffle */
-		for (i = nmap-1; i > 0; --i) {
+		for (int i = nmap-1; i > 0; --i) {
 			int other = rng_gen(r, i);
 			SWAP(perm[map[i]], perm[map[other]]);
 		}
-		for (i = 0; i < nchannel; ++i) channel[i].chan = perm[channel[i].chan];
+		for (int i = 0; i < nchannel; ++i) channel[i].chan = perm[channel[i].chan];
 	} else if (mode <= RANDOMEX_MODF) { /* random */
 		double lasttime = -9e9;
-		for (i = 0; i < nchannel; ++i) {
+		for (int i = 0; i < nchannel; ++i) {
 			if (IS_NOTE_CHANNEL(channel[i].chan) && channel[i].type == LNSTART) {
+				int j;
 				for (j = 0; map[j] != channel[i].chan; ++j);
-				--nmap;
-				SWAP(map[j], map[nmap]);
+				map[j] = map[--nmap];
 			}
 			if (lasttime < channel[i].time) { /* reshuffle required */
 				lasttime = channel[i].time + 1e-4;
-				for (j = nmap-1; j > 0; --j) {
+				for (int j = nmap-1; j > 0; --j) {
 					int other = rng_gen(r, j);
 					SWAP(perm[map[j]], perm[map[other]]);
 				}
@@ -910,7 +903,6 @@ static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 /* general graphic functions */
 
 static SDL_Surface *screen;
-static SDL_Event event;
 
 static int getpixel(SDL_Surface *s, int x, int y)
 {
@@ -960,28 +952,25 @@ static int bicubic_kernel(int x, int y) {
 }
 
 static int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
-	int x, dx, y, dy, ww, hh, w, h;
-	int i, j, k, r, g, b, c, xx, yy, a[4][2], d;
+	int x, dx, y, dy;
+	const int ww = src->w - 1, hh = src->h - 1;
+	const int w = dest->w - 1, h = dest->h - 1;
 
 	dx = x = 0;
-	ww = src->w - 1;
-	hh = src->h - 1;
-	w = dest->w - 1;
-	h = dest->h - 1;
-	for (i = 0; i <= w; ++i) {
+	for (int i = 0; i <= w; ++i) {
 		dy = y = 0;
-		for (j = 0; j <= h; ++j) {
-			r = g = b = 0;
-			for (k = 0; k < 4; ++k) {
+		for (int j = 0; j <= h; ++j) {
+			int r = 0, g = 0, b = 0;
+			int a[4][2];
+			for (int k = 0; k < 4; ++k) {
 				a[k][0] = bicubic_kernel((x+k-1)*w - i*ww, w);
 				a[k][1] = bicubic_kernel((y+k-1)*h - j*hh, h);
 			}
-			for (k = 0; k < 16; ++k) {
-				xx = x + k/4 - 1;
-				yy = y + k%4 - 1;
+			for (int k = 0; k < 16; ++k) {
+				int xx = x + k/4 - 1, yy = y + k%4 - 1;
 				if (xx>=0 && xx<=ww && yy>=0 && yy<=hh) {
-					c = getpixel(src, xx, yy);
-					d = a[k/4][0] * a[k%4][1] >> 6;
+					int c = getpixel(src, xx, yy);
+					int d = a[k/4][0] * a[k%4][1] >> 6;
 					r += (c>>16) * d;
 					g += (c>>8&255) * d;
 					b += (c&255) * d;
@@ -1079,13 +1068,13 @@ static void fontprocess(int z)
 
 static void printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v)
 {
-	int i, j;
 	if (c == ' ' || c == '\t' || c == '\n' || c == '\r') return;
 	c -= (c<0 ? -96 : c<33 || c>126 ? c : 32);
-	for (i = 0; i < 16*z; ++i) {
-		for (j = 0; j < 8*z; ++j) {
-			if (zoomfont[z][i*z+j%z][c] & (1<<(7-j/z)))
+	for (int i = 0; i < 16*z; ++i) {
+		for (int j = 0; j < 8*z; ++j) {
+			if (zoomfont[z][i*z+j%z][c] & (1<<(7-j/z))) {
 				putpixel(s, x+j, y+i, blend(u, v, i, 16*z-1));
+			}
 		}
 	}
 }
@@ -1269,6 +1258,7 @@ static int lastinfo;
 
 static void check_exit(void)
 {
+	SDL_Event event;
 	while (SDL_PollEvent(&event)) {
 		if (event.type == SDL_QUIT || (event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_ESCAPE)) {
 			if (opt_mode >= EXCLUSIVE_MODE) fprintf(stderr, "\r%72s\r", "");
@@ -1444,13 +1434,13 @@ static void update_grade(int grade, int delta)
 {
 	++scocnt[grade];
 	grademode = grade;
-	gradetime = now + 700;
+	gradetime = now + 700; /* disappears after 700ms */
 	score += delta + delta * scombo / nnotes;
 
 	if (grade < 1) {
 		scombo = 0;
 		gauge -= 30;
-		poorlimit = now + 600;
+		poorlimit = now + 600; /* switches to the normal BGA after 600ms */
 	} else if (grade < 2) {
 		scombo = 0;
 		gauge -= 15;
@@ -1468,16 +1458,17 @@ static int play_process(void)
 {
 	int i, j, k, l, ibottom;
 	double bottom, top, line, tmp;
+	SDL_Event event;
 	char buf[99];
 
 	if (adjustspeed) {
-		tmp = targetspeed - playspeed;
-		if (-0.001 < tmp && tmp < 0.001) {
+		double delta = targetspeed - playspeed;
+		if (-0.001 < delta && delta < 0.001) {
 			adjustspeed = 0;
 			playspeed = targetspeed;
 			prear = pfront;
 		} else {
-			playspeed += tmp * 0.1;
+			playspeed += delta * 0.1;
 		}
 	}
 
@@ -1503,37 +1494,36 @@ static int play_process(void)
 	for (; pfront < nchannel && channel[pfront].time < bottom; ++pfront);
 	for (; prear < nchannel && channel[prear].time <= top; ++prear);
 	for (; pcur < nchannel && channel[pcur].time < line; ++pcur) {
-		i = channel[pcur].chan;
-		j = channel[pcur].index;
-		k = channel[pcur].type;
-		if (i == BGM_CHANNEL) {
-			if (j) play_sound(j, 1);
-		} else if (i == BGA_CHANNEL) {
-			if (bga[k] >= 0 && imgres[bga[k]].movie) {
-				SMPEG_stop(imgres[bga[k]].movie);
+		int chan = channel[pcur].chan, type = channel[pcur].type, index = channel[pcur].index;
+		if (chan == BGM_CHANNEL) {
+			if (index) play_sound(index, 1);
+		} else if (chan == BGA_CHANNEL) {
+			if (bga[type] >= 0 && imgres[bga[type]].movie) {
+				SMPEG_stop(imgres[bga[type]].movie);
 			}
-			bga[k] = j;
-			if (j >= 0 && imgres[j].movie) {
-				SMPEG_rewind(imgres[j].movie);
-				SMPEG_play(imgres[j].movie);
+			bga[type] = index;
+			if (index >= 0 && imgres[index].movie) {
+				SMPEG_rewind(imgres[index].movie);
+				SMPEG_play(imgres[index].movie);
 			}
-		} else if (i == BPM_CHANNEL) {
-			if ((tmp = (k == BPM_BY_INDEX ? bpmtab[j] : j))) {
+		} else if (chan == BPM_CHANNEL) {
+			double newbpm = (type == BPM_BY_INDEX ? bpmtab[index] : index);
+			if (newbpm) {
 				starttime = now;
 				startoffset = bottom;
-				bpm = tmp;
+				bpm = newbpm;
 			}
-		} else if (i == STOP_CHANNEL) {
+		} else if (chan == STOP_CHANNEL) {
 			if (now >= stoptime) stoptime = now;
-			if (k == STOP_BY_MSEC) {
-				stoptime += j;
+			if (type == STOP_BY_MSEC) {
+				stoptime += index;
 			} else { /* STOP_BY_192ND_OF_MEASURE */
-				stoptime += (int) MEASURE_TO_MSEC(stoptab[j] / 192.0, bpm);
+				stoptime += (int) MEASURE_TO_MSEC(stoptab[index] / 192.0, bpm);
 			}
 			startoffset = channel[pcur].time;
-		} else if (opt_mode && k != INVNOTE) {
-			if (j) play_sound(j, 0);
-			if (k != LNDONE) update_grade(4, 300);
+		} else if (opt_mode && type != INVNOTE) {
+			if (index) play_sound(index, 0);
+			if (type != LNDONE) update_grade(4, 300);
 		}
 	}
 	if (!opt_mode) {
@@ -1550,32 +1540,31 @@ static int play_process(void)
 	}
 
 	while (SDL_PollEvent(&event)) {
-		j = 0;
-		k = -1;
+		int down, joy = 0, key = -1;
 		switch (event.type) {
 		case SDL_QUIT:
 			return 0;
 		case SDL_KEYDOWN:
 		case SDL_KEYUP:
 			if (event.key.keysym.sym == SDLK_ESCAPE) return 0;
-			i = (event.type == SDL_KEYDOWN);
-			k = keymap[event.key.keysym.sym];
+			down = (event.type == SDL_KEYDOWN);
+			key = keymap[event.key.keysym.sym];
 			break;
 		case SDL_JOYBUTTONDOWN:
 		case SDL_JOYBUTTONUP:
-			i = (event.type == SDL_JOYBUTTONDOWN);
-			k = XV_AT(joybmap, event.jbutton.button);
+			down = (event.type == SDL_JOYBUTTONDOWN);
+			key = XV_AT(joybmap, event.jbutton.button);
 			break;
 		case SDL_JOYAXISMOTION:
-			i = (event.jaxis.value < -3200 ? -1 : event.jaxis.value > 3200 ? 1 : 0);
-			j = 1;
-			k = XV_AT(joyamap, event.jaxis.axis);
+			down = (event.jaxis.value < -3200 ? -1 : event.jaxis.value > 3200 ? 1 : 0);
+			joy = 1;
+			key = XV_AT(joyamap, event.jaxis.axis);
 			break;
 		}
 
 		if (opt_mode >= EXCLUSIVE_MODE) continue;
 
-		if (i && k == 18/*SPEED_DOWN*/) {
+		if (down && key == 18/*SPEED_DOWN*/) {
 			if (targetspeed > 20) targetspeed -= 5;
 			else if (targetspeed > 10) targetspeed -= 1;
 			else if (targetspeed > 1) targetspeed -= .5;
@@ -1585,7 +1574,7 @@ static int play_process(void)
 			Mix_PlayChannel(0, beep, 0);
 		}
 
-		if (i && k == 19/*SPEED_UP*/) {
+		if (down && key == 19/*SPEED_UP*/) {
 			if (targetspeed < 1) targetspeed += .2;
 			else if (targetspeed < 10) targetspeed += .5;
 			else if (targetspeed < 20) targetspeed += 1;
@@ -1595,18 +1584,18 @@ static int play_process(void)
 			Mix_PlayChannel(0, beep, 0);
 		}
 
-		if (opt_mode || k < 0 || k >= 18 || !tkey[k]) continue;
+		if (opt_mode || key < 0 || key >= 18 || !tkey[key]) continue;
 
-		if (!i || (j && i != keypressed[j][k])) { /* up, or down with the reverse direction */
-			l = 1;
-			if (j) {
-				keypressed[j][k] = i;
+		if (!down || (joy && down != keypressed[joy][key])) { /* up, or down with the reverse direction */
+			int unpressed = 1;
+			if (joy) {
+				keypressed[joy][key] = down;
 			} else {
-				if (keypressed[j][k] && --keypressed[j][k]) l = 0;
+				if (keypressed[joy][key] && --keypressed[joy][key]) unpressed = 0;
 			}
-			if (l && thru[k]) {
-				for (j = thru[k]; !(channel[j].chan == k && channel[j].type == LNDONE); ++j);
-				thru[k] = 0;
+			if (unpressed && thru[key]) {
+				for (j = thru[key]; !(channel[j].chan == key && channel[j].type == LNDONE); ++j);
+				thru[key] = 0;
 				tmp = MEASURE_TO_MSEC(channel[j].time - line, bpm) * shorten[(int)line] * gradefactor;
 				if (-144 < tmp && tmp < 144) {
 					channel[j].nograding = 1;
@@ -1616,33 +1605,33 @@ static int play_process(void)
 			}
 		}
 
-		if (i) { /* down */
-			l = 1;
-			if (j) {
-				keypressed[j][k] = i;
+		if (down) { /* down */
+			int pressed = 1;
+			if (joy) {
+				keypressed[joy][key] = down;
 			} else {
-				if (keypressed[j][k]++) l = 0;
+				if (keypressed[joy][key]++) pressed = 0;
 			}
-			if (l && nchannel) {
-				for (j = pcur; j < nchannel && !(channel[j].chan == k); ++j);
-				for (l = pcur - 1; l >= 0 && !(channel[l].chan == k); --l);
+			if (pressed && nchannel) {
+				for (j = pcur; j < nchannel && !(channel[j].chan == key); ++j);
+				for (l = pcur - 1; l >= 0 && !(channel[l].chan == key); --l);
 				tmp = (l >= 0 ? line - channel[l].time : 0);
 				if (l < 0 || (j < nchannel && tmp > channel[j].time - line)) l = j;
 				if (channel[l].index) play_sound(channel[l].index, 0);
 
-				for (j = pcur; j < nchannel && !(channel[j].chan == k && channel[j].type != INVNOTE); ++j);
-				for (l = pcur - 1; l >= 0 && !(channel[l].chan == k && channel[l].type != INVNOTE); --l);
+				for (j = pcur; j < nchannel && !(channel[j].chan == key && channel[j].type != INVNOTE); ++j);
+				for (l = pcur - 1; l >= 0 && !(channel[l].chan == key && channel[l].type != INVNOTE); --l);
 				tmp = (l >= 0 ? line - channel[l].time : 0);
 				if (l < 0 || (j < nchannel && tmp > channel[j].time - line)) l = j;
-				if (l < pcheck[k]) continue;
+				if (l < pcheck[key]) continue;
 
 				if (channel[l].type == LNDONE) {
-					if (thru[k]) update_grade(0, 0);
+					if (thru[key]) update_grade(0, 0);
 				} else if (!channel[l].nograding) {
 					tmp = MEASURE_TO_MSEC(channel[l].time - line, bpm) * shorten[(int)line] * gradefactor;
 					if (tmp < 0) tmp = -tmp;
 					if (tmp < 144) {
-						if (channel[l].type == LNSTART) thru[k] = l + 1;
+						if (channel[l].type == LNSTART) thru[key] = l + 1;
 						channel[l].nograding = 1;
 						update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, 300 - tmp/144*300);
 					}
@@ -1743,10 +1732,10 @@ static int play_process(void)
 	}
 
 	if (opt_bga != NO_BGA) {
+		int mask = (now < poorlimit ? poormask : bgamask);
 		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
-		i = (now < poorlimit ? poormask : bgamask);
 		for (j = 0; j < ARRAYSIZE(bga); ++j) {
-			if ((i>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
+			if ((mask>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
 				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
 			}
 		}
@@ -1761,7 +1750,6 @@ static int play_process(void)
 
 static int play(void)
 {
-	int i;
 	char *pos1, *pos2;
 	struct rngstate r;
 
@@ -1800,7 +1788,7 @@ static int play(void)
 	if (!opt_mode && pcur == nchannel) {
 		if (gauge >= survival) {
 			printf("*** CLEARED! ***\n");
-			for (i = 4; i >= 0; --i)
+			for (int i = 4; i >= 0; --i)
 				printf("%-5s %4d    %s", tgradestr[i], scocnt[i], "\n"+(i!=2));
 			printf("MAX COMBO %d\nSCORE %07d (max %07d)\n", smaxcombo, score, maxscore);
 		} else {
