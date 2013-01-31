@@ -69,6 +69,12 @@ static int strieq(const char *a, const char *b)
 	return *a == *b;
 }
 
+static int strisuffix(const char *a, const char *b)
+{
+	size_t alen = strlen(a), blen = strlen(b);
+	return alen >= blen && strieq(a + (alen - blen), b);
+}
+
 /* generic extensible vector */
 struct xv_base { ptrdiff_t xv__size, xv__alloc; };
 #define XV(...) struct { struct xv_base xv__base; __VA_ARGS__ *xv__ptr; }
@@ -331,20 +337,28 @@ static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
 static double bpmtab[1296], stoptab[1296];
 
 #define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
-#define IS_NOTE_CHANNEL(c) ((c) < 18)
+#define IS_NOTE_CHANNEL(c) ((c) >= 0 && (c) < 18)
 enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
 enum NOTE_type { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 };
 enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3 };
 enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
 enum STOP_type { STOP_BY_MEASURE = 0, STOP_BY_MSEC = 1 };
 
+static const char *preset;
+static const struct preset { const char *name1, *name2, *left, *right; } presets[] = {
+	{"5", "10", "16s 11a 12b 13a 14b 15a", "21a 22b 23a 24b 25a 26s"},
+	{"5/fp", "10/fp", "16s 11a 12b 13a 14b 15a 17p", "27p 21a 22b 23a 24b 25a 26s"},
+	{"7", "14", "16s 11a 12b 13a 14b 15a 18b 19a", "21a 22b 23a 24b 25a 28b 29a 26s"},
+	{"7/fp", "14/fp", "16s 11a 12b 13a 14b 15a 18b 19a 17p", "27p 21a 22b 23a 24b 25a 28b 29a 26s"},
+	{"9", NULL, "11q 12w 13e 14r 15t 22r 23e 24w 25q", NULL},
+	{"9-bme", NULL, "11q 12w 13e 14r 15t 18r 19e 16w 17q", NULL}};
+
 static struct bmsnote { double time; int chan, type, index, nograding:1; } *objs;
 static int nobjs;
 static double _shorten[2005], *shorten = _shorten + 1;
 static double length;
-static int nkeys, haslongnote, haspedal, hasbpmchange;
-static int keyorder[18] = {5,0,1,2,3,4,7,8,6, 15,9,10,11,12,13,16,17,14};
-static int nnotes, maxscore, duration;
+static int nleftkeys, nrightkeys, keyorder[18], keykind[18];
+static int nkeys, haslongnote, hasbpmchange, nnotes, maxscore, duration;
 
 static int getdigit(int n)
 {
@@ -612,11 +626,14 @@ static int parse_bms(struct rngstate *r)
 			}
 		}
 	}
+	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
+		if (_shorten[i] <= .001) _shorten[i] = 1;
+	}
 
 	return 0;
 }
 
-static void remove_note(int index)
+static void remove_or_replace_note(int index)
 {
 	if (IS_NOTE_CHANNEL(objs[index].chan) && objs[index].index) {
 		objs[index].chan = BGM_CHANNEL;
@@ -628,19 +645,14 @@ static void remove_note(int index)
 
 static void sanitize_bms(void)
 {
-	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
-		if (_shorten[i] <= .001) _shorten[i] = 1;
-	}
-
 	if (!objs) return;
-
 	qsort(objs, nobjs, sizeof(struct bmsnote), compare_bmsnote);
 	for (int i = 0; i < 22; ++i) if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 		int inside = 0, j = 0;
 		while (j < nobjs) {
 			int k = j, types = 0;
 			for (; k < nobjs && objs[k].time <= objs[j].time; ++k) if (objs[k].chan == i) {
-				if (types & (1 << objs[k].type)) remove_note(k);
+				if (types & (1 << objs[k].type)) remove_or_replace_note(k);
 				types |= 1 << objs[k].type;
 			}
 
@@ -666,26 +678,99 @@ static void sanitize_bms(void)
 
 			for (; j < k; ++j) if (objs[j].chan == i) {
 				if (IS_NOTE_CHANNEL(i) && !(types & (1 << objs[j].type))) {
-					remove_note(j);
+					remove_or_replace_note(j);
 				}
 			}
 		}
 		if (IS_NOTE_CHANNEL(i) && inside) {
 			/* remove last starting longnote which is unfinished */
 			for (j = nobjs - 1; j >= 0 && objs[j].chan != i; --j);
-			if (j >= 0 && objs[j].type == LNSTART) remove_note(j);
+			if (j >= 0 && objs[j].type == LNSTART) remove_or_replace_note(j);
+		}
+	}
+}
+
+static const char *detect_preset(const char *preset)
+{
+	int present[18] = {0};
+	for (int i = 0; i < nobjs; ++i) {
+		if (IS_NOTE_CHANNEL(objs[i].chan)) present[objs[i].chan] = 1;
+	}
+	if (!preset || strieq(preset, "bms") || strieq(preset, "bme") || strieq(preset, "bml")) {
+		int isbme = (present[7] || present[8] || present[16] || present[17]);
+		int haspedal = (present[6] || present[15]);
+		if (value[V_PLAYER] == 3) {
+			preset = (isbme ? (haspedal ? "14/fp" : "14") : (haspedal ? "10/fp" : "10"));
+		} else {
+			preset = (isbme ? (haspedal ? "7/fp" : "7") : (haspedal ? "5/fp" : "5"));
+		}
+	} else if (strieq(preset, "pms")) {
+		preset = (present[5] || present[6] || present[7] || present[8] ? "9-bme" : "9");
+	}
+	return preset;
+}
+
+#define KEYKIND_STRING "aybqwertsp" /* should align with tkeykinds */
+static int parse_key_spec(const char *s, int offset)
+{
+	char buf[3], kindbuf[2];
+	int chan, kind, n;
+	do {
+		if (sscanf(s, " " KEY_PATTERN "%1[" KEYKIND_STRING "] %n", buf, kindbuf, &n) < 2) return -1;
+		s += n;
+		if (!key2index(buf, &chan) || chan/36 < 1 || chan/36 > 3 || chan%36 > 9) return -1;
+		chan = NOTE_CHANNEL(chan/36-1, chan%36);
+		if (keykind[chan]) return -1;
+		kind = strcspn(KEYKIND_STRING, kindbuf);
+		if (!KEYKIND_STRING[kind]) return -1;
+		keyorder[offset++] = chan;
+		keykind[chan] = kind + 1;
+		if (*kindbuf != 's' && *kindbuf != 'p') ++nkeys; /* s/p are not counted as keys */
+	} while (*s);
+	return offset;
+}
+
+static void analyze_and_compact_bms(const char *left, const char *right)
+{
+	int i, j;
+
+	if (!left) die("No key model is specified using -k or -K");
+	nleftkeys = parse_key_spec(left, 0);
+	if (nleftkeys < 0) die("Invalid key model for left hand side: %s", left);
+	if (right && *right) {
+		nrightkeys = parse_key_spec(right, nleftkeys);
+		if (nrightkeys < 0) die("Invalid key model for right hand side: %s", right);
+		if (value[V_PLAYER] != 2) { /* no split panes */
+			nleftkeys = nrightkeys;
+			nrightkeys = 0;
 		}
 	}
 
-	int removed = 0;
-	for (int i = 0; i < nobjs; ++i) {
-		if (objs[i].chan >= 0) {
-			objs[i - removed] = objs[i];
-		} else {
-			++removed;
+	hasbpmchange = haslongnote = nnotes = maxscore = 0;
+	for (i = 0; i < nobjs; ++i) {
+		if (IS_NOTE_CHANNEL(objs[i].chan)) {
+			if (keykind[objs[i].chan]) {
+				if (objs[i].type == LNSTART) {
+					haslongnote = 1;
+					++nnotes;
+				} else if (objs[i].type == NOTE) {
+					++nnotes;
+				}
+			} else {
+				objs[i].chan = -1;
+			}
+		} else if (objs[i].chan == BPM_CHANNEL) {
+			hasbpmchange = 1;
 		}
 	}
-	nobjs -= removed;
+	for (i = 0; i < nnotes; ++i) {
+		maxscore += (int)(300 * (1 + 1. * i / nnotes));
+	}
+
+	for (i = j = 0; i < nobjs; ++i) {
+		if (objs[i].chan >= 0) objs[i-j] = objs[i]; else ++j;
+	}
+	nobjs -= j;
 }
 
 /* forward declarations to keep things apart */
@@ -711,9 +796,8 @@ static void load_resource(enum bga range)
 			sndpath[i] = 0;
 		}
 		if (imgpath[i]) {
-			char *ext = strrchr(imgpath[i], '.');
 			resource_loaded(imgpath[i]);
-			if (ext && strieq(ext, ".mpg")) {
+			if (strisuffix(imgpath[i], ".mpg")) {
 				if (range < BGA_BUT_NO_MOVIE) {
 					SMPEG *movie = NULL;
 					rwops = resolve_relative_path(imgpath[i], NULL);
@@ -783,35 +867,6 @@ static double adjust_object_position(double base, double time)
 	base = (time - j) * shorten[j] - (base - i) * shorten[i];
 	while (i < j) base += shorten[i++];
 	return base;
-}
-
-static void get_bms_info(void)
-{
-	nkeys = 5;
-	haspedal = hasbpmchange = haslongnote = nnotes = maxscore = 0;
-	for (int i = 0; i < nobjs; ++i) {
-		int chan = objs[i].chan, type = objs[i].type;
-		if (chan == 7 || chan == 8 || chan == 16 || chan == 17) nkeys = 7;
-		if (chan == 6 || chan == 15) haspedal = 1;
-		if (chan == BPM_CHANNEL) hasbpmchange = 1;
-		if (IS_NOTE_CHANNEL(chan)) {
-			if (type == LNSTART) {
-				haslongnote = 1;
-				++nnotes;
-			} else if (type == NOTE) {
-				++nnotes;
-			}
-		}
-	}
-	for (int i = 0; i < nnotes; ++i) {
-		maxscore += (int)(300 * (1 + 1. * i / nnotes));
-	}
-
-	if (nkeys == 5) keyorder[6] = keyorder[7] = keyorder[15] = keyorder[16] = -1;
-	if (!haspedal) keyorder[8] = keyorder[9] = -1;
-	if (value[V_PLAYER] == 1) {
-		for (int i = 9; i < 18; ++i) keyorder[i] = -1;
-	}
 }
 
 static int get_bms_duration(void)
@@ -1088,11 +1143,9 @@ static void printstr(SDL_Surface *s, int x, int y, int z, int a, const char *c, 
 /* main routines */
 
 static enum mode { PLAY_MODE, AUTOPLAY_MODE, EXCLUSIVE_MODE } opt_mode = PLAY_MODE;
-static int opt_showinfo = 1;
-static int opt_fullscreen = 1;
 static enum modf opt_modf = NO_MODF;
 static enum bga opt_bga = BGA_AND_MOVIE;
-static int opt_joystick = -1;
+static int opt_showinfo = 1, opt_fullscreen = 1, opt_joystick = -1;
 
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit = 0;
@@ -1108,8 +1161,10 @@ static SDL_Surface *sprite = NULL;
 static int keymap[SDLK_LAST]; /* -1: none, 0..17: notes, 18..19: speed down/up */
 static XV(int) joybmap, joyamap;
 static int keypressed[2][18]; /* keypressed[0] for buttons, keypressed[1] for axes */
-static const struct tkeykind { int spriteleft, width, color; } *tkey[18], tkeykinds[] =
-	{{0,0,0}, {0,25,0x808080}, {25,25,0x8080ff}, {50,40,0xff8080}, {90,40,0x80ff80}};
+static const struct tkeykind { int spriteleft, width, color; } *tkey[18], tkeykinds[] = {
+	{0,0,0}, {25,25,0x808080}, {50,25,0xffff80}, {75,25,0x8080ff}, {130,30,0xe0e0e0},
+	{160,30,0xffff40}, {190,30,0x80ff80}, {220,30,0x8080ff}, {250,30,0xff4040},
+	{320,40,0xff8080}, {360,40,0x80ff80}};
 static int tkeyleft[18], tpanel1 = 0, tpanel2 = 800, tbgax = 0, tbgay = 0;
 static const char *tgradestr[] = {"MISS", "BAD", "GOOD", "GREAT", "COOL"};
 static const int tgradecolor[] = {0xff4040, 0xff40ff, 0xffff40, 0x40ff40, 0x4040ff};
@@ -1293,9 +1348,9 @@ static void play_show_stagefile(void)
 	char buf[256];
 	int i, j, t;
 
-	t = sprintf(buf, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
-		value[V_PLAYLEVEL], bpm, "?"+(hasbpmchange==0), nnotes,
-		"s"+(nnotes==1), nkeys * (value[V_PLAYER]==3 ? 2 : 1), haslongnote ? "-LN" : "");
+	sprintf(buf, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
+		value[V_PLAYLEVEL], bpm, hasbpmchange ? "?" : "", nnotes,
+		nnotes == 1 ? "" : "s", nkeys, haslongnote ? "-LN" : "");
 
 	if (opt_mode < EXCLUSIVE_MODE) {
 		/*
@@ -1350,9 +1405,6 @@ static void play_show_stagefile(void)
 
 static void play_prepare(void)
 {
-	static const int keykind[18] = {3,1,2,1,2,1,2,1,4, 4,1,2,1,2,1,2,1,3};
-	int i, j, c;
-
 	/* configuration */
 	origintime = starttime = SDL_GetTicks();
 	targetspeed = playspeed;
@@ -1364,18 +1416,17 @@ static void play_prepare(void)
 	if (opt_mode >= EXCLUSIVE_MODE) return;
 
 	/* panel position */
-	j = (value[V_PLAYER] == 2 ? 9 : 18);
-	for (i = 0; i < j; ++i) if (keyorder[i] >= 0) {
-		tkey[keyorder[i]] = &tkeykinds[keykind[i]];
-		tkeyleft[keyorder[i]] = tpanel1;
-		tpanel1 += tkeykinds[keykind[i]].width + 1;
+	for (int i = 0; i < nleftkeys; ++i) {
+		int chan = keyorder[i];
+		tkey[chan] = &tkeykinds[keykind[chan]];
+		tkeyleft[chan] = tpanel1;
+		tpanel1 += tkeykinds[keykind[chan]].width + 1;
 	}
-	if (value[V_PLAYER] == 2) {
-		for (i = 17; i >= 9; --i) if (keyorder[i] >= 0) {
-			tpanel2 -= tkeykinds[keykind[i]].width + 1;
-			tkey[keyorder[i]] = &tkeykinds[keykind[i]];
-			tkeyleft[keyorder[i]] = tpanel2 + 1;
-		}
+	for (int i = nrightkeys; i >= nleftkeys; --i) { /* safely ignored if nrightkeys == 0 */
+		int chan = keyorder[i];
+		tpanel2 -= tkeykinds[keykind[chan]].width + 1;
+		tkey[chan] = &tkeykinds[keykind[chan]];
+		tkeyleft[chan] = tpanel2 + 1;
 	}
 	tbgax = tpanel1 + (tpanel2 - tpanel1 - 256) / 2;
 	tbgay = (600 - 256) / 2;
@@ -1383,30 +1434,30 @@ static void play_prepare(void)
 
 	/* sprite */
 	sprite = newsurface(1200, 600);
-	for (i = 0; i < ARRAYSIZE(tkeykinds); ++i) {
+	for (int i = 0; i < ARRAYSIZE(tkeykinds); ++i) {
 		const struct tkeykind *k = &tkeykinds[i];
-		for (j = 140; j < 520; ++j) {
+		for (int j = 140; j < 520; ++j) {
 			SDL_FillRect(sprite, R(k->spriteleft,j,k->width,1), blend(k->color, 0, j-140, 1000));
 		}
-		for (j = 0; j*2 < k->width; ++j) {
+		for (int j = 0; j*2 < k->width; ++j) {
 			SDL_FillRect(sprite, R(k->spriteleft+800+j,0,k->width-2*j,600), blend(k->color, 0xffffff, k->width-j, k->width));
 		}
 	}
-	for (j = -244; j < 556; ++j) {
-		for (i = -10; i < 20; ++i) {
-			c = (i*2+j*3+750) % 2000;
+	for (int j = -244; j < 556; ++j) {
+		for (int i = -10; i < 20; ++i) {
+			int c = (i*2+j*3+750) % 2000;
 			c = blend(0xc0c0c0, 0x606060, c>1000 ? 1850-c : c-150, 700);
 			putpixel(sprite, j+244, i+10, c);
 		}
-		for (i = -20; i < 60; ++i) {
-			c = (i*3+j*2+750) % 2000;
+		for (int i = -20; i < 60; ++i) {
+			int c = (i*3+j*2+750) % 2000;
 			c = blend(0xc0c0c0, 0x404040, c>1000 ? 1850-c : c-150, 700);
 			putpixel(sprite, j+244, i+540, c);
 		}
 	}
 	SDL_FillRect(sprite, R(tpanel1+20,0,(tpanel2?tpanel2:820)-tpanel1-40,600), 0);
-	for (i = 0; i < 20; ++i) {
-		for (j = 20; j*j+i*i > 400; --j) {
+	for (int i = 0; i < 20; ++i) {
+		for (int j = 20; j*j+i*i > 400; --j) {
 			putpixel(sprite, tpanel1+j, i+10, 0);
 			putpixel(sprite, tpanel1+j, 539-i, 0);
 			if (tpanel2) {
@@ -1744,13 +1795,30 @@ static int play_process(void)
 static int play(void)
 {
 	struct rngstate r;
+	const char *leftkeys = NULL, *rightkeys = NULL;
 
 	if (initialize()) return 1;
 	rng_seed(&r, (uint32_t) time(0));
 
 	if (parse_bms(&r)) die("Couldn't load BMS file: %s", bmspath);
 	sanitize_bms();
-	get_bms_info();
+
+	if (!preset && strisuffix(bmspath, ".pms")) preset = "pms";
+	preset = detect_preset(preset);
+	for (int i = 0; i < ARRAYSIZE(presets); ++i) {
+		if (strieq(preset, presets[i].name1)) {
+			leftkeys = presets[i].left;
+			break;
+		}
+		if (presets[i].name2 && strieq(preset, presets[i].name2)) {
+			leftkeys = presets[i].left;
+			rightkeys = presets[i].right;
+			break;
+		}
+	}
+	if (!leftkeys) die("Invalid preset name: %s", preset);
+
+	analyze_and_compact_bms(leftkeys, rightkeys);
 	if (opt_modf) {
 		if (value[V_PLAYER] == 2) {
 			shuffle_bms(opt_modf, &r, 0, 9);
@@ -1807,7 +1875,7 @@ int usage(void)
 		"%s -- the simple BMS player\n"
 		"http://mearie.org/projects/angolmois/\n\n"
 		"Usage: %s <options> <path>\n"
-		"  Accepts any BMS, BME or BML file.\n"
+		"  Accepts any BMS, BME, BML or PMS file.\n"
 		"  Resources should be in the same directory as the BMS file.\n\n"
 		"Options:\n"
 		"  -h, --help            This help\n"
@@ -1826,6 +1894,7 @@ int usage(void)
 		"  -S, --shuffle-ex      Uses a shuffle modifier, even for scratches\n"
 		"  -r, --random          Uses a random modifier\n"
 		"  -R, --random-ex       Uses a random modifier, even for scratches\n"
+		"  -k <preset>           Forces a use of given key preset (default: bms)\n"
 		"  --bga                 Loads and shows the BGA (default)\n"
 		"  -B, --no-bga          Do not load and show the BGA\n"
 		"  -M, --no-movie        Do not load and show the BGA movie\n"
@@ -1849,14 +1918,17 @@ int usage(void)
 
 int main(int argc, char **argv)
 {
-	static char *longargs[] =
+	static const char *longargs[] =
 		{"h--help", "V--version", "a--speed", "v--autoplay", "x--exclusive",
 		 "X--sound-only", "w--windowed", "w--no-fullscreen", " --fullscreen",
 		 " --info", "q--no-info", "m--mirror", "s--shuffle", "S--shuffle-ex",
-		 "r--random", "R--random-ex", " --bga", "B--no-bga", " --movie", "M--no-movie",
-		 "j--joystick", NULL};
+		 "r--random", "R--random-ex", "k--preset", " --bga", "B--no-bga",
+		 " --movie", "M--no-movie", "j--joystick", NULL};
 	char buf[512] = "", *arg;
-	int i, j, cont;
+	int i, j;
+
+#define FETCH_ARG(arg, opt) if (((arg) = argv[i][++j] ? argv[i]+j : argv[++i])) {} \
+                            else die("No argument to the option -%c", (opt))
 
 	argv0 = argv[0];
 	for (i = 1; i < argc; ++i) {
@@ -1876,9 +1948,10 @@ int main(int argc, char **argv)
 				}
 				if (!longargs[j]) die("Invalid option: %s", argv[i]);
 			}
-			for (j = cont = 1; cont; ++j) {
+			for (j = 1; argv[i][j]; ++j) {
 				switch (argv[i][j]) {
-				case 'h': case 'V': return usage();
+				case 'h': return usage();
+				case 'V': printf("%s\n", VERSION); return 0;
 				case 'v': opt_mode = AUTOPLAY_MODE; break;
 				case 'x': opt_mode = EXCLUSIVE_MODE; break;
 				case 'X': opt_mode = EXCLUSIVE_MODE; opt_bga = NO_BGA; break;
@@ -1889,25 +1962,18 @@ int main(int argc, char **argv)
 				case 'S': opt_modf = SHUFFLEEX_MODF; break;
 				case 'r': opt_modf = RANDOM_MODF; break;
 				case 'R': opt_modf = RANDOMEX_MODF; break;
+				case 'k': FETCH_ARG(preset, 'k'); goto endofarg;
 				case 'a':
-					cont = 0;
-					arg = argv[i][++j] ? argv[i]+j : argv[++i];
-					if (!arg) die("No argument to the option -a");
+					FETCH_ARG(arg, 'a');
 					playspeed = atof(arg);
 					if (playspeed <= 0) playspeed = 1;
 					if (playspeed < .1) playspeed = .1;
 					if (playspeed > 99) playspeed = 99;
-					break;
+					goto endofarg;
 				case 'B': opt_bga = NO_BGA; break;
 				case 'M': opt_bga = BGA_BUT_NO_MOVIE; break;
-				case 'j':
-					cont = 0;
-					arg = argv[i][++j] ? argv[i]+j : argv[++i];
-					if (!arg) die("No argument to the option -q");
-					opt_joystick = atoi(arg);
-					break;
-				case '\0': cont = 0;
-				case ' ': break;
+				case 'j': FETCH_ARG(arg, 'j'); opt_joystick = atoi(arg); goto endofarg;
+				case ' ': break; /* for ignored long options */
 				default:
 					if (argv[i][j] >= '1' && argv[i][j] <= '9') {
 						playspeed = argv[i][j] - '0';
@@ -1916,6 +1982,7 @@ int main(int argc, char **argv)
 					}
 				}
 			}
+		endofarg:;
 		}
 	}
 
