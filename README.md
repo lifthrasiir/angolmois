@@ -417,10 +417,10 @@ the file name starts with `-`.
 ### File name
 
 An argument not starting with `-` is considered a file name. You need the full
-path to BMS/BME/BML/PMS file (the extension does not really matter though),
-and other image and sound files are resolved in the directory where
-the BMS/BME/BML/PMS file is (unless `#PATH_WAV` is in effect; see the "BMS
-support status" section).
+path to BMS/BME/BML/PMS file (except for PMS, the extension does not really
+matter though), and other image and sound files are resolved in the directory
+where the BMS/BME/BML/PMS file is (unless `#PATH_WAV` is in effect; see the
+"BMS support status" section).
 
 You may have two or more file names, but only the first is used. Multiple file
 names are reserved for later extension.
