@@ -664,7 +664,7 @@ static void sanitize_bms(void)
 				inside = (types & (1<<LNSTART));
 			}
 
-			for (; j < k; ++j) if (objs[i].chan == i) {
+			for (; j < k; ++j) if (objs[j].chan == i) {
 				if (IS_NOTE_CHANNEL(i) && !(types & (1 << objs[j].type))) {
 					remove_note(j);
 				}
