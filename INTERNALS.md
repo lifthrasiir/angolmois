@@ -90,7 +90,7 @@ certainly ill-designed however, so it may change without a notice.
 ### Resources
 
 In the following commands, `<path>` refers to the file path relative to the
-BMS/BME/BML file (or `#PATH_WAV` if any). The file path may contain
+BMS/BME/BML/PMS file (or `#PATH_WAV` if any). The file path may contain
 directory separators `/` or `\` which are automatically normalized. The file
 name matching is done case-insensitively even in non-Windows platforms.
 
@@ -201,14 +201,18 @@ measure bars and nothing else. Angolmois ignores a measure size less than
 
 * Channels `1x` and `2x`
 
-Angolmois supports four basic key models, namely 5KEY, 7KEY, 10KEY and 14KEY.
-The first two are used for `#PLAYER 1` and others are for `#PLAYER 2` and
-`#PLAYER 3`. The names reflect the number of keys besides the scratch (which
-5KEY and 7KEY have one, and 10KEY and 14KEY have two).
+Angolmois supports five basic key models, namely 5KEY, 7KEY, 9KEY, 10KEY and
+14KEY. The first two are used for `#PLAYER 1` and 9KEY is used for `pms` key
+preset and others are for `#PLAYER 2` and `#PLAYER 3`. The names reflect
+the number of keys besides the scratch and foot pedal (which 5KEY and 7KEY
+have one, 9KEY has none, and 10KEY and 14KEY have two).
 
 Angolmois automatically distinguishes 5KEY and 10KEY from 7KEY and 14KEY, by
 counting the number of objects in channels `18`, `19`, `28` and `29`.
-(Therefore objects in `28` may trigger 7KEY even for `#PLAYER 1`.)
+(Therefore objects in `28` may trigger 7KEY even for `#PLAYER 1`.) Similarily,
+it automatically distinguishes two variants of PMS channels from each other by
+counting the number of objects in channels `16`, `17`, `18` and `19`. This
+automatic format detection can be suppressed with `--preset` option.
 
 Angolmois supports channels `17` and `27` as foot pedals (sort of); if those
 channels are not empty, the pedal lane is added to the right (for 10KEY and

@@ -35,9 +35,10 @@ Features
   mode").
 
 * Supports many recent BMS extensions.
-  Basically, BME, BML (`#LNTYPE 1`, `#LNTYPE 2`, `#LNOBJ`), foot pedals,
+  Basically, BME, BML (`#LNTYPE 1`, `#LNTYPE 2`, `#LNOBJ`), PMS, foot pedals,
   variable BPMs, support for various image/sound formats, multiple movie
-  support and so on. See the "BMS support status" section below.
+  support, advanced control flow and so on. See the "BMS support status"
+  section below.
 
 * Rudimentary game play.
   While it is a big laggy and strange, Angolmois at least supports basic game
@@ -355,6 +356,23 @@ accidentally swapped into the longnote.
 Enables a random modifier, but also affects the scratch and foot pedal
 (if any). Otherwise same as `--random`.
 
+### `--preset <string>`, `-k <string>`
+
+Sets the key preset. The key preset is a predefined specification of how lanes
+are ordered and displayed. The following preset names are available:
+
+* `5` and `5/fp`: One scratch, 5 keys, one foot pedal (only for `5/fp`)
+* `7` and `7/fp`: One scratch, 7 keys, one foot pedal (only for `7/fp`)
+* `10` and `10/fp`: Two scratches, 10 keys, two foot pedals (only for `10/fp`)
+* `14` and `14/fp`: Two scratches, 14 keys, two foot pedals (only for `14/fp`)
+* `9`: 9 buttons with channels `11`--`15` and `22`--`25`
+* `9-bme`: 9 buttons with channels `11`--`19`
+* `bms`, `bme` or `bml`: Selects one of `{5,7,10,14}[/fp]` automatically
+* `pms`: Selects one of `9` and `9-bme` automatically
+
+All names are case-insensitive. If not specified, Angolmois automatically uses
+the preset `pms` for files which name ends with `.pms` and `bms` for others.
+
 ### `--bga`
 
 Loads and shows the BGA.
@@ -399,16 +417,16 @@ the file name starts with `-`.
 ### File name
 
 An argument not starting with `-` is considered a file name. You need the full
-path to BMS/BME/BML file (the extension does not really matter though), and
-other image and sound files are resolved in the directory where
-the BMS/BME/BML file is (unless `#PATH_WAV` is in effect; see the "BMS support
-status" section).
+path to BMS/BME/BML/PMS file (the extension does not really matter though),
+and other image and sound files are resolved in the directory where
+the BMS/BME/BML/PMS file is (unless `#PATH_WAV` is in effect; see the "BMS
+support status" section).
 
 You may have two or more file names, but only the first is used. Multiple file
 names are reserved for later extension.
 
 If the file name is missing, and if you are using Windows version of
-Angolmois, the file dialog will ask for the BMS/BME/BML file. This makes
+Angolmois, the file dialog will ask for the BMS/BME/BML/PMS file. This makes
 a batch file using Angolmois relatively easier. In the other platforms, you
 may use [dialog][dialog] or [zenity][zenity] for similar functionality.
 
