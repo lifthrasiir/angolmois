@@ -510,7 +510,7 @@ static int parse_bms(struct rngstate *r)
 			break;
 
 		case 24: case -24: /* end(if) but not endsw */
-			for (j = (int) XV_SIZE(rnd); j > 0 && XV_AT(rnd,j).inside != 1; --j);
+			for (j = (int) XV_SIZE(rnd) - 1; j > 0 && XV_AT(rnd,j).inside != 1; --j);
 			if (j > 0) XV_SIZE(rnd) = j + 1; /* implicitly closes #RANDOMs if needed */
 			XV_LAST(rnd).inside = XV_LAST(rnd).ignore = 0;
 			break;
