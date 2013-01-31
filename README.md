@@ -34,7 +34,7 @@ Features
   The music player is possible with the headless autoplay mode ("exclusive
   mode").
 
-* Supports relatively recent BMS extensions.
+* Supports many recent BMS extensions.
   Basically, BME, BML (`#LNTYPE 1`, `#LNTYPE 2`, `#LNOBJ`), foot pedals,
   variable BPMs, support for various image/sound formats, multiple movie
   support and so on. See the "BMS support status" section below.
@@ -59,13 +59,15 @@ You need a C compiler with full C99 support. The author typically uses GCC 4.6
 or later, but earlier versions or Clang may work. Have a path to the compiler
 in your `$PATH`.
 
-You also need the following libraries:
+You also need the following dependencies:
 
+* [pkg-config][pkgconfig]
 * [SDL][sdl] version 1.2.15 or later (but not 2.0)
 * [SDL\_image][sdlimage] version 1.2 or later
 * [SDL\_mixer][sdlmixer] version 1.2 or later
 * [smpeg][smpeg] version 0.4 or later
 
+[pkgconfig]: http://www.freedesktop.org/wiki/Software/pkg-config
 [sdl]: http://www.libsdl.org/
 [sdlimage]: http://www.libsdl.org/projects/SDL_image/
 [sdlmixer]: http://www.libsdl.org/projects/SDL_mixer/
@@ -85,7 +87,10 @@ Then the following command will do the work:
 
 	$ make
 
-If not, you should check the result of `sdl-config --cflags --libs` first.
+If not, you should check the result of the following commands first:
+
+* `pkg-config --cflags --libs sdl SDL_image SDL_mixer`
+* `smpeg-config --cflags --libs`
 
 
 How To Compile (Windows)
@@ -99,8 +104,12 @@ runtime, sigh.)
 
 [mingw]: http://mingw.org/
 
-And again, you need the libraries as above. Windows development without Visual
-studio is certainly complicated, so please download the following files:
+In theory, the above instruction should also apply to MSYS environment. In
+reality, MinGW does not come with a good package manager so it is hard to
+follow. So in this section I'll give an instruction which is barely enough to
+compile Angolmois and nothing else.
+
+Download the following files:
 
 * [SDL][sdl]: `SDL-devel-1.2.*-mingw32.tar.gz`
 * [SDL\_image][sdlimage]: `SDL_image-devel-1.2.*-VC.zip` (yes, this is fine)
@@ -118,13 +127,8 @@ directory as is and `lib\x64` or `lib\x86` (depending on your Windows
 settings) directory to `lib` directory. Then copy all DLL files to
 the directory where `angolmois.c` lives.
 
-Launch MSYS and go to the directory mentioned above. The following command
-is supposed to do the work:
-
-	$ make
-
-...but normally not, as `sdl-config` is broken. So try the following command
-instead if the above does not work:
+Angolmois' `Makefile` assumes that pkg-config is available, so it won't work.
+Try the following command instead if `make` does not work:
 
 	$ cc -Os -Wunused -Wall -W -std=c99 angolmois.c \
 	  `sdl-config --prefix=/mingw --cflags --libs` \
@@ -224,243 +228,307 @@ The following facts will be useful for more serious players:
   are hardcore, you may even find a hidden pattern (disguised as other files)!
 
 
-Usage
------
+Command Line Options
+--------------------
 
 Angolmois uses a command line for controlling its behavior. The following
 options are available:
 
-`--help`, `-h`
-:	Shows a brief usage.
+### `--help`, `-h`
 
-`--version`, `-V`
-:	Shows a version of Angolmois.
+Shows a brief usage.
 
-`--speed <number>`, `-a <number>`
-:	Sets the initial play speed to `<number>`. The default speed is 1.0x
-	(equivalent to `-a 1.0`).
+### `--version`, `-V`
 
-	The play speed can range from `0.1` to `99.0`. Other than that, you can
-	set it as you want, for example to 3.1415x. The play speed can also be
-	changed with F3/F4 keys (or keys specified in `ANGOLMOIS_SPEED_KEYS`)
-	during the game play, but this is limited to predefined speeds only.
+Shows a version of Angolmois.
 
-	The play speed does not affect the grading, and is only provided for
-	convenience.
+### `--speed <number>`, `-a <number>`
 
-`-1` to `-9`
-:	Same as `--speed 1.0` to `--speed 9.0`.
+Sets the initial play speed to `<number>`. The default speed is 1.0x
+(equivalent to `-a 1.0`).
 
-`--autoplay`, `-v`
-:	Enables the AUTO PLAY (viewer) mode. In this mode, you can only adjust
-	the play speed and the simulated play will be displayed.
+The play speed can range from `0.1` to `99.0`. Other than that, you can set it
+as you want, for example to 3.1415x. The play speed can also be changed with
+F3/F4 keys (or keys specified in `ANGOLMOIS_SPEED_KEYS`) during the game play,
+but this is limited to predefined speeds only.
 
-`--exclusive`, `-x`
-:	Enables the exclusive mode. In this mode, the screen is reduced to 256 by
-	256 pixels and the game play screen is entirely missing. The play position
-	and information is displayed in the console. The ESC key still works when
-	the screen is on focus, but other keys won't work.
+The play speed does not affect the grading, and is only provided for
+convenience.
 
-	`--fullscreen` is ignored in the exclusive mode; the screen will always
-	launch in the new window.
+### `-1` to `-9`
 
-	If `--no-bga` (`-B`) option is also present, the screen does not launch at
-	all and it becomes the sound only mode. In this mode you can only stop
-	the playback with Ctrl-C (or equivalent signals like SIGINT).
+Same as `--speed 1.0` to `--speed 9.0`.
 
-`--sound-only`, `-X`
-:	Enables the sound only mode. Same as `--exclusive --no-bga`.
+### `--autoplay`, `-v`
 
-`--fullscreen`
-:	Enables the fullscreen mode. Your graphics driver should support 800x600
-	screen resolution (otherwise it will exit immediately).
+Enables the AUTO PLAY (viewer) mode. In this mode, you can only adjust
+the play speed and the simulated play will be displayed.
 
-	This is default, so there is actually no point to use this option.
+### `--exclusive`, `-x`
 
-`--no-fullscreen`, `-w`
-:	Enables the windowed mode. The window is measured 800x600 or 256x256
-	depending on the mode. You need to focus the screen for key input (so
-	beware of your meta or Windows key!).
+Enables the *exclusive mode*. In this mode, the screen is reduced to 256 by
+256 pixels and the game play screen is entirely missing. The play position and
+information is displayed in the console. The ESC key still works when
+the screen is on focus, but other keys won't work.
 
-`--info`
-:	Shows a brief information about the song. In the normal mode, this will be
-	overlayed on the loading screen; in the other modes it will print to
-	the console.
+`--fullscreen` is ignored in the exclusive mode; the screen will always launch
+in the new window.
 
-	This is default, so there is actually no point to use this option.
+If `--no-bga` (`-B`) option is also present, the screen does not launch at all
+and it becomes the sound only mode. In this mode you can only stop
+the playback with Ctrl-C (or equivalent signals like SIGINT).
 
-`--no-info`, `-q`
-:	Does not show an information about the song. In the normal mode, this will
-	only affect the loading screen. In the other modes, this will disable all
-	output to the console (song information and playback status). This does
-	not disable any warning or error message however.
+### `--sound-only`, `-X`
 
-`--mirror`, `-m`
-:	Enables a mirror modifier, if this is the last specified modifier. (This
-	is common to other modifiers; modifiers do not overlap each other.)
+Enables the sound only mode. Same as `--exclusive --no-bga`.
 
-	The mirror modifier flips the entire chart horizontally, except for
-	the scratch and foot pedal (if any). You should input the keys
-	accordingly; if a note at key 1 is moved to key 5 then you should press
-	key 5. The modifier does not affect the timing (in fact, no modifier does
-	so).
+### `--fullscreen`
 
-	This is useful for patterns with many notes crowded in only one side.
+Enables the fullscreen mode. Your graphics driver should support 800x600
+screen resolution (otherwise it will exit immediately).
 
-`--shuffle`, `-s`
-:	Enables a shuffle modifier.
+This is default, so there is actually no point to use this option.
 
-	The shuffle modifier swaps keys randomly. If, however, you have several
-	notes common to one key, then those keys will move altogether.
-	The modifier does not affect the scratch and foot pedal (if any).
+### `--no-fullscreen`, `-w`
 
-	This is useful for patterns with notes continuously flowing one side to
-	another side (so called "floors"), as this makes a single hand handle too
-	many notes. The modifier may break the chain, splitting the load to both
-	hands.
+Enables the windowed mode. The window is measured 800x600 or 256x256 depending
+on the mode. You need to focus the screen for key input (so beware of your
+meta or Windows key!).
 
-`--shuffle-ex`, `-S`
-:	Enables a shuffle modifier, but also affects the scratch and foot pedal
-	(if any). Otherwise same as `--shuffle`.
+### `--info`
 
-`--random`, `-r`
-:	Enables a random modifier.
+Shows a brief information about the song. In the normal mode, this will be
+overlayed on the loading screen; in the other modes it will print to
+the console.
 
-	The random modifier swaps *notes* randomly. This means that you never know
-	where the notes comes from, even if you fully memoized the chart. This
-	also tends to make patterns hard to handle. You have been warned. ;)
+This is default, so there is actually no point to use this option.
 
-	This option handles long notes correctly, so there won't be a note
-	accidentally swapped into the longnote.
+### `--no-info`, `-q`
 
-`--random-ex`, `-R`
-:	Enables a random modifier, but also affects the scratch and foot pedal (if
-	any). Otherwise same as `--random`.
+Does not show an information about the song. In the normal mode, this will
+only affect the loading screen. In the other modes, this will disable all
+output to the console (song information and playback status). This does not
+disable any warning or error message however.
 
-`--bga`
-:	Loads and shows the BGA.
+### `--mirror`, `-m`
 
-	This is default, so there is actually no point to use this option.
+Enables a mirror modifier, if this is the last specified modifier. (This is
+common to other modifiers; modifiers do not overlap each other.)
 
-`--no-bga`, `-B`
-:	Do not load and show the BGA. This is useful when you don't like
-	distracted by the BGA, or you can't wait for the BGA loaded.
+The mirror modifier flips the entire chart horizontally, except for
+the scratch and foot pedal (if any). You should input the keys accordingly;
+if a note at key 1 is moved to key 5 then you should press key 5. The modifier
+does not affect the timing (in fact, no modifier does so).
 
-	Combined with `--exclusive`, this option disables the screen. See
-	`--exclusive` for more information.
+This is useful for patterns with many notes crowded in only one side.
 
-`--no-movie`, `-M`
-:	Do not load and show the BGA movie. This is useful when your system is
-	slow so the BGA lags the entire game.
+### `--shuffle`, `-s`
 
-`--joystick <index>`, `-j <index>`
-:	Enables the joystick. The `<index>` is normally 0, but if you have
-	multiple joystick-compatible devices it can be higher. Ultimately you test
-	for the correct value.
+Enables a shuffle modifier.
 
-	Angolmois' joystick implementation is targeted to the consumer _Beatmania_
-	controller and its clones, so other devices may not work. If your device
-	does not work with Angolmois, you may try joystick-to-keyboard utilities
-	like [Joy2Key][joy2key].
+The shuffle modifier swaps keys randomly. If, however, you have several notes
+common to one key, then those keys will move altogether. The modifier does not
+affect the scratch and foot pedal (if any).
 
-	Joystick input slightly differs from normal keyboard input. Most
-	importantly, spinning the scratch forward and backward becomes different
-	inputs (e.g. breaking the long note input).
+This is useful for patterns with notes continuously flowing one side to
+another side (so called "floors"), as this makes a single hand handle too many
+notes. The modifier may break the chain, splitting the load to both hands.
 
-`--`
-:	Ends the option processing. You need this option before the file name if
-	the file name starts with `-`.
+### `--shuffle-ex`, `-S`
 
-File name
-:	An argument not starting with `-` is considered a file name. You need
-	the full path to BMS/BME/BML file (the extension does not really matter
-	though), and other image and sound files are resolved in the directory
-	where the BMS/BME/BML file is.
+Enables a shuffle modifier, but also affects the scratch and foot pedal
+(if any). Otherwise same as `--shuffle`.
 
-	You may have two or more file names, but only the first is used. Multiple
-	file names are reserved for later extension.
+### `--random`, `-r`
 
-	If the file name is missing, and if you are using Windows version of
-	Angolmois, the file dialog will ask for the BMS/BME/BML file. This makes
-	a batch file using Angolmois relatively easier. In the other platforms,
-	you may use [dialog][dialog] or [zenity][zenity] for similar
-	functionality.
+Enables a random modifier.
+
+The random modifier swaps *notes* randomly. This means that you never know
+where the notes comes from, even if you fully memoized the chart. This also
+tends to make patterns hard to handle. You have been warned. ;)
+
+This option handles long notes correctly, so there won't be a note
+accidentally swapped into the longnote.
+
+### `--random-ex`, `-R`
+
+Enables a random modifier, but also affects the scratch and foot pedal
+(if any). Otherwise same as `--random`.
+
+### `--bga`
+
+Loads and shows the BGA.
+
+This is default, so there is actually no point to use this option.
+
+### `--no-bga`, `-B`
+
+Do not load and show the BGA. This is useful when you don't like distracted by
+the BGA, or you can't wait for the BGA loaded.
+
+Combined with `--exclusive`, this option disables the screen. See
+`--exclusive` for more information.
+
+### `--no-movie`, `-M`
+
+Do not load and show the BGA movie. This is useful when your system is slow so
+the BGA lags the entire game.
+
+### `--joystick <index>`, `-j <index>`
+
+Enables the joystick. The `<index>` is normally 0, but if you have multiple
+joystick-compatible devices it can be higher. Ultimately you test for
+the correct value.
+
+Angolmois' joystick implementation is targeted to the consumer _Beatmania_
+controller and its clones, so other devices may not work. If your device
+does not work with Angolmois, you may try joystick-to-keyboard utilities like
+[Joy2Key][joy2key].
+
+Joystick input slightly differs from normal keyboard input. Most importantly,
+spinning the scratch forward and backward becomes different inputs
+(e.g. breaking the long note input).
 
 [joy2key]: http://www.electracode.com/4/joy2key/JoyToKey%20English%20Version.htm
+
+### `--`
+
+Ends the option processing. You need this option before the file name if
+the file name starts with `-`.
+
+### File name
+
+An argument not starting with `-` is considered a file name. You need the full
+path to BMS/BME/BML file (the extension does not really matter though), and
+other image and sound files are resolved in the directory where
+the BMS/BME/BML file is (unless `#PATH_WAV` is in effect; see the "BMS support
+status" section).
+
+You may have two or more file names, but only the first is used. Multiple file
+names are reserved for later extension.
+
+If the file name is missing, and if you are using Windows version of
+Angolmois, the file dialog will ask for the BMS/BME/BML file. This makes
+a batch file using Angolmois relatively easier. In the other platforms, you
+may use [dialog][dialog] or [zenity][zenity] for similar functionality.
+
 [dialog]: http://invisible-island.net/dialog/dialog.html
 [zenity]: http://library.gnome.org/users/zenity/stable/
+
+
+Environment Variables
+---------------------
 
 The keys for Angolmois can be controlled with the environment variables
 (except for ESC, which is always used as an exit key):
 
-`ANGOLMOIS_1P_KEYS`
-:	Sets the keys for 1P. The environment variable should follow the following
-	format:
-	
-		<key1>|<key2>|<key3>|<key4>|<key5>|<scratch>|<pedal>|<key6>|<key7>
+### `ANGOLMOIS_1P_KEYS`
 
-	...where `<key1>` etc. are actual keys for key 1. The actual keys are
-	specified as a SDL virtual key name, such as `a`, `right shift`, or `f1`.
-	(See the list in the [SDL wiki][sdlkeys].) The name is case-insensitive.
+Sets the keys for 1P. The environment variable should follow the following
+format:
 
-	Multiple keys can be set, by separating each key name with `%`. (It looks
-	obscure, but SDL uses lots of punctuations as a key name so we have no
-	other choices.) Angolmois considers that the key is being pressed when
-	the first actual key mapped to it is being pressed, and the key is being
-	unpressed when the last actual key mapped to it is being unpressed.
-	Unpressing one key while other mapped keys are pressed is ignored.
+	<key1>|<key2>|<key3>|<key4>|<key5>|<scratch>|<pedal>|<key6>|<key7>
 
-	When the joystick is available, special key names `button <index>` and
-	`axis <index>` can be used. The `<index>` should be a number from 0 to
-	the number of buttons/axes minus 1. Note that the joystick axis is
-	considered as an input when the axis is out of the origin by more than 10%
-	of its range, and moving the axis from one end to another end is
-	considered as unpressing then pressing the key (this is how the consumer
-	_Beatmania_ controller works). This may not suitable for other devices.
-
-	The default value is as follows:
-
-	* `<scratch>`: `left shift`, `axis 3`
-	* `<key1>`: `z`, `button 3`
-	* `<key2>`: `s`, `button 6`
-	* `<key3>`: `x`, `button 2`
-	* `<key4>`: `d`, `button 7`
-	* `<key5>`: `c`, `button 1`
-	* `<key6>`: `f`, `button 4`
-	* `<key7>`: `v`, `axis 2`
-	* `<pedal>`: `left alt`
-
-`ANGOLMOIS_2P_KEYS`
-:	Sets the keys for 1P. Same as `ANGOLMOIS_1P_KEYS`, and the default value
-	is as follows:
-
-	* `<scratch>`: `right shift`
-	* `<key1>`: `m`
-	* `<key2>`: `k`
-	* `<key3>`: `,`
-	* `<key4>`: `l`
-	* `<key5>`: `.`
-	* `<key6>`: `;`
-	* `<key7>`: `/`
-	* `<pedal>`: `right alt`
-
-`ANGOLMOIS_SPEED_KEYS`
-:	Sets the keys for play speed change. The format is as follows:
-
-		<speed down>|<speed up>
-
-	Otherwise same as above. The default value is as follows:
-
-	* `<speed down>`: `f3`
-	* `<speed up>`: `f4`
+...where `<key1>` etc. are actual keys for key 1. The actual keys are
+specified as a SDL virtual key name, such as `a`, `right shift`, or `f1`.
+(See the list in the [SDL wiki][sdlkeys].) The name is case-insensitive.
 
 [sdlkeys]: http://www.libsdl.org/cgi/docwiki.cgi/SDLKey
+
+Multiple keys can be set, by separating each key name with `%`. (It looks
+obscure, but SDL uses lots of punctuations as a key name so we have no other
+choices.) Angolmois considers that the key is being pressed when the first
+actual key mapped to it is being pressed, and the key is being unpressed when
+the last actual key mapped to it is being unpressed. Unpressing one key while
+other mapped keys are pressed is ignored.
+
+When the joystick is available, special key names `button <index>` and `axis
+<index>` can be used. The `<index>` should be a number from 0 to the number of
+buttons/axes minus 1. Note that the joystick axis is considered as an input
+when the axis is out of the origin by more than 10% of its range, and moving
+the axis from one end to another end is considered as unpressing then pressing
+the key (this is how the consumer _Beatmania_ controller works). This may not
+suitable for other devices.
+
+The default value is as follows:
+
+* `<scratch>`: `left shift`, `axis 3`
+* `<key1>`: `z`, `button 3`
+* `<key2>`: `s`, `button 6`
+* `<key3>`: `x`, `button 2`
+* `<key4>`: `d`, `button 7`
+* `<key5>`: `c`, `button 1`
+* `<key6>`: `f`, `button 4`
+* `<key7>`: `v`, `axis 2`
+* `<pedal>`: `left alt`
+
+### `ANGOLMOIS_2P_KEYS`
+
+Sets the keys for 1P. Same as `ANGOLMOIS_1P_KEYS`, and the default value is as
+follows:
+
+* `<scratch>`: `right shift`
+* `<key1>`: `m`
+* `<key2>`: `k`
+* `<key3>`: `,`
+* `<key4>`: `l`
+* `<key5>`: `.`
+* `<key6>`: `;`
+* `<key7>`: `/`
+* `<pedal>`: `right alt`
+
+### `ANGOLMOIS_SPEED_KEYS`
+
+Sets the keys for play speed change. The format is as follows:
+
+	<speed down>|<speed up>
+
+Otherwise same as above. The default value is as follows:
+
+* `<speed down>`: `f3`
+* `<speed up>`: `f4`
 
 
 BMS Support Status
 ------------------
 
-(This section is a work in progress.)
+In brief, Angolmois supports the following commands and channels:
+
+* `#ARTIST <string>`
+* `#BGAxx yy <integer> <integer> <integer> <integer> <integer> <integer>`
+* `#BMPxx <path>`
+* `#BPM <number>`
+* `#BPMxx <number>`
+* `#ELSE`
+* `#ELSEIF <integer>`
+* `#ENDIF` (actually, `#END`)
+* `#ENDRANDOM`
+* `#GENRE <string>`
+* `#IF <integer>`
+* `#LNOBJ xx`
+* `#LNTYPE 1`, `#LNTYPE 2`
+* `#PATH_WAV <path>`
+* `#PLAYER 1`, `#PLAYER 2` (limited), `#PLAYER 3`
+* `#PLAYLEVEL <integer>`
+* `#RANDOM <integer>`
+* `#RANK <integer>`
+* `#SETRANDOM <integer>`
+* `#STAGEFILE <path>`
+* `#STOPxx <integer>`
+* `#STP<integer>.<integer> <integer>`
+* `#TITLE <string>`
+* `#WAVxx <path>`
+* Channel  `01` for BGM
+* Channel  `02` for measure rescaling
+* Channels `03` and `08` for variable BPM
+* Channels `04`, `06` and `07` for BGA and POOR BGA
+* Channel  `09` for STOP
+* Channels `1x` and `2x` for visible objects
+* Channels `3x` and `4x` for invisible objects
+* Channels `5x` and `6x` for long-note objects
+
+Due to the sheer amount of contents, the remainder of this section has been
+moved to `INTERNALS.md` file.
 
 
 Appendix: What is BMS?
