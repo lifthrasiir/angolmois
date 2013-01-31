@@ -181,9 +181,12 @@ Again, stopping scroll for certain amount of time (hereafter "STOP") is
 supported with a similar caveat as variable BPM. You can specify a STOP time
 as a multiple of 192nd of measure (`#STOPxx` and channel `09`) or milliseconds
 (`#STP`). Angolmois will choose one of them arbitrarily if they are in
-the same position.
+the same position.[^3]
 
 Negative STOP time will cause a crash. Do not try this at home.
+
+[^3]: The current implementation does have a preference for milliseconds, but
+      this behavior may change without a notice.
 
 ### Data Section
 
@@ -193,29 +196,97 @@ strip preceding and trailing whitespace.
 * Channel `02` (defaults to 1.0)
 
 Technically speaking, the size of measure affects the interval of horizontal
-measure bars and nothing else. Angolmois does not support a measure size less
-than 0.001.
+measure bars and nothing else. Angolmois ignores a measure size less than
+0.001, including negative ones.
 
-* Channel `1x` and `2x`
+* Channels `1x` and `2x`
 
-...
+Angolmois supports four basic key models, namely 5KEY, 7KEY, 10KEY and 14KEY.
+The first two are used for `#PLAYER 1` and others are for `#PLAYER 2` and
+`#PLAYER 3`. The names reflect the number of keys besides the scratch (which
+5KEY and 7KEY have one, and 10KEY and 14KEY have two).
+
+Angolmois automatically distinguishes 5KEY and 10KEY from 7KEY and 14KEY, by
+counting the number of objects in channels `18`, `19`, `28` and `29`.
+(Therefore objects in `28` may trigger 7KEY even for `#PLAYER 1`.)
+
+Angolmois supports channels `17` and `27` as foot pedals (sort of); if those
+channels are not empty, the pedal lane is added to the right (for 10KEY and
+14KEY, two pedal lanes are added in the middle of keys). BM98's FREE ZONE,
+which also uses these channels, is explicitly unsupported.
+
+* Long notes
+
+The player should press the key when the start of the long note is within
+the grading area, and should release the key when the end of the long note is
+within the grading area. If the first grading is missed (MISS) the second
+grading does not happen at all. If the first grading is done (BAD or better),
+and the player releases the key before or after the second grading area, then
+the second grading results in MISS. Consequently, once MISS is given no
+further grading happens for that long note.
+
+In Angolmois, a single long note has two key sounds assigned (one at its start
+and one at its end). The first key sound is played during the first grading
+(unless it results in MISS); the second key sound is not played, but it is
+treated similar to invisible objects (channels `3x` and `4x`).
+
+* Channels `3x` and `4x`
+
+Invisible objects may appear at any positions as long as they does not
+coincide with other visible objects or long note endpoints (in which case
+the object is reused as a BGM). This means that invisible objects may appear
+*inside* the long note, which may be played when the player missed the start
+of a long note and jammed the keyboard at anger before the long note is
+finished.
+
+Angolmois always plays a key sound closest to the current position in terms of
+measure. The grading and playing a key sound is done independently; it is very
+possible that the key sound for the closest invisible object is played and
+the closest visible object (without a key sound) is graded. This behavior can
+be exploited to, for instance, play different sounds according to the grading.
 
 * `#LNOBJ xx`
 
-...
+Forces the key `xx` in channels `1x` and `2x` to be used as an end marker for
+long notes. The end marker also forces the last visible object before it to
+become a start of a long note. Long notes defined in this manner are resolved
+after parsing, so the *last* normal object may be defined after an end marker.
+`xx` is ignored if it is the first visible object or the last visible object
+before it have been used as an end marker. `xx` is used as a key sound at the
+end of long notes defined in this manner.
 
-* Channel `3x` and `4x`
-
-...
+`#LNOBJ` can be used with channels `5x` and `6x`. In this case, the resolution
+for `#LNOBJ` and one for channels `5x` and `6x` is done independently (as if
+each other does not exist) and combined later. Angolmois does its best effort
+to fix problematic charts (e.g. overlapping long notes); offending objects
+that have been removed will be reused as BGMs. This process is also used for
+avoiding delicate parsing problems in channels `5x` and `6x` alone.
 
 * `#LNTYPE 1` (default)
-* Channel `5x` and `6x`
+* Channels `5x` and `6x`
 
-...
+Forces every matching pair of two non-`00` keys in those channels to be a
+start and end of new long note. (Both keys are assigned as a key sound.)
+
+The matching is resolved after parsing like `#LNOBJ`, but if the same measure
+for those channels is defined multiple times then Angolmois matches pairs of
+keys in the order of appearance in that measure. This may result in
+problematic charts, which are later fixed as described above. BMS writers
+should avoid writing the same measure multiple times for those channels.
 
 * `#LNTYPE 2`
+* Channels `5x` and `6x`
 
-...
+Forces every consecutive row of the same non-`00` keys to be a long note. Only
+a start of the long note is assigned a key sound of given key. Angolmois will
+split the long note if it consists of consecutive but non-equal keys. This
+behavior may change if it turned out to be incompatible.
+
+Again the row is resolved after parsing, but as like `#LNTYPE 1`, defining
+the same measure multiple times may result in problematic charts. (Unlike
+`#LNTYPE 1`, such construction in `#LNTYPE 2` almost always result in a
+problem.) BMS writers should avoid writing the same measure multiple times for
+those channels.
 
 ### Control Flow
 
@@ -260,4 +331,15 @@ innermost `#RANDOM` blocks without no open `#IF` block.
 Angolmois assumes every line starting with `#END` as the end of `#IF` block,
 except for `#ENDRANDOM` and `#ENDSW` (unsupported but disambiguated). This is
 intended to handle occasional mistakes like `#END IF`.
+
+
+Development Policy
+------------------
+
+Angolmois has an unusual policy that limits a number of its lines of code in
+order to be compact and avoid implementing unimportant features, that is
+unrelated to actual game play or can be replaced by other libraries or tools.
+The threshold is currently 2,000 lines. (It is rumored that Angolmois 3.0 will
+increase the threshold to 3,000 lines. This observation is actually consistent
+with Angolmois 1.0...)
 

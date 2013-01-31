@@ -573,7 +573,7 @@ static int parse_bms(struct rngstate *r)
 						if (value[V_LNTYPE] == 1 && b) {
 							if (prev[c]) {
 								prev[c] = 0;
-								add_note(c, t, LNDONE, 0);
+								add_note(c, t, LNDONE, b);
 							} else {
 								prev[c] = b;
 								add_note(c, t, LNSTART, b);
@@ -1518,9 +1518,9 @@ static int play_process(void)
 				stoptime += (int) MEASURE_TO_MSEC(stoptab[index], bpm);
 			}
 			startoffset = objs[pcur].time;
-		} else if (opt_mode && type != INVNOTE) {
+		} else if (opt_mode && (type == NOTE || type == LNSTART)) {
 			if (index) play_sound(index, 0);
-			if (type != LNDONE) update_grade(4, 300);
+			update_grade(4, 300);
 		}
 	}
 	if (!opt_mode) {
