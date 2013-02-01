@@ -336,9 +336,10 @@ static XV(int) sndchmap;
 static struct { SDL_Surface *surface; SMPEG *movie; } imgres[1296];
 static double bpmtab[1296], stoptab[1296];
 
-#define NOTE_CHANNEL(player, chan) ((player)*9+(chan)-1)
-#define IS_NOTE_CHANNEL(c) ((c) >= 0 && (c) < 18)
-enum { BGM_CHANNEL = 18, BGA_CHANNEL = 19, BPM_CHANNEL = 20, STOP_CHANNEL = 21 };
+#define NNOTECHANS (2*36)
+#define IS_NOTE_CHANNEL(c) ((c) >= 0 && (c) < NNOTECHANS)
+enum { BGM_CHANNEL = NNOTECHANS, BGA_CHANNEL = NNOTECHANS+1, BPM_CHANNEL = NNOTECHANS+2,
+	STOP_CHANNEL = NNOTECHANS+3, NCHANS = NNOTECHANS+3 };
 enum NOTE_type { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 };
 enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3 };
 enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
@@ -357,7 +358,7 @@ static struct bmsnote { double time; int chan, type, index, nograding:1; } *objs
 static int nobjs;
 static double _shorten[2005], *shorten = _shorten + 1;
 static double length;
-static int nleftkeys, nrightkeys, keyorder[18], keykind[18];
+static int nleftkeys, nrightkeys, keyorder[NNOTECHANS], keykind[NNOTECHANS];
 static int nkeys, haslongnote, hasbpmchange, nnotes, maxscore, duration;
 
 static int getdigit(int n)
@@ -407,8 +408,8 @@ static int parse_bms(struct rngstate *r)
 		"RANDOM", "SETRANDOM", "ENDRANDOM", "IF", "ELSEIF", "ELSE", "ENDSW", "END"};
 
 	FILE *fp;
-	int i, j, k, a, b, c;
-	int measure = 0, chan, prev[18] = {0}, lprev[18] = {0}, iprev[18] = {0};
+	int i, j, k, a, b, measure = 0, chan;
+	int prev[NNOTECHANS] = {0}, lprev[NNOTECHANS] = {0}, iprev[NNOTECHANS] = {0};
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
 	struct blitcmd bc;
@@ -566,47 +567,46 @@ static int parse_bms(struct rngstate *r)
 					if (b) add_note(BPM_CHANNEL, t, BPM_BY_INDEX, b);
 				} else if (chan == 9) {
 					if (b) add_note(STOP_CHANNEL, t, STOP_BY_MEASURE, b);
-				} else if (chan >= 1*36 && chan < 7*36 && chan%36 >= 1 && chan%36 <= 9) {
-					c = NOTE_CHANNEL((chan/36-1)%2, chan%36);
-					if (chan < 3*36) { /* channel 11-29 */
-						if (b) {
-							if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
-								if (iprev[c] && objs[iprev[c]-1].type==NOTE) {
-									objs[iprev[c]-1].type = LNSTART;
-									add_note(c, t, LNDONE, b);
-									iprev[c] = 0;
-								}
-							} else {
-								add_note(c, t, NOTE, b);
-								iprev[c] = nobjs;
-							}
-						}
-					} else if (chan < 5*36) { /* channel 31-49 */
-						if (b) add_note(c, t, INVNOTE, b);
-					} else { /* channel 51-69 */
-						if (value[V_LNTYPE] == 1 && b) {
-							if (prev[c]) {
-								prev[c] = 0;
+				} else if (chan >= 1*36 && chan < 3*36) { /* channels 1x/2x */
+					int c = chan - 1*36;
+					if (b) {
+						if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
+							if (iprev[c] && objs[iprev[c]-1].type==NOTE) {
+								objs[iprev[c]-1].type = LNSTART;
 								add_note(c, t, LNDONE, b);
-							} else {
-								prev[c] = b;
+								iprev[c] = 0;
+							}
+						} else {
+							add_note(c, t, NOTE, b);
+							iprev[c] = nobjs;
+						}
+					}
+				} else if (chan >= 3*36 && chan < 5*36) { /* channels 3x/4x */
+					if (b) add_note(chan - 3*36, t, INVNOTE, b);
+				} else if (chan >= 5*36 && chan < 7*36) { /* channels 5x/6x */
+					int c = chan - 5*36;
+					if (value[V_LNTYPE] == 1 && b) {
+						if (prev[c]) {
+							prev[c] = 0;
+							add_note(c, t, LNDONE, b);
+						} else {
+							prev[c] = b;
+							add_note(c, t, LNSTART, b);
+						}
+					} else if (value[V_LNTYPE] == 2) {
+						if (prev[c] || prev[c] != b) {
+							if (prev[c]) {
+								if (lprev[c] + 1 < measure) {
+									add_note(c, lprev[c]+1, LNDONE, 0);
+								} else if (prev[c] != b) {
+									add_note(c, t, LNDONE, 0);
+								}
+							}
+							if (b && (prev[c]!=b || lprev[c]+1<measure)) {
 								add_note(c, t, LNSTART, b);
 							}
-						} else if (value[V_LNTYPE] == 2) {
-							if (prev[c] || prev[c] != b) {
-								if (prev[c]) {
-									if (lprev[c] + 1 < measure) {
-										add_note(c, lprev[c]+1, LNDONE, 0);
-									} else if (prev[c] != b) {
-										add_note(c, t, LNDONE, 0);
-									}
-								}
-								if (b && (prev[c]!=b || lprev[c]+1<measure)) {
-									add_note(c, t, LNSTART, b);
-								}
-								lprev[c] = measure;
-								prev[c] = b;
-							}
+							lprev[c] = measure;
+							prev[c] = b;
 						}
 					}
 				}
@@ -617,13 +617,11 @@ static int parse_bms(struct rngstate *r)
 	XV_FREE(bmsline);
 
 	length = measure + 2;
-	for (i = 0; i < 18; ++i) {
-		if (prev[i]) {
-			if (value[V_LNTYPE] == 2 && lprev[i] + 1 < measure) {
-				add_note(i, lprev[i]+1, LNDONE, 0);
-			} else {
-				add_note(i, length - 1, LNDONE, 0);
-			}
+	for (i = 0; i < ARRAYSIZE(prev); ++i) if (prev[i]) {
+		if (value[V_LNTYPE] == 2 && lprev[i] + 1 < measure) {
+			add_note(i, lprev[i]+1, LNDONE, 0);
+		} else {
+			add_note(i, length - 1, LNDONE, 0);
 		}
 	}
 	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
@@ -647,7 +645,7 @@ static void sanitize_bms(void)
 {
 	if (!objs) return;
 	qsort(objs, nobjs, sizeof(struct bmsnote), compare_bmsnote);
-	for (int i = 0; i < 22; ++i) if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
+	for (int i = 0; i < NCHANS; ++i) if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 		int inside = 0, j = 0;
 		while (j < nobjs) {
 			int k = j, types = 0;
@@ -692,20 +690,20 @@ static void sanitize_bms(void)
 
 static const char *detect_preset(const char *preset)
 {
-	int present[18] = {0};
+	int present[NNOTECHANS] = {0};
 	for (int i = 0; i < nobjs; ++i) {
 		if (IS_NOTE_CHANNEL(objs[i].chan)) present[objs[i].chan] = 1;
 	}
 	if (!preset || strieq(preset, "bms") || strieq(preset, "bme") || strieq(preset, "bml")) {
-		int isbme = (present[7] || present[8] || present[16] || present[17]);
-		int haspedal = (present[6] || present[15]);
+		int isbme = (present[8] || present[9] || present[36+8] || present[36+9]);
+		int haspedal = (present[7] || present[36+7]);
 		if (value[V_PLAYER] == 2 || value[V_PLAYER] == 3) {
 			preset = (isbme ? (haspedal ? "14/fp" : "14") : (haspedal ? "10/fp" : "10"));
 		} else {
 			preset = (isbme ? (haspedal ? "7/fp" : "7") : (haspedal ? "5/fp" : "5"));
 		}
 	} else if (strieq(preset, "pms")) {
-		preset = (present[5] || present[6] || present[7] || present[8] ? "9-bme" : "9");
+		preset = (present[6] || present[7] || present[8] || present[9] ? "9-bme" : "9");
 	}
 	return preset;
 }
@@ -719,9 +717,9 @@ static int parse_key_spec(const char *s, int offset)
 	do {
 		if (sscanf(s, " " KEY_PATTERN "%1[" KEYKIND_STRING "] %n", buf, kindbuf, &n) < 2) return -1;
 		s += n;
-		if (!key2index(buf, &chan) || chan/36 < 1 || chan/36 > 3 || chan%36 > 9) return -1;
-		chan = NOTE_CHANNEL(chan/36-1, chan%36);
-		if (keykind[chan]) return -1;
+		if (!key2index(buf, &chan)) return -1;
+		chan -= 1*36;
+		if (chan < 0 || chan >= NNOTECHANS || keykind[chan]) return -1;
 		kind = strcspn(KEYKIND_STRING, kindbuf);
 		if (!KEYKIND_STRING[kind]) return -1;
 		keyorder[offset++] = chan;
@@ -907,7 +905,7 @@ earlyexit:
 enum modf { NO_MODF, MIRROR_MODF, SHUFFLE_MODF, SHUFFLEEX_MODF, RANDOM_MODF, RANDOMEX_MODF };
 static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 {
-	int perm[22], map[18], nmap = 0;
+	int perm[NCHANS], map[NNOTECHANS], nmap = 0;
 
 	for (int i = 0; i < ARRAYSIZE(perm); ++i) perm[i] = i;
 	for (int i = begin; i < end; ++i) {
@@ -1147,7 +1145,7 @@ static int opt_showinfo = 1, opt_fullscreen = 1, opt_joystick = -1;
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit = 0;
 static double startoffset = -1, startshorten = 1;
-static int pcur, pfront, prear, pcheck[18], pthru[18]; /* indices (pointers) to objs */
+static int pcur, pfront, prear, pcheck[NNOTECHANS], pthru[NNOTECHANS]; /* indices to objs */
 static int bga[] = {[BGA_LAYER]=-1, [BGA2_LAYER]=-1, [BGA3_LAYER]=-1, [POORBGA_LAYER]=0};
 static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER), poormask = (1<<POORBGA_LAYER);
 static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
@@ -1155,14 +1153,15 @@ static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256, survival = 150;
 
 static SDL_Surface *sprite = NULL;
-static int keymap[SDLK_LAST]; /* -1: none, 0..17: notes, 18..19: speed down/up */
+static int keymap[SDLK_LAST]; /* -1: none, 0..NNOTECHANS-1: notes, +0..+1: speed down/up */
 static XV(int) joybmap, joyamap;
-static int keypressed[2][18]; /* keypressed[0] for buttons, keypressed[1] for axes */
-static const struct tkeykind { int spriteleft, width, color; } *tkey[18], tkeykinds[] = {
+static int keypressed[2][NNOTECHANS]; /* keypressed[0] for buttons, keypressed[1] for axes */
+struct tkeykind { int spriteleft, width, color; };
+static const struct tkeykind *tkey[NNOTECHANS], tkeykinds[] = {
 	{0,0,0}, {25,25,0x808080}, {50,25,0xffff80}, {75,25,0x8080ff}, {130,30,0xe0e0e0},
 	{160,30,0xffff40}, {190,30,0x80ff80}, {220,30,0x8080ff}, {250,30,0xff4040},
 	{320,40,0xff8080}, {360,40,0x80ff80}};
-static int tkeyleft[18], tpanel1 = 0, tpanel2 = 800, tbgax = 0, tbgay = 0;
+static int tkeyleft[NNOTECHANS], tpanel1 = 0, tpanel2 = 800, tbgax = 0, tbgay = 0;
 static const char *tgradestr[] = {"MISS", "BAD", "GOOD", "GREAT", "COOL"};
 static const int tgradecolor[] = {0xff4040, 0xff40ff, 0xffff40, 0x40ff40, 0x4040ff};
 
@@ -1184,9 +1183,9 @@ static void read_keymap(void)
 {
 	static const struct { const char *name, *def; int base, limit; } envvars[] = {
 		{"ANGOLMOIS_1P_KEYS", "z%button 3|s%button 6|x%button 2|d%button 7|c%button 1|"
-		                      "left shift%axis 3|left alt|f%button 4|v%axis 2", 0, 9},
-		{"ANGOLMOIS_2P_KEYS", "m|k|,|l|.|right shift|right alt|;|/", 9, 18},
-		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", 18, 20},
+		                      "left shift%axis 3|left alt|f%button 4|v%axis 2", 1, 10},
+		{"ANGOLMOIS_2P_KEYS", "m|k|,|l|.|right shift|right alt|;|/", 36+1, 36+10},
+		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", NNOTECHANS, NNOTECHANS+2},
 	};
 	char *s, buf[256] = "";
 	int i, j, k, l, sep, *p;
@@ -1196,7 +1195,7 @@ static void read_keymap(void)
 	XV_EACHPTR(p, joybmap) *p = -1;
 	XV_EACHPTR(p, joyamap) *p = -1;
 
-	for (i = 0; i < 3; ++i) {
+	for (i = 0; i < ARRAYSIZE(envvars); ++i) {
 		s = getenv(envvars[i].name);
 		strncpy(buf, s ? s : envvars[i].def, sizeof(buf) - 1);
 		s = buf;
@@ -1572,7 +1571,7 @@ static int play_process(void)
 		}
 	}
 	if (!opt_mode) {
-		for (i = 0; i < 18; ++i) {
+		for (i = 0; i < ARRAYSIZE(pcheck); ++i) {
 			for (; pcheck[i] < pcur; ++pcheck[i]) if (objs[pcheck[i]].chan == i) {
 				j = objs[pcheck[i]].type;
 				if (objs[pcheck[i]].nograding || j == INVNOTE || (j == LNDONE && !pthru[i])) continue;
@@ -1608,7 +1607,7 @@ static int play_process(void)
 
 		if (opt_mode >= EXCLUSIVE_MODE) continue;
 
-		if (down && key == 18/*SPEED_DOWN*/) {
+		if (down && key == NNOTECHANS/*SPEED_DOWN*/) {
 			if (targetspeed > 20) targetspeed -= 5;
 			else if (targetspeed > 10) targetspeed -= 1;
 			else if (targetspeed > 1) targetspeed -= .5;
@@ -1618,7 +1617,7 @@ static int play_process(void)
 			Mix_PlayChannel(0, beep, 0);
 		}
 
-		if (down && key == 19/*SPEED_UP*/) {
+		if (down && key == NNOTECHANS+1/*SPEED_UP*/) {
 			if (targetspeed < 1) targetspeed += .2;
 			else if (targetspeed < 10) targetspeed += .5;
 			else if (targetspeed < 20) targetspeed += 1;
@@ -1628,7 +1627,7 @@ static int play_process(void)
 			Mix_PlayChannel(0, beep, 0);
 		}
 
-		if (opt_mode || key < 0 || key >= 18 || !tkey[key]) continue;
+		if (opt_mode || key < 0 || key >= NNOTECHANS || !tkey[key]) continue;
 
 		if (!down || (joy && down != keypressed[joy][key])) { /* up, or down with the reverse direction */
 			int unpressed = 1;
@@ -1692,14 +1691,14 @@ static int play_process(void)
 	if (opt_mode < EXCLUSIVE_MODE) {
 		SDL_FillRect(screen, R(0,30,tpanel1,490), map(0x404040));
 		if (tpanel2) SDL_FillRect(screen, R(tpanel2,30,800-tpanel2,490), map(0x404040));
-		for (i = 0; i < 18; ++i) if (tkey[i]) {
+		for (i = 0; i < ARRAYSIZE(tkey); ++i) if (tkey[i]) {
 			SDL_FillRect(screen, R(tkeyleft[i],30,tkey[i]->width,490), map(0));
 			if (keypressed[0][i] || keypressed[1][i]) {
 				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft,140,tkey[i]->width,380), screen, R(tkeyleft[i],140,0,0));
 			}
 		}
 		SDL_SetClipRect(screen, R(0,30,800,490));
-		for (i = 0; i < 18; ++i) if (tkey[i]) {
+		for (i = 0; i < ARRAYSIZE(tkey); ++i) if (tkey[i]) {
 			for (j = pfront; j < nobjs && !(objs[j].chan == i && objs[j].type != INVNOTE); ++j);
 			if (prear <= j && j < nobjs && objs[j].type == LNDONE) {
 				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), screen, R(tkeyleft[i],30,0,0));
