@@ -699,7 +699,7 @@ static const char *detect_preset(const char *preset)
 	if (!preset || strieq(preset, "bms") || strieq(preset, "bme") || strieq(preset, "bml")) {
 		int isbme = (present[7] || present[8] || present[16] || present[17]);
 		int haspedal = (present[6] || present[15]);
-		if (value[V_PLAYER] == 1 || value[V_PLAYER] == 2) {
+		if (value[V_PLAYER] == 2 || value[V_PLAYER] == 3) {
 			preset = (isbme ? (haspedal ? "14/fp" : "14") : (haspedal ? "10/fp" : "10"));
 		} else {
 			preset = (isbme ? (haspedal ? "7/fp" : "7") : (haspedal ? "5/fp" : "5"));
@@ -755,7 +755,7 @@ static void analyze_and_compact_bms(const char *left, const char *right)
 					++nnotes;
 				}
 			} else {
-				objs[i].chan = -1;
+				remove_or_replace_note(i);
 			}
 		} else if (objs[i].chan == BPM_CHANNEL) {
 			hasbpmchange = 1;
