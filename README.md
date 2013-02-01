@@ -7,8 +7,9 @@ distinction of natively supporting multiple platforms and relatively recent
 BMS extensions.
 
 Please refer the official website at <http://mearie.org/projects/angolmois/>.
-If you don't know about BMS, read the introductory section at the end of this
-document first.
+Angolmois is in active development, and you can report any bug or suggestion
+to <https://github.com/lifthrasiir/angolmois/issues>. If you don't know about
+BMS, read the introductory section at the end of this document first.
 
 [bms]: http://en.wikipedia.org/wiki/Be-Music_Source
 [bm98]: http://bm98.yaneu.com/bm98/
@@ -444,14 +445,17 @@ The keys for Angolmois can be controlled with the environment variables
 
 ### `ANGOLMOIS_1P_KEYS`
 
-Sets the keys for 1P. The environment variable should follow the following
-format:
+Sets the keys for 1P. This environment variable is only used for BMS, BME or
+BML files (see `ANGOLMOIS_XXy_KEY` for actual details). The environment
+variable should follow the following format:
 
-	<key1>|<key2>|<key3>|<key4>|<key5>|<scratch>|<pedal>|<key6>|<key7>
+	<scratch>|<key1>|<key2>|<key3>|<key4>|<key5>|<key6>|<key7>|<pedal>
 
 ...where `<key1>` etc. are actual keys for key 1. The actual keys are
 specified as a SDL virtual key name, such as `a`, `right shift`, or `f1`.
 (See the list in the [SDL wiki][sdlkeys].) The name is case-insensitive.
+You can leave the name as an empty string if you are not interested in that
+key (e.g. no 7KEY); in that case that key cannot be pressed in the game.
 
 [sdlkeys]: http://www.libsdl.org/cgi/docwiki.cgi/SDLKey
 
@@ -484,10 +488,14 @@ The default value is as follows:
 
 ### `ANGOLMOIS_2P_KEYS`
 
-Sets the keys for 1P. Same as `ANGOLMOIS_1P_KEYS`, and the default value is as
-follows:
+Sets the keys for 2P. This environment variable is only used for BMS, BME or
+BML files. The format is as follows:
 
-* `<scratch>`: `right shift`
+	<pedal>|<key1>|<key2>|<key3>|<key4>|<key5>|<key6>|<key7>|<scratch>
+
+Otherwise same as `ANGOLMOIS_1P_KEYS`. The default value is as follows:
+
+* `<pedal>`: `right alt`
 * `<key1>`: `m`
 * `<key2>`: `k`
 * `<key3>`: `,`
@@ -495,7 +503,26 @@ follows:
 * `<key5>`: `.`
 * `<key6>`: `;`
 * `<key7>`: `/`
-* `<pedal>`: `right alt`
+* `<scratch>`: `right shift`
+
+### `ANGOLMOIS_PMS_KEYS`
+
+Sets the keys for 9KEY. This environment variable is only used for PMS files
+(see `ANGOLMOIS_XXy_KEY` for actual details). The format is as follows:
+
+	<key1>|<key2>|<key3>|<key4>|<key5>|<key6>|<key7>|<key8>|<key9>
+
+Otherwise same as above. The default value is as follows:
+
+* `<key1>`: `z`
+* `<key2>`: `s`
+* `<key3>`: `x`
+* `<key4>`: `d`
+* `<key5>`: `c`
+* `<key6>`: `f`
+* `<key7>`: `v`
+* `<key8>`: `g`
+* `<key9>`: `b`
 
 ### `ANGOLMOIS_SPEED_KEYS`
 
@@ -507,6 +534,35 @@ Otherwise same as above. The default value is as follows:
 
 * `<speed down>`: `f3`
 * `<speed up>`: `f4`
+
+### `ANGOLMOIS_XXy_KEY`
+
+Sets the keys for given channel. The format is same as above, but `|` cannot
+appear. This kind of variables are processed after other environment
+variables, so they can override keys for the specific channel. A key itself
+can be used for only one channel however.
+
+`XX` should be an uppercased alphanumeric key for the note channel (`11`, `26`
+etc.). `y` should be one lowercased letter which identifies the kind of that
+channel:
+
+	Primarly used for BMS/BME/BML:
+	a       White key
+	y       White key (displayed yellow)
+	b       Black key (displayed blue)
+	s       Scratch (displayed red)
+	p       Foot pedal (displayed green)
+
+	Primarly used for PMS:
+	w       White button
+	e       Yellow button
+	r       Green button
+	t       Navy button
+	s       Red button
+
+Note that this distinction is also used for `ANGOLMOIS_{1P,2P,PMS}_KEYS`
+environment variables: they assign the specified keys only when the channel
+and predefined kind agrees to each other.
 
 
 BMS Support Status

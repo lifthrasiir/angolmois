@@ -5,6 +5,35 @@ This document is intended for serious BMS writers and other software
 developers.
 
 
+History and Significant Changes
+-------------------------------
+
+Angolmois 1.0 final (204 lines of code) was finished on July 2007. It ended up
+as an unmaintainable mess of highly obfuscated code, and was only useful as
+an example of very obfuscated C code. (For example, can you figure out what
+`i<18?(q&r)||(m?!(l&4)||r<4:r-((l&12)-8?l&1?1:2:8)):i-19?q:q&r` means?!)
+
+Angolmois 2.0 alpha 1 (1797 lines of code) was finished on January 2012. This
+was a general cleanup from Angolmois 1.0, and introduced a sane command line
+interface and more stable game engine. There are so many changes that I cannot
+enumerate them here.
+
+Angolmois 2.0 alpha 2 is being developed as of February 2013. This is intended
+as the only major feature release until 2.0 final. Important changes include:
+
+* Joystick support.
+* Multiple movie playback support.
+* PMS support.
+* _Planned:_ Bomb support.
+* Alpha channel support for BGA.
+* More stable key sound playing.
+* More recent RANDOM BMS extensions (e.g. `#SETRANDOM`) are implemented.
+* New path resolution algorithm. Nested directories can be used in BMS files.
+* Fixed various long note rendering problems.
+* _Incompatible to 2.0 alpha 1:_ Updated environment variable format.
+* _Incompatible to 2.0 alpha 1:_ C99 compiler is required now.
+
+
 BMS Support Status
 ------------------
 
