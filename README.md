@@ -338,7 +338,8 @@ notes. The modifier may break the chain, splitting the load to both hands.
 ### `--shuffle-ex`, `-S`
 
 Enables a shuffle modifier, but also affects the scratch and foot pedal
-(if any). Otherwise same as `--shuffle`.
+(if any). Otherwise same as `--shuffle`. There is no difference between
+`--shuffle` and this modifier for PMS.
 
 ### `--random`, `-r`
 
@@ -354,7 +355,8 @@ accidentally swapped into the longnote.
 ### `--random-ex`, `-R`
 
 Enables a random modifier, but also affects the scratch and foot pedal
-(if any). Otherwise same as `--random`.
+(if any). Otherwise same as `--random`. There is no difference between
+`--random` and this modifier for PMS.
 
 ### `--preset <string>`, `-k <string>`
 

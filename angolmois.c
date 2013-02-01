@@ -699,7 +699,7 @@ static const char *detect_preset(const char *preset)
 	if (!preset || strieq(preset, "bms") || strieq(preset, "bme") || strieq(preset, "bml")) {
 		int isbme = (present[7] || present[8] || present[16] || present[17]);
 		int haspedal = (present[6] || present[15]);
-		if (value[V_PLAYER] == 3) {
+		if (value[V_PLAYER] == 1 || value[V_PLAYER] == 2) {
 			preset = (isbme ? (haspedal ? "14/fp" : "14") : (haspedal ? "10/fp" : "10"));
 		} else {
 			preset = (isbme ? (haspedal ? "7/fp" : "7") : (haspedal ? "5/fp" : "5"));
@@ -711,6 +711,7 @@ static const char *detect_preset(const char *preset)
 }
 
 #define KEYKIND_STRING "aybqwertsp" /* should align with tkeykinds */
+#define KEYKIND_IS_KEY(kind) ((kind) >= 1 && (kind) <= 8) /* no scratch nor pedal */
 static int parse_key_spec(const char *s, int offset)
 {
 	char buf[3], kindbuf[2];
@@ -724,8 +725,8 @@ static int parse_key_spec(const char *s, int offset)
 		kind = strcspn(KEYKIND_STRING, kindbuf);
 		if (!KEYKIND_STRING[kind]) return -1;
 		keyorder[offset++] = chan;
-		keykind[chan] = kind + 1;
-		if (*kindbuf != 's' && *kindbuf != 'p') ++nkeys; /* s/p are not counted as keys */
+		keykind[chan] = ++kind;
+		if (KEYKIND_IS_KEY(kind)) ++nkeys;
 	} while (*s);
 	return offset;
 }
@@ -740,10 +741,7 @@ static void analyze_and_compact_bms(const char *left, const char *right)
 	if (right && *right) {
 		nrightkeys = parse_key_spec(right, nleftkeys);
 		if (nrightkeys < 0) die("Invalid key model for right hand side: %s", right);
-		if (value[V_PLAYER] != 2) { /* no split panes */
-			nleftkeys = nrightkeys;
-			nrightkeys = 0;
-		}
+		if (value[V_PLAYER] != 2) nleftkeys = nrightkeys; /* no split panes */
 	}
 
 	hasbpmchange = haslongnote = nnotes = maxscore = 0;
@@ -913,10 +911,9 @@ static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 
 	for (int i = 0; i < ARRAYSIZE(perm); ++i) perm[i] = i;
 	for (int i = begin; i < end; ++i) {
-		int j = keyorder[i];
-		if (j < 0) continue;
-		if (mode != SHUFFLEEX_MODF && mode != RANDOMEX_MODF && (j%9==5 || j%9==6)) continue;
-		map[nmap++] = j;
+		int chan = keyorder[i];
+		if (mode != SHUFFLEEX_MODF && mode != RANDOMEX_MODF && !KEYKIND_IS_KEY(keykind[chan])) continue;
+		map[nmap++] = chan;
 	}
 
 #define SWAP(x,y) do { int temp = (x); (x) = (y); (y) = temp; } while (0)
@@ -1422,7 +1419,7 @@ static void play_prepare(void)
 		tkeyleft[chan] = tpanel1;
 		tpanel1 += tkeykinds[keykind[chan]].width + 1;
 	}
-	for (int i = nrightkeys; i >= nleftkeys; --i) { /* safely ignored if nrightkeys == 0 */
+	for (int i = nrightkeys - 1; i >= nleftkeys; --i) {
 		int chan = keyorder[i];
 		tpanel2 -= tkeykinds[keykind[chan]].width + 1;
 		tkey[chan] = &tkeykinds[keykind[chan]];
@@ -1820,12 +1817,8 @@ static int play(void)
 
 	analyze_and_compact_bms(leftkeys, rightkeys);
 	if (opt_modf) {
-		if (value[V_PLAYER] == 2) {
-			shuffle_bms(opt_modf, &r, 0, 9);
-			shuffle_bms(opt_modf, &r, 9, 18);
-		} else {
-			shuffle_bms(opt_modf, &r, 0, 18);
-		}
+		shuffle_bms(opt_modf, &r, 0, nleftkeys);
+		if (nleftkeys < nrightkeys) shuffle_bms(opt_modf, &r, nleftkeys, nrightkeys);
 	}
 
 	/* get basename of bmspath, or use #PATH_WAV if any */
