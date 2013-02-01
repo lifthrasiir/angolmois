@@ -360,6 +360,7 @@ static double _shorten[2005], *shorten = _shorten + 1;
 static double length;
 static int nleftkeys, nrightkeys, keyorder[NNOTECHANS], keykind[NNOTECHANS];
 static int nkeys, haslongnote, hasbpmchange, nnotes, maxscore, duration;
+static double originoffset = 0.0;
 
 static int getdigit(int n)
 {
@@ -746,11 +747,10 @@ static void analyze_and_compact_bms(const char *left, const char *right)
 	for (i = 0; i < nobjs; ++i) {
 		if (IS_NOTE_CHANNEL(objs[i].chan)) {
 			if (keykind[objs[i].chan]) {
-				if (objs[i].type == LNSTART) {
-					haslongnote = 1;
+				if (objs[i].type == LNSTART) haslongnote = 1;
+				if (objs[i].type == LNSTART || objs[i].type == NOTE) {
 					++nnotes;
-				} else if (objs[i].type == NOTE) {
-					++nnotes;
+					if (objs[i].time < 1.0) originoffset = -1.0;
 				}
 			} else {
 				remove_or_replace_note(i);
@@ -872,7 +872,7 @@ static int get_bms_duration(void)
 
 	xbpm = bpm;
 	time = rtime = 0.0;
-	pos = -1;
+	pos = originoffset;
 	for (int i = 0; i < nobjs; ++i) {
 		int chan = objs[i].chan, type = objs[i].type, index = objs[i].index;
 		time += MEASURE_TO_MSEC(adjust_object_position(pos, objs[i].time), xbpm);
@@ -884,7 +884,7 @@ static int get_bms_duration(void)
 			if (tmp > 0) {
 				xbpm = tmp;
 			} else if (tmp < 0) {
-				time += MEASURE_TO_MSEC(adjust_object_position(-1, pos), -tmp);
+				time += MEASURE_TO_MSEC(adjust_object_position(originoffset, pos), -tmp);
 				goto earlyexit;
 			}
 		} else if (chan == STOP_CHANNEL) {
@@ -1144,7 +1144,7 @@ static int opt_showinfo = 1, opt_fullscreen = 1, opt_joystick = -1;
 
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit = 0;
-static double startoffset = -1, startshorten = 1;
+static double startoffset, startshorten;
 static int pcur, pfront, prear, pcheck[NNOTECHANS], pthru[NNOTECHANS]; /* indices to objs */
 static int bga[] = {[BGA_LAYER]=-1, [BGA2_LAYER]=-1, [BGA3_LAYER]=-1, [POORBGA_LAYER]=0};
 static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER), poormask = (1<<POORBGA_LAYER);
@@ -1403,6 +1403,8 @@ static void play_prepare(void)
 {
 	/* configuration */
 	origintime = starttime = SDL_GetTicks();
+	startoffset = originoffset;
+	startshorten = shorten[(int) originoffset];
 	targetspeed = playspeed;
 	allocate_more_channels(64);
 	Mix_ReserveChannels(1); /* so that the beep won't be affected */
@@ -1527,7 +1529,7 @@ static int play_process(void)
 		bottom = startoffset + MSEC_TO_MEASURE(now - starttime, bpm) / startshorten;
 	}
 	ibottom = (int)(bottom + 1) - 1;
-	if (bottom > -1 && startshorten != shorten[ibottom]) {
+	if (ibottom >= -1 && startshorten != shorten[ibottom]) {
 		starttime += (int) (MEASURE_TO_MSEC(ibottom - startoffset, bpm) * startshorten);
 		startoffset = ibottom;
 		startshorten = shorten[ibottom];
@@ -1684,7 +1686,7 @@ static int play_process(void)
 	}
 	if (bottom > length) {
 		if (opt_mode ? Mix_Playing(-1)==Mix_Playing(0) : Mix_GroupNewer(1)==-1) return 0;
-	} else if (bottom < -1) {
+	} else if (bottom < originoffset) {
 		return 0;
 	}
 
