@@ -353,6 +353,7 @@ static const struct preset { const char *name1, *name2, *left, *right; } presets
 	{"7/fp", "14/fp", "16s 11a 12b 13a 14b 15a 18b 19a 17p", "27p 21a 22b 23a 24b 25a 28b 29a 26s"},
 	{"9", NULL, "11q 12w 13e 14r 15t 22r 23e 24w 25q", NULL},
 	{"9-bme", NULL, "11q 12w 13e 14r 15t 18r 19e 16w 17q", NULL}};
+static const char KEYKIND_MNEMONICS[] = "*aybqwertsp"; /* should align with tkeykinds */
 
 static struct bmsnote { double time; int chan, type, index, nograding:1; } *objs;
 static int nobjs;
@@ -370,7 +371,7 @@ static int getdigit(int n)
 	return -1296;
 }
 
-static int key2index(const char *s, int *v)
+static int key2index(const char *s, int *v) /* requires s[0] and s[1] allocated */
 {
 	*v = getdigit(s[0]) * 36 + getdigit(s[1]);
 	return (*v >= 0);
@@ -399,9 +400,9 @@ static void add_note(int chan, double time, int type, int index)
 
 #define KEY_STRING "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 #define KEY_PATTERN "%2[" KEY_STRING "]"
-#define TO_KEY(key) (&(char[3]){ KEY_STRING[(key)/36], KEY_STRING[(key)%36], '\0' })
+#define TO_KEY(key) ((char[3]){ KEY_STRING[(key)/36], KEY_STRING[(key)%36], '\0' })
 
-static int parse_bms(struct rngstate *r)
+static void parse_bms(struct rngstate *r)
 {
 	static const char *bmsheader[] = {
 		NULL, "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM", "PLAYER",
@@ -418,7 +419,7 @@ static int parse_bms(struct rngstate *r)
 	XV(char*) bmsline = XV_EMPTY;
 
 	fp = fopen(bmspath, "r");
-	if (!fp) return 1;
+	if (!fp) die("Couldn't load BMS file: %s", bmspath);
 
 	XV_PUSH(rnd, ((struct rnd) {.val=0, .inside=0, .ignore=0, .skip=0}));
 	while (fgets(line = linebuf, sizeof linebuf, fp)) {
@@ -628,8 +629,6 @@ static int parse_bms(struct rngstate *r)
 	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
 		if (_shorten[i] <= .001) _shorten[i] = 1;
 	}
-
-	return 0;
 }
 
 static void remove_or_replace_note(int index)
@@ -709,22 +708,20 @@ static const char *detect_preset(const char *preset)
 	return preset;
 }
 
-#define KEYKIND_STRING "aybqwertsp" /* should align with tkeykinds */
 #define KEYKIND_IS_KEY(kind) ((kind) >= 1 && (kind) <= 8) /* no scratch nor pedal */
 static int parse_key_spec(const char *s, int offset)
 {
-	char buf[3], kindbuf[2];
-	int chan, kind, n;
+	s += strspn(s, " \t\r\n");
 	do {
-		if (sscanf(s, " " KEY_PATTERN "%1[" KEYKIND_STRING "] %n", buf, kindbuf, &n) < 2) return -1;
-		s += n;
-		if (!key2index(buf, &chan)) return -1;
+		int chan, kind;
+		if (!s[0] || !key2index(s, &chan)) return -1;
 		chan -= 1*36;
 		if (chan < 0 || chan >= NNOTECHANS || keykind[chan]) return -1;
-		kind = strcspn(KEYKIND_STRING, kindbuf);
-		if (!KEYKIND_STRING[kind]) return -1;
+		for (kind = 1; KEYKIND_MNEMONICS[kind] && KEYKIND_MNEMONICS[kind] != s[2]; ++kind);
+		if (!KEYKIND_MNEMONICS[kind]) return -1;
+		s += 3 + strspn(s + 3, " \t\r\n");
 		keyorder[offset++] = chan;
-		keykind[chan] = ++kind;
+		keykind[chan] = kind;
 		if (KEYKIND_IS_KEY(kind)) ++nkeys;
 	} while (*s);
 	return offset;
@@ -1000,7 +997,7 @@ static int bicubic_kernel(int x, int y) {
 	}
 }
 
-static int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
+static void bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 	int x, dx, y, dy;
 	const int ww = src->w - 1, hh = src->h - 1;
 	const int w = dest->w - 1, h = dest->h - 1;
@@ -1042,8 +1039,6 @@ static int bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 			dx -= w;
 		}
 	}
-
-	return 0;
 }
 
 /******************************************************************************/
@@ -1168,55 +1163,68 @@ static const int tgradecolor[] = {0xff4040, 0xff40ff, 0xffff40, 0x40ff40, 0x4040
 static Mix_Chunk *beep;
 static SDL_Joystick *joystick;
 
-static SDLKey get_sdlkey_from_name(const char *str)
+static char *assign_keymap(int chan, int kind, const char *envname, char *s)
 {
-	SDLKey i;
-
-	/* XXX maybe won't work in SDL 1.3 */
-	for (i = SDLK_FIRST; i < SDLK_LAST; ++i) {
-		if (strieq(SDL_GetKeyName(i), str)) return i;
-	}
-	return SDLK_UNKNOWN;
+	char sep;
+	do {
+		int i, k = strcspn(s, "%|");
+		sep = s[k];
+		s[k] = '\0';
+		if (chan >= NNOTECHANS || keykind[chan] == kind) {
+			SDLKey key;
+			for (key = SDLK_FIRST; key < SDLK_LAST; ++key) { /* XXX may not work in SDL 2.0 */
+				if (strieq(SDL_GetKeyName(key), s)) break;
+			}
+			if (key < SDLK_LAST) {
+				keymap[key] = chan;
+			} else if (sscanf(s, "button %d", &i) >= 1) {
+				if (XV_CHECK(joybmap,i)) XV_AT(joybmap,i) = chan;
+			} else if (sscanf(s, "axis %d", &i) >= 1) {
+				if (XV_CHECK(joyamap,i)) XV_AT(joyamap,i) = chan;
+			} else if (s[strspn(s, " \t\r\n")]) { /* skip an empty key name */
+				die("Unknown key name in the environment variable %s: %s", envname, s);
+			}
+		}
+		s[k] = sep; /* recover the buffer, assign_keymap should be idempotent */
+		s += k;
+		if (*s) ++s;
+	} while (sep == '%');
+	return s;
 }
 
 static void read_keymap(void)
 {
-	static const struct { const char *name, *def; int base, limit; } envvars[] = {
-		{"ANGOLMOIS_1P_KEYS", "z%button 3|s%button 6|x%button 2|d%button 7|c%button 1|"
-		                      "left shift%axis 3|left alt|f%button 4|v%axis 2", 1, 10},
-		{"ANGOLMOIS_2P_KEYS", "m|k|,|l|.|right shift|right alt|;|/", 36+1, 36+10},
-		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", NNOTECHANS, NNOTECHANS+2},
-	};
-	char *s, buf[256] = "";
-	int i, j, k, l, sep, *p;
-	SDLKey key;
+	static const struct { const char *name, *def, *kinds; int keys[9][3]; } envvars[] = {
+		{"ANGOLMOIS_1P_KEYS", "left shift%axis 3|z%button 3|s%button 6|x%button 2|"
+		                      "d%button 7|c%button 1|f%button 4|v%axis 2|left alt",
+		 "sabababap", {{6},{1},{2},{3},{4},{5},{8},{9},{7}}},
+		{"ANGOLMOIS_2P_KEYS", "right alt|m|k|,|l|.|;|/|right shift",
+		 "pabababas", {{36+6},{36+1},{36+2},{36+3},{36+4},{36+5},{36+8},{36+9},{36+7}}},
+		{"ANGOLMOIS_PMS_KEYS", "z|s|x|d|c|f|v|g|b",
+		 "qwertrewq", {{1},{2},{3},{4},{5},{8,36+2},{9,36+3},{6,36+4},{7,36+5}}},
+		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", "**", {{NNOTECHANS},{NNOTECHANS+1}}}};
+	char buf[1024] = "", name[32], *s;
 
-	for (i = 0; i < ARRAYSIZE(keymap); ++i) keymap[i] = -1;
-	XV_EACHPTR(p, joybmap) *p = -1;
-	XV_EACHPTR(p, joyamap) *p = -1;
+	for (int i = 0; i < ARRAYSIZE(keymap); ++i) keymap[i] = -1;
+	for (ptrdiff_t i = 0; i < XV_SIZE(joybmap); ++i) XV_AT(joybmap,i) = -1;
+	for (ptrdiff_t i = 0; i < XV_SIZE(joyamap); ++i) XV_AT(joyamap,i) = -1;
 
-	for (i = 0; i < ARRAYSIZE(envvars); ++i) {
+	for (int i = 0; i < ARRAYSIZE(envvars); ++i) {
 		s = getenv(envvars[i].name);
-		strncpy(buf, s ? s : envvars[i].def, sizeof(buf) - 1);
-		s = buf;
-		sep = 1;
-		for (j = envvars[i].base; sep && j < envvars[i].limit; ) {
-			k = strcspn(s, "%|"); /* both character is not used as a key name in SDL 1.2 */
-			sep = s[k];
-			s[k++] = '\0';
-			key = get_sdlkey_from_name(s);
-			if (key != SDLK_UNKNOWN) {
-				keymap[key] = j;
-			} else if (sscanf(s, "button %d", &l) >= 1) {
-				if (XV_CHECK(joybmap,l)) XV_AT(joybmap,l) = j;
-			} else if (sscanf(s, "axis %d", &l) >= 1) {
-				if (XV_CHECK(joyamap,l)) XV_AT(joyamap,l) = j;
-			} else {
-				die("Unknown key name in the environment variable %s: %s", envvars[i].name, s);
+		s = strncpy(buf, s ? s : envvars[i].def, sizeof(buf) - 1);
+		for (int j = 0; envvars[i].kinds[j]; ++j) {
+			int kind = strchr(KEYKIND_MNEMONICS, envvars[i].kinds[j]) - KEYKIND_MNEMONICS;
+			char *prevs = s;
+			for (int k = 0; envvars[i].keys[j][k]; ++k) {
+				s = assign_keymap(envvars[i].keys[j][k], kind, envvars[i].name, prevs);
 			}
-			if (sep != '%') ++j;
-			s += k;
 		}
+	}
+	for (int i = 0; i < nleftkeys || i < nrightkeys; ++i) {
+		int chan = keyorder[i], kind = keykind[chan];
+		sprintf(name, "ANGOLMOIS_%s%c_KEY", TO_KEY(36+chan), KEYKIND_MNEMONICS[kind]);
+		s = getenv(name);
+		if (s) assign_keymap(chan, kind, name, strncpy(buf, s, sizeof(buf) - 1));
 	}
 }
 
@@ -1243,7 +1251,7 @@ static void init_video(void)
 	SDL_WM_SetCaption(VERSION, 0);
 }
 
-static int initialize(void)
+static void init_ui(void)
 {
 	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK) < 0) {
 		die("SDL Initialization Failure: %s", SDL_GetError());
@@ -1268,9 +1276,8 @@ static int initialize(void)
 	fontprocess(1);
 	fontprocess(2);
 	fontprocess(3);
-	read_keymap(); /* this is unfortunate, but get_sdlkey_from_name depends on SDL_Init. */
+	read_keymap(); /* depends on SDL_Init and keyorder/keykind */
 	beep = create_beep();
-	return 0;
 }
 
 static void allocate_more_channels(int n)
@@ -1796,10 +1803,8 @@ static int play(void)
 	struct rngstate r;
 	const char *leftkeys = NULL, *rightkeys = NULL;
 
-	if (initialize()) return 1;
 	rng_seed(&r, (uint32_t) time(0));
-
-	if (parse_bms(&r)) die("Couldn't load BMS file: %s", bmspath);
+	parse_bms(&r);
 	sanitize_bms();
 
 	if (!preset && strisuffix(bmspath, ".pms")) preset = "pms";
@@ -1837,6 +1842,7 @@ static int play(void)
 		*(pos1>pos2 ? pos1 : pos2) = '\0';
 	}
 
+	init_ui();
 	play_show_stagefile();
 
 	duration = get_bms_duration();
@@ -1860,7 +1866,6 @@ static int play(void)
 	} else if (opt_mode >= EXCLUSIVE_MODE) {
 		fprintf(stderr, "\r%72s\r", "");
 	}
-
 	return 0;
 }
 
@@ -1895,18 +1900,14 @@ int usage(void)
 		"  -M, --no-movie        Do not load and show the BGA movie\n"
 		"  -j #, --joystick #    Enable the joystick with index # (normally 0)\n\n"
 		"Environment Variables:\n"
-		"  ANGOLMOIS_1P_KEYS=<1>|<2>|<3>|<4>|<5>|<scratch>|<pedal>|<6>|<7>\n"
-		"  ANGOLMOIS_2P_KEYS=<1>|<2>|<3>|<4>|<5>|<scratch>|<pedal>|<6>|<7>\n"
+		"  ANGOLMOIS_1P_KEYS=<scratch>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<pedal>\n"
+		"  ANGOLMOIS_2P_KEYS=<pedal>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<scratch>\n"
+		"  ANGOLMOIS_PMS_KEYS=<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<8>|<9>\n"
 		"  ANGOLMOIS_SPEED_KEYS=<speed down>|<speed up>\n"
-		"    Specifies the keys used for gameplay. Key names should follow them of\n"
-		"    SDL (e.g. 'a', 'right shift' etc.). The mapping for 1P/2P is as follows:\n"
-		"                   <2> <4> <6>\n"
-		"      <scratch>  <1> <3> <5> <7>  <pedal>\n"
-		"    One can map multiple keys by separating key names with '%%'.\n"
-		"    For joystick, 'button #' and 'axis #' can also be used.\n"
-		"    The default mapping is to use zsxdcfv and mk,l.;/ for 1P and 2P,\n"
-		"    respectively; for joystick it is assumed that the normal Beatmania IIDX\n"
-		"    controller is plugged in. F3 and F4 is used for speed adjustment.\n\n",
+		"  ANGOLMOIS_XXy_KEY=<keys for channel XX and channel kind y>\n"
+		"    Sets keys used for game play. Use either SDL key names or joystick names\n"
+		"    like 'button #' or 'axis #' can be used. Separate multiple keys by '%%'.\n"
+		"    See the manual for more information.\n\n",
 		VERSION, argv0);
 	return 1;
 }
