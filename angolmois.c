@@ -610,10 +610,8 @@ static void parse_bms(struct rngstate *r)
 						}
 					}
 				} else if (chan >= 13*36 && chan < 15*36) { /* channels Dx/Ex */
-					if (b == MAXKEY-1 || (b/36 < 16 && b%36 < 16)) { /* allow ZZ */
-						int dmg = (b == MAXKEY-1 ? -1 : (b/36*16+b%16) * 512 / 200);
-						if (dmg && dmg <= 512) add_obj(chan - 13*36, t, BOMB, 0, dmg);
-					}
+					int dmg = (b == MAXKEY-1 ? -1 : b * 512 / 200);
+					if (dmg && dmg <= 512) add_obj(chan - 13*36, t, BOMB, 0, dmg);
 				}
 			}
 		}

@@ -340,11 +340,10 @@ area of long note end is reached, then the bomb immediately ends the long note
 grading.
 
 Detonating a bomb results in MISS grade. The amount of gauge decrease is
-specified with the hexadecimal key (just as a hexadecimal BPM in the channel
-`03`), or `ZZ` for the instant death[^4]. The hexadecimal key has a unit of
-0.5%; `01` for 0.5% decrease, `02` for 1% decrease, and `C8` for 100%
-decrease. Angolmois ignores more than 100% decrease or non-hexadecimal key
-except for `ZZ`.
+specified with the base-36 key, or `ZZ` for the instant death[^4].
+The base-36 key has a unit of 0.5%; `01` for 0.5% decrease, `02` for 1%
+decrease, `2S` for 50% decrease, and `5K` for 100% decrease. Angolmois ignores
+more than 100% decrease except for `ZZ`.
 
 The bomb itself cannot be placed in the long note or at the same position as
 other notes, but the invisible object can overlap with it. It is possible to
