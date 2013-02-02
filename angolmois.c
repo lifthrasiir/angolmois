@@ -1144,7 +1144,7 @@ static XV(int) joybmap, joyamap;
 static int keypressed[2][NNOTECHANS]; /* keypressed[0] for buttons, keypressed[1] for axes */
 struct tkeykind { int spriteleft, spritebombleft, width, color; };
 static const struct tkeykind *tkey[NNOTECHANS], tkeykinds[] = {{0,0,0,0},
-	{25,0,25,0x808080}, {50,0,25,0xffff80}, {75,0,25,0x8080ff}, {130,100,30,0xe0e0e0},
+	{25,0,25,0x808080}, {50,0,25,0xf0e080}, {75,0,25,0x8080ff}, {130,100,30,0xe0e0e0},
 	{160,100,30,0xffff40}, {190,100,30,0x80ff80}, {220,100,30,0x8080ff},
 	{250,100,30,0xff4040}, {320,280,40,0xff8080}, {360,280,40,0x80ff80}};
 static int tkeyleft[NNOTECHANS], tpanel1 = 0, tpanel2 = 800, tbgax = 0, tbgay = 0;
