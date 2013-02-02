@@ -346,7 +346,7 @@ enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3
 enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
 enum STOP_type { STOP_BY_MEASURE = 0, STOP_BY_MSEC = 1 };
 
-static const char *preset;
+static const char *preset, *leftkeys, *rightkeys;
 static const struct preset { const char *name1, *name2, *left, *right; } presets[] = {
 	{"5", "10", "16s 11a 12b 13a 14b 15a", "21a 22b 23a 24b 25a 26s"},
 	{"5/fp", "10/fp", "16s 11a 12b 13a 14b 15a 17p", "27p 21a 22b 23a 24b 25a 26s"},
@@ -733,10 +733,10 @@ static void analyze_and_compact_bms(const char *left, const char *right)
 
 	if (!left) die("No key model is specified using -k or -K");
 	nleftkeys = parse_key_spec(left, 0);
-	if (nleftkeys < 0) die("Invalid key model for left hand side: %s", left);
+	if (nleftkeys < 0) die("Invalid key spec for left hand side: %s", left);
 	if (right && *right) {
 		nrightkeys = parse_key_spec(right, nleftkeys);
-		if (nrightkeys < 0) die("Invalid key model for right hand side: %s", right);
+		if (nrightkeys < 0) die("Invalid key spec for right hand side: %s", right);
 		if (value[V_PLAYER] != 2) nleftkeys = nrightkeys; /* no split panes */
 	}
 
@@ -1803,26 +1803,27 @@ static int play_process(void)
 static int play(void)
 {
 	struct rngstate r;
-	const char *leftkeys = NULL, *rightkeys = NULL;
 
 	rng_seed(&r, (uint32_t) time(0));
 	parse_bms(&r);
 	sanitize_bms();
 
-	if (!preset && strisuffix(bmspath, ".pms")) preset = "pms";
-	preset = detect_preset(preset);
-	for (int i = 0; i < ARRAYSIZE(presets); ++i) {
-		if (strieq(preset, presets[i].name1)) {
-			leftkeys = presets[i].left;
-			break;
+	if (!leftkeys && !rightkeys) {
+		if (!preset && strisuffix(bmspath, ".pms")) preset = "pms";
+		preset = detect_preset(preset);
+		for (int i = 0; i < ARRAYSIZE(presets); ++i) {
+			if (strieq(preset, presets[i].name1)) {
+				leftkeys = presets[i].left;
+				break;
+			}
+			if (presets[i].name2 && strieq(preset, presets[i].name2)) {
+				leftkeys = presets[i].left;
+				rightkeys = presets[i].right;
+				break;
+			}
 		}
-		if (presets[i].name2 && strieq(preset, presets[i].name2)) {
-			leftkeys = presets[i].left;
-			rightkeys = presets[i].right;
-			break;
-		}
+		if (!leftkeys) die("Invalid preset name: %s", preset);
 	}
-	if (!leftkeys) die("Invalid preset name: %s", preset);
 
 	analyze_and_compact_bms(leftkeys, rightkeys);
 	if (opt_modf) {
@@ -1880,27 +1881,29 @@ int usage(void)
 		"  Accepts any BMS, BME, BML or PMS file.\n"
 		"  Resources should be in the same directory as the BMS file.\n\n"
 		"Options:\n"
-		"  -h, --help            This help\n"
-		"  -V, --version         Shows the version\n"
-		"  -a #.#, --speed #.#   Sets the initial play speed (default: 1.0x)\n"
-		"  -#                    Same as '-a #.0'\n"
-		"  -v, --autoplay        Enables AUTO PLAY (viewer) mode\n"
-		"  -x, --exclusive       Enables exclusive (BGA and sound only) mode\n"
-		"  -X, --sound-only      Enables sound only mode, equivalent to -xB\n"
-		"  --fullscreen          Enables the fullscreen mode (default)\n"
-		"  -w, --no-fullscreen   Disables the fullscreen mode\n"
-		"  --info                Shows a brief information about the song (default)\n"
-		"  -q, --no-info         Do not show an information about the song\n"
-		"  -m, --mirror          Uses a mirror modifier\n"
-		"  -s, --shuffle         Uses a shuffle modifier\n"
-		"  -S, --shuffle-ex      Uses a shuffle modifier, even for scratches\n"
-		"  -r, --random          Uses a random modifier\n"
-		"  -R, --random-ex       Uses a random modifier, even for scratches\n"
-		"  -k <preset>           Forces a use of given key preset (default: bms)\n"
-		"  --bga                 Loads and shows the BGA (default)\n"
-		"  -B, --no-bga          Do not load and show the BGA\n"
-		"  -M, --no-movie        Do not load and show the BGA movie\n"
-		"  -j #, --joystick #    Enable the joystick with index # (normally 0)\n\n"
+		"  -h, --help              This help\n"
+		"  -V, --version           Shows the version\n"
+		"  -a #.#, --speed #.#     Sets the initial play speed (default: 1.0x)\n"
+		"  -#                      Same as '-a #.0'\n"
+		"  -v, --autoplay          Enables AUTO PLAY (viewer) mode\n"
+		"  -x, --exclusive         Enables exclusive (BGA and sound only) mode\n"
+		"  -X, --sound-only        Enables sound only mode, equivalent to -xB\n"
+		"  --fullscreen            Enables the fullscreen mode (default)\n"
+		"  -w, --no-fullscreen     Disables the fullscreen mode\n"
+		"  --info                  Shows a brief information about the song (default)\n"
+		"  -q, --no-info           Do not show an information about the song\n"
+		"  -m, --mirror            Uses a mirror modifier\n"
+		"  -s, --shuffle           Uses a shuffle modifier\n"
+		"  -S, --shuffle-ex        Uses a shuffle modifier, even for scratches\n"
+		"  -r, --random            Uses a random modifier\n"
+		"  -R, --random-ex         Uses a random modifier, even for scratches\n"
+		"  -k NAME, --preset NAME  Forces a use of given key preset (default: bms)\n"
+		"  -K LEFT RIGHT, --key-spec LEFT RIGHT\n"
+		"                          Sets a custom key specification (see the manual)\n"
+		"  --bga                   Loads and shows the BGA (default)\n"
+		"  -B, --no-bga            Do not load and show the BGA\n"
+		"  -M, --no-movie          Do not load and show the BGA movie\n"
+		"  -j #, --joystick #      Enable the joystick with index # (normally 0)\n\n"
 		"Environment Variables:\n"
 		"  ANGOLMOIS_1P_KEYS=<scratch>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<pedal>\n"
 		"  ANGOLMOIS_2P_KEYS=<pedal>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<scratch>\n"
@@ -1920,13 +1923,14 @@ int main(int argc, char **argv)
 		{"h--help", "V--version", "a--speed", "v--autoplay", "x--exclusive",
 		 "X--sound-only", "w--windowed", "w--no-fullscreen", " --fullscreen",
 		 " --info", "q--no-info", "m--mirror", "s--shuffle", "S--shuffle-ex",
-		 "r--random", "R--random-ex", "k--preset", " --bga", "B--no-bga",
-		 " --movie", "M--no-movie", "j--joystick", NULL};
+		 "r--random", "R--random-ex", "k--preset", "K--key-spec", " --bga",
+		 "B--no-bga", " --movie", "M--no-movie", "j--joystick", NULL};
 	char buf[512] = "", *arg;
 	int i, j;
 
-#define FETCH_ARG(arg, opt) if (((arg) = argv[i][++j] ? argv[i]+j : argv[++i])) {} \
-                            else die("No argument to the option -%c", (opt))
+#define FETCH_ARG(arg, opt) \
+		if (argv[i] && ((arg) = j<1 || argv[i][++j] ? argv[i]+j : argv[++i])) ++i, j = 0; \
+		else die("No argument to the option -%c", (opt)) \
 
 	argv0 = argv[0];
 	for (i = 1; i < argc; ++i) {
@@ -1961,6 +1965,7 @@ int main(int argc, char **argv)
 				case 'r': opt_modf = RANDOM_MODF; break;
 				case 'R': opt_modf = RANDOMEX_MODF; break;
 				case 'k': FETCH_ARG(preset, 'k'); goto endofarg;
+				case 'K': FETCH_ARG(leftkeys, 'K'); FETCH_ARG(rightkeys, 'K'); goto endofarg;
 				case 'a':
 					FETCH_ARG(arg, 'a');
 					playspeed = atof(arg);
