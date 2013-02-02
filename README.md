@@ -602,6 +602,7 @@ In brief, Angolmois supports the following commands and channels:
 * Channels `1x` and `2x` for visible objects
 * Channels `3x` and `4x` for invisible objects
 * Channels `5x` and `6x` for long-note objects
+* Channels `Dx` and `Ex` for bomb objects
 
 Due to the sheer amount of contents, the remainder of this section has been
 moved to `INTERNALS.md` file.

@@ -24,7 +24,7 @@ as the only major feature release until 2.0 final. Important changes include:
 * Joystick support.
 * Multiple movie playback support.
 * PMS support.
-* _Planned:_ Bomb support.
+* Bomb (channels `Dx`/`Ex`) support.
 * Alpha channel support for BGA.
 * More stable key sound playing.
 * More recent RANDOM BMS extensions (e.g. `#SETRANDOM`) are implemented.
@@ -97,6 +97,12 @@ otherwise same as `#PLAYER 3` (they share the same gauge and grading).
 
 * `#RANK <integer>` (defaults to `#RANK 2`)
 
+Angolmois assigns a grading area to every visible, invisible note and long
+note start/end, which size is no larger than the threshold for BAD grade.
+No two grading areas overlap. Therefore the actual grading area can be a lot
+shorter when notes are very dense, but the grading is done strictly by
+the time difference basis.
+
 The current system will give BAD, GOOD, GREAT and COOL grade if the note is
 approximately[^2] within `±{144, 84, 48, 14.4} / (1.5 - #RANK * 0.25)`
 milliseconds respectively. Unpressing the key at the end of LN has the same
@@ -110,8 +116,9 @@ grading area as BAD. The following table summarizes the hard values:
 	COOL:   58ms    29ms    19ms    14ms    12ms    10ms    8ms     ...
 
 This results in considerably narrower COOL area and wider GREAT area, and also
-support for every integer `#RANK` up to 5. Angolmois `#RANK` system is
-certainly ill-designed however, so it may change without a notice. 
+support for every integer `#RANK` up to 5. Specifying `#RANK 6` or bigger
+crashes the program. Angolmois `#RANK` system is certainly ill-designed
+however, so it may change without a notice.
 
 [^2]: Due to the current implementation strategy, the actual grading area may
       vary when the measure is rescaled or BPM is changed.
@@ -133,8 +140,8 @@ arbitrarily. If the candidate does not exist, Angolmois will issue an warning.
 
 Angolmois supports every audio file format that SDL\_mixer supports, including
 WAV, OGG (Vorbis), MP3 (MPEG-1/2 Audio Layer 3). Angolmois also tries to use
-common audio file extensions: `.wav`, `.ogg` and `.mp3`. `#WAV00` is currently
-unused, but loaded anyway if given.
+common audio file extensions: `.wav`, `.ogg` and `.mp3`. `#WAV00` is used for
+channel `Dx` and `Ex` as a bomb sound.
 
 Due to the limitation of SDL's WAV parser, WAVs with sampling rates other than
 11025, 22050 or 44100 Hz may sound incorrectly.
@@ -191,7 +198,8 @@ may be located anywhere in the BMS file; the resolution is done after parsing.
 Variable BPM is fully supported, with a caveat that very large or very small
 BPM may not work as intended (related to floating point calculations). You can
 mix a hexadecimal BPM (channel `03`) and extended BPM format (channel `08`);
-extended BPM is preferred if they are in the same position.
+extended BPM is preferred if they are in the same position. Angolmois ignores
+non-hexadecimal BPM in the channel `03`.
 
 Angolmois has a limited support for negative BPM. A negative BPM is assumed
 specially to indicate the end of the song, so that no more grading is
@@ -320,6 +328,30 @@ the same measure multiple times may result in problematic charts. (Unlike
 `#LNTYPE 1`, such construction in `#LNTYPE 2` almost always result in a
 problem.) BMS writers should avoid writing the same measure multiple times for
 those channels.
+
+* Channels `Dx` and `Ex`
+
+Inserts a "bomb" which is detonated when the player is pressing the key as
+the bomb passes through the bottom of the screen. The bomb is displayed as
+a dark red object (regardless of the color of lanes and other objects).
+The bomb has no grading area, but if the bomb is detonated before the grading
+area of long note end is reached, then the bomb immediately ends the long note
+grading.
+
+Detonating a bomb results in MISS grade. The amount of gauge decrease is
+specified with the hexadecimal key (just as a hexadecimal BPM in the channel
+`03`), or `ZZ` for the instant death[^4]. The hexadecimal key has a unit of
+0.5%; `01` for 0.5% decrease, `02` for 1% decrease, and `C8` for 100%
+decrease. Angolmois ignores more than 100% decrease or non-hexadecimal key
+except for `ZZ`.
+
+The bomb itself cannot be placed in the long note or at the same position as
+other notes, but the invisible object can overlap with it. It is possible to
+abuse this behavior to provide a custom bomb sound (somewhat).
+
+[^4]: Angolmois does not have the instant death except for this kind of bombs.
+      It is not same as pressing ESC, as it will always display "YOU FAILED!"
+      message.
 
 ### Control Flow
 
