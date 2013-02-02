@@ -1583,7 +1583,7 @@ static int play_process(void)
 	}
 
 	while (SDL_PollEvent(&event)) {
-		int down, joy = 0, key = -1;
+		int down = 0, joy = 0, key = -1;
 		switch (event.type) {
 		case SDL_QUIT:
 			return 0;
@@ -1653,8 +1653,8 @@ static int play_process(void)
 				if (keypressed[joy][key]++) pressed = 0;
 			}
 			if (pressed && nobjs) {
-				for (j = pcur; j < nobjs && !(objs[j].chan == key && objs[i].type <= INVNOTE); ++j);
-				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key && objs[i].type <= INVNOTE); --l);
+				for (j = pcur; j < nobjs && !(objs[j].chan == key && objs[j].type <= INVNOTE); ++j);
+				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key && objs[l].type <= INVNOTE); --l);
 				tmp = (l >= 0 ? line - objs[l].time : DBL_MAX);
 				if (j < nobjs && tmp > objs[j].time - line) l = j;
 				if (l >= 0 && objs[l].index) play_sound(objs[l].index, 0);
