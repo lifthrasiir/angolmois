@@ -1453,8 +1453,8 @@ static void play_prepare(void)
 			putpixel(sprite, j+244, i+540, c);
 		}
 	}
-	SDL_FillRect(sprite, R(tpanel1+20,0,(tpanel2?tpanel2+20:800)-(tpanel1+20),30), 0);
-	SDL_FillRect(sprite, R(tpanel1+20,520,(tpanel2?tpanel2+20:800)-(tpanel1+20),80), 0);
+	SDL_FillRect(sprite, R(tpanel1+20,0,(tpanel2?tpanel2-20:800)-(tpanel1+20),30), 0);
+	SDL_FillRect(sprite, R(tpanel1+20,520,(tpanel2?tpanel2-20:800)-(tpanel1+20),80), 0);
 	for (int i = 0; i < 20; ++i) {
 		for (int j = 20; j*j+i*i > 400; --j) {
 			putpixel(sprite, tpanel1+j, i+10, 0);
