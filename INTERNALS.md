@@ -18,7 +18,7 @@ was a general cleanup from Angolmois 1.0, and introduced a sane command line
 interface and more stable game engine. There are so many changes that I cannot
 enumerate them here.
 
-Angolmois 2.0 alpha 2 (1993 lines of code) was finished on February 2013. This
+Angolmois 2.0 alpha 2 (1994 lines of code) was finished on February 2013. This
 is intended as the only major feature release until 2.0 final. Important
 changes include:
 

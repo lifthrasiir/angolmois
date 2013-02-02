@@ -186,10 +186,11 @@ static int filedialog(char *buf)
 	OPENFILENAME ofn = {
 		.lStructSize = sizeof ofn,
 		.lpstrFilter =
-			"All Be-Music Source File (*.bms;*.bme;*.bml)\0*.bms;*.bme;*.bml\0"
+			"All Be-Music Source File (*.bms;*.bme;*.bml;*.pms)\0*.bms;*.bme;*.bml;*.pms\0"
 			"Be-Music Source File (*.bms)\0*.bms\0"
 			"Extended Be-Music Source File (*.bme)\0*.bme\0"
 			"Longnote Be-Music Source File (*.bml)\0*.bml\0"
+			"Po-Mu Source File (*.pms)\0*.pms\0"
 			"All Files (*.*)\0*.*\0",
 		.lpstrFile = buf,
 		.nMaxFile = 512,
