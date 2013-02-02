@@ -444,8 +444,8 @@ static void parse_bms(struct rngstate *r)
 			break;
 
 		case 6: /* bpm */
-			if (sscanf(line, "%*[ \t]%lf", &initbpm) >= 1) {
-				if (initbpm <= 0) initbpm = 130;
+			if (sscanf(line, "%*[ \t]%lf", &t) >= 1) {
+				if (t > 0) initbpm = t;
 			} else if (sscanf(line, KEY_PATTERN "%*[ ]%lf", buf1, &t) >= 2 && key2index(buf1, &i)) {
 				bpmtab[i] = t;
 			}
@@ -483,13 +483,13 @@ static void parse_bms(struct rngstate *r)
 
 		case 15: /* stop## */
 			if (sscanf(line, KEY_PATTERN "%*[ \t]%d", buf1, &j) >= 2 && key2index(buf1, &i)) {
-				stoptab[i] = j / 192.0;
+				if (j > 0) stoptab[i] = j / 192.0;
 			}
 			break;
 
 		case 16: /* stp## */
 			if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
-				add_obj(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k, 0);
+				if (k > 0) add_obj(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k, 0);
 			}
 			break;
 
@@ -1408,7 +1408,7 @@ static void play_prepare(void)
 	allocate_more_channels(64);
 	Mix_ReserveChannels(1); /* so that the beep won't be affected */
 	Mix_ChannelFinished(&play_sound_finished);
-	gradefactor = 1.5 - value[V_RANK] * .25;
+	gradefactor = 1.5 - (value[V_RANK] < 5 ? value[V_RANK] : 5) * .25;
 
 	if (opt_mode >= EXCLUSIVE_MODE) return;
 

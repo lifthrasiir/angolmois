@@ -116,9 +116,9 @@ grading area as BAD. The following table summarizes the hard values:
 	COOL:   58ms    29ms    19ms    14ms    12ms    10ms    8ms     ...
 
 This results in considerably narrower COOL area and wider GREAT area, and also
-support for every integer `#RANK` up to 5. Specifying `#RANK 6` or bigger
-crashes the program. Angolmois `#RANK` system is certainly ill-designed
-however, so it may change without a notice.
+support for every integer `#RANK` up to 5. `#RANK 6` or higher is same as
+`#RANK 5`. Angolmois `#RANK` system is certainly ill-designed however, so it
+may change without a notice.
 
 [^2]: Due to the current implementation strategy, the actual grading area may
       vary when the measure is rescaled or BPM is changed.
@@ -206,9 +206,11 @@ specially to indicate the end of the song, so that no more grading is
 performed and you can only watch the chart scrolling backwards until it hits
 the bottom (measure -1). If not all objects have been graded (like many
 variations of "Sofa $15 -> $1"), it is not considered "cleared" and the result
-message is ignored.
+message is ignored. The initial BPM cannot be negative, and `#BPM` with
+a negative value is ignored.
 
-Angolmois does not support zero BPM. Do not try this at home.
+Angolmois does not support zero BPM both for the initial BPM and variable BPM.
+Angolmois ignores them.
 
 * `#STOPxx <integer>`
 * `#STP<integer>.<integer> <integer>`
@@ -218,9 +220,7 @@ Again, stopping scroll for certain amount of time (hereafter "STOP") is
 supported with a similar caveat as variable BPM. You can specify a STOP time
 as a multiple of 192nd of measure (`#STOPxx` and channel `09`) or milliseconds
 (`#STP`). Angolmois will choose one of them arbitrarily if they are in
-the same position.[^3]
-
-Negative STOP time will cause a crash. Do not try this at home.
+the same position.[^3] Negative STOP time is ignored just like zero BPM.
 
 [^3]: The current implementation does have a preference for milliseconds, but
       this behavior may change without a notice.
