@@ -632,7 +632,7 @@ In brief, Angolmois supports the following commands and channels:
 * Channel  `01` for BGM
 * Channel  `02` for measure rescaling
 * Channels `03` and `08` for variable BPM
-* Channels `04`, `06` and `07` for BGA and POOR BGA
+* Channels `04`, `06`, `07` and `0A` for BGA and POOR BGA
 * Channel  `09` for STOP
 * Channels `1x` and `2x` for visible objects
 * Channels `3x` and `4x` for invisible objects

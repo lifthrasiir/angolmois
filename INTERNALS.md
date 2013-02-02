@@ -148,7 +148,8 @@ Due to the limitation of SDL's WAV parser, WAVs with sampling rates other than
 11025, 22050 or 44100 Hz may sound incorrectly.
 
 * `#BMPxx <path>`
-* Channels `04` (bottom layer), `06` (POOR BGA) and `07` (top layer)
+* Channels `04` (bottom layer), `06` (POOR BGA), `07` (middle layer) and `0A`
+  (top layer)
 
 Angolmois supports every image file format that SDL\_image supports, including
 BMP (including RLE-compressed ones), PNG, JPEG, GIF and so on. Angolmois also

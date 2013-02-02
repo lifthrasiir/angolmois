@@ -566,6 +566,8 @@ static void parse_bms(struct rngstate *r)
 					if (b) add_obj(BPM_CHANNEL, t, BPM_BY_INDEX, b, 0);
 				} else if (chan == 9) {
 					if (b) add_obj(STOP_CHANNEL, t, STOP_BY_MEASURE, b, 0);
+				} else if (chan == 10) {
+					if (b) add_obj(BGA_CHANNEL, t, BGA3_LAYER, b, 0);
 				} else if (chan >= 1*36 && chan < 3*36) { /* channels 1x/2x */
 					int c = chan - 1*36;
 					if (b) {
@@ -1134,7 +1136,7 @@ static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit 
 static double startoffset, startshorten;
 static int pcur, pfront, prear, pcheck, pthru[NNOTECHANS]; /* indices to objs */
 static int bga[] = {[BGA_LAYER]=-1, [BGA2_LAYER]=-1, [BGA3_LAYER]=-1, [POORBGA_LAYER]=0};
-static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER), poormask = (1<<POORBGA_LAYER);
+static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER)|(1<<BGA3_LAYER), poormask = (1<<POORBGA_LAYER);
 static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
 static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256, survival = 150;
