@@ -18,8 +18,9 @@ was a general cleanup from Angolmois 1.0, and introduced a sane command line
 interface and more stable game engine. There are so many changes that I cannot
 enumerate them here.
 
-Angolmois 2.0 alpha 2 is being developed as of February 2013. This is intended
-as the only major feature release until 2.0 final. Important changes include:
+Angolmois 2.0 alpha 2 (1993 lines of code) was finished on February 2013. This
+is intended as the only major feature release until 2.0 final. Important
+changes include:
 
 * Joystick support.
 * Multiple movie playback support.
@@ -32,6 +33,10 @@ as the only major feature release until 2.0 final. Important changes include:
 * Fixed various long note rendering problems.
 * _Incompatible to 2.0 alpha 1:_ Updated environment variable format.
 * _Incompatible to 2.0 alpha 1:_ C99 compiler is required now.
+
+Angolmois 2.0 beta 1 is being developed as of February 2013. This is mainly
+a feature-complete, stable release candidate for 2.0 final. It is expected
+that beta 1 will be released as final without much change.
 
 
 BMS Support Status
