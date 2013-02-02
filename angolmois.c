@@ -379,9 +379,7 @@ static int key2index(const char *s, int *v) /* requires s[0] and s[1] allocated 
 
 static int compare_bmsline(const void *a, const void *b)
 {
-	const char *const *A = a, *const *B = b;
-	int prefixcmp = strncmp(*A, *B, 6);
-	return (prefixcmp ? prefixcmp : A - B);
+	return strncmp(*(const char *const *)a, *(const char *const *)b, 6);
 }
 
 static int compare_obj(const void *a, const void *b)
@@ -408,7 +406,7 @@ static void parse_bms(struct rngstate *r)
 		"RANDOM", "SETRANDOM", "ENDRANDOM", "IF", "ELSEIF", "ELSE", "ENDSW", "END"};
 
 	FILE *fp;
-	int i, j, k, a, b, measure = 0, chan;
+	int i, j, k, a, b, measure = 0, chan, poorbgafix = 1;
 	int prev[NNOTECHANS] = {0}, lprev[NNOTECHANS] = {0}, iprev[NNOTECHANS] = {0};
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
@@ -561,6 +559,7 @@ static void parse_bms(struct rngstate *r)
 					if (b) add_obj(BGA_CHANNEL, t, BGA_LAYER, b, 0);
 				} else if (chan == 6) {
 					if (b) add_obj(BGA_CHANNEL, t, POORBGA_LAYER, b, 0);
+					if (b && t == 0) poorbgafix = 0;
 				} else if (chan == 7) {
 					if (b) add_obj(BGA_CHANNEL, t, BGA2_LAYER, b, 0);
 				} else if (chan == 8) {
@@ -618,6 +617,7 @@ static void parse_bms(struct rngstate *r)
 		free(line);
 	}
 	XV_FREE(bmsline);
+	if (poorbgafix) add_obj(BGA_CHANNEL, 0, POORBGA_LAYER, 0, 0); /* for POOR BGA movie */
 
 	length = measure + 2;
 	for (int i = 0; i < ARRAYSIZE(prev); ++i) if (prev[i]) {
@@ -648,8 +648,11 @@ static void sanitize_bms(void)
 		while (j < nobjs) {
 			int k = j, types = 0;
 			for (; k < nobjs && objs[k].time <= objs[j].time; ++k) if (objs[k].chan == i) {
-				if (types & (1 << objs[k].type)) remove_or_replace_note(k);
-				types |= 1 << objs[k].type;
+				if (types & (1 << objs[k].type)) {
+					remove_or_replace_note(k);
+				} else {
+					types |= 1 << objs[k].type;
+				}
 			}
 
 			if (inside) {

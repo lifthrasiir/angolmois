@@ -61,7 +61,8 @@ the source code. The source code of Angolmois is in public after all.
   ignored.[^1] As an exception, invalid keys in the data section does not
   affect other valid keys.
 * The duplicate command overrides the prior command unless the command itself
-  allows for duplicates.
+  allows for duplicates. (It currently does not hold for the data section due
+  to the implementation strategy.)
 * In the absence of duplicates and possible ambiguities, all commands and data
   are processed independently of their relative positions.
 
