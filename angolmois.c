@@ -340,7 +340,7 @@ static double bpmtab[1296], stoptab[1296];
 #define IS_NOTE_CHANNEL(c) ((c) >= 0 && (c) < NNOTECHANS)
 enum { BGM_CHANNEL = NNOTECHANS, BGA_CHANNEL = NNOTECHANS+1, BPM_CHANNEL = NNOTECHANS+2,
 	STOP_CHANNEL = NNOTECHANS+3, NCHANS = NNOTECHANS+3 };
-enum NOTE_type { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3 };
+enum NOTE_type { LNDONE = 0, LNSTART = 1, NOTE = 2, INVNOTE = 3, BOMB = 4 };
 enum BGA_type { BGA_LAYER = 0, BGA2_LAYER = 1, BGA3_LAYER = 2, POORBGA_LAYER = 3 };
 enum BPM_type { BPM_BY_VALUE = 0, BPM_BY_INDEX = 1 };
 enum STOP_type { STOP_BY_MEASURE = 0, STOP_BY_MSEC = 1 };
@@ -355,7 +355,7 @@ static const struct preset { const char *name1, *name2, *left, *right; } presets
 	{"9-bme", NULL, "11q 12w 13e 14r 15t 18r 19e 16w 17q", NULL}};
 static const char KEYKIND_MNEMONICS[] = "*aybqwertsp"; /* should align with tkeykinds */
 
-static struct bmsnote { double time; int chan, type, index, nograding:1; } *objs;
+static struct obj { double time; int chan, type, index, value, nograding:1; } *objs;
 static int nobjs;
 static double _shorten[2005], *shorten = _shorten + 1;
 static double length;
@@ -386,16 +386,16 @@ static int compare_bmsline(const void *a, const void *b)
 	return (char*)a - (char*)b;
 }
 
-static int compare_bmsnote(const void *a, const void *b)
+static int compare_obj(const void *a, const void *b)
 {
-	const struct bmsnote *A = a, *B = b;
+	const struct obj *A = a, *B = b;
 	return (A->time > B->time ? 1 : A->time < B->time ? -1 : A->type - B->type);
 }
 
-static void add_note(int chan, double time, int type, int index)
+static void add_obj(int chan, double time, int type, int idx, int val)
 {
-	objs = realloc(objs, sizeof(struct bmsnote) * (nobjs+1));
-	objs[nobjs++] = (struct bmsnote) {.time=time, .chan=chan, .type=type, .index=index};
+	objs = realloc(objs, sizeof(struct obj) * (nobjs+1));
+	objs[nobjs++] = (struct obj) {.time=time, .chan=chan, .type=type, .index=idx, .value=val};
 }
 
 #define KEY_STRING "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -491,7 +491,7 @@ static void parse_bms(struct rngstate *r)
 
 		case 16: /* stp## */
 			if (sscanf(line, "%d.%d %d", &i, &j, &k) >= 3) {
-				add_note(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k);
+				add_obj(STOP_CHANNEL, i+j/1e3, STOP_BY_MSEC, k, 0);
 			}
 			break;
 
@@ -556,60 +556,65 @@ static void parse_bms(struct rngstate *r)
 				if (!key2index(line+j, &b)) continue;
 				t = measure + 1. * k / a;
 				if (chan == 1) {
-					if (b) add_note(BGM_CHANNEL, t, 0, b);
+					if (b) add_obj(BGM_CHANNEL, t, 0, b, 0);
 				} else if (chan == 3) {
-					if (b && b/36<16 && b%36<16) add_note(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36);
+					if (b && b/36<16 && b%36<16) add_obj(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36, 0);
 				} else if (chan == 4) {
-					if (b) add_note(BGA_CHANNEL, t, BGA_LAYER, b);
+					if (b) add_obj(BGA_CHANNEL, t, BGA_LAYER, b, 0);
 				} else if (chan == 6) {
-					if (b) add_note(BGA_CHANNEL, t, POORBGA_LAYER, b);
+					if (b) add_obj(BGA_CHANNEL, t, POORBGA_LAYER, b, 0);
 				} else if (chan == 7) {
-					if (b) add_note(BGA_CHANNEL, t, BGA2_LAYER, b);
+					if (b) add_obj(BGA_CHANNEL, t, BGA2_LAYER, b, 0);
 				} else if (chan == 8) {
-					if (b) add_note(BPM_CHANNEL, t, BPM_BY_INDEX, b);
+					if (b) add_obj(BPM_CHANNEL, t, BPM_BY_INDEX, b, 0);
 				} else if (chan == 9) {
-					if (b) add_note(STOP_CHANNEL, t, STOP_BY_MEASURE, b);
+					if (b) add_obj(STOP_CHANNEL, t, STOP_BY_MEASURE, b, 0);
 				} else if (chan >= 1*36 && chan < 3*36) { /* channels 1x/2x */
 					int c = chan - 1*36;
 					if (b) {
 						if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
 							if (iprev[c] && objs[iprev[c]-1].type==NOTE) {
 								objs[iprev[c]-1].type = LNSTART;
-								add_note(c, t, LNDONE, b);
+								add_obj(c, t, LNDONE, b, 0);
 								iprev[c] = 0;
 							}
 						} else {
-							add_note(c, t, NOTE, b);
+							add_obj(c, t, NOTE, b, 0);
 							iprev[c] = nobjs;
 						}
 					}
 				} else if (chan >= 3*36 && chan < 5*36) { /* channels 3x/4x */
-					if (b) add_note(chan - 3*36, t, INVNOTE, b);
+					if (b) add_obj(chan - 3*36, t, INVNOTE, b, 0);
 				} else if (chan >= 5*36 && chan < 7*36) { /* channels 5x/6x */
 					int c = chan - 5*36;
 					if (value[V_LNTYPE] == 1 && b) {
 						if (prev[c]) {
 							prev[c] = 0;
-							add_note(c, t, LNDONE, b);
+							add_obj(c, t, LNDONE, b, 0);
 						} else {
 							prev[c] = b;
-							add_note(c, t, LNSTART, b);
+							add_obj(c, t, LNSTART, b, 0);
 						}
 					} else if (value[V_LNTYPE] == 2) {
 						if (prev[c] || prev[c] != b) {
 							if (prev[c]) {
 								if (lprev[c] + 1 < measure) {
-									add_note(c, lprev[c]+1, LNDONE, 0);
+									add_obj(c, lprev[c]+1, LNDONE, 0, 0);
 								} else if (prev[c] != b) {
-									add_note(c, t, LNDONE, 0);
+									add_obj(c, t, LNDONE, 0, 0);
 								}
 							}
 							if (b && (prev[c]!=b || lprev[c]+1<measure)) {
-								add_note(c, t, LNSTART, b);
+								add_obj(c, t, LNSTART, b, 0);
 							}
 							lprev[c] = measure;
 							prev[c] = b;
 						}
+					}
+				} else if (chan >= 13*36 && chan < 15*36) { /* channels Dx/Ex */
+					if (b == 1295 || (b/36 < 16 && b%36 < 16)) { /* allow ZZ */
+						int dmg = (b == 1295 ? -1 : (b/36*16+b%16) * 512 / 200);
+						if (dmg && dmg <= 512) add_obj(chan - 13*36, t, BOMB, 0, dmg);
 					}
 				}
 			}
@@ -621,9 +626,9 @@ static void parse_bms(struct rngstate *r)
 	length = measure + 2;
 	for (i = 0; i < ARRAYSIZE(prev); ++i) if (prev[i]) {
 		if (value[V_LNTYPE] == 2 && lprev[i] + 1 < measure) {
-			add_note(i, lprev[i]+1, LNDONE, 0);
+			add_obj(i, lprev[i]+1, LNDONE, 0, 0);
 		} else {
-			add_note(i, length - 1, LNDONE, 0);
+			add_obj(i, length - 1, LNDONE, 0, 0);
 		}
 	}
 	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
@@ -644,7 +649,7 @@ static void remove_or_replace_note(int index)
 static void sanitize_bms(void)
 {
 	if (!objs) return;
-	qsort(objs, nobjs, sizeof(struct bmsnote), compare_bmsnote);
+	qsort(objs, nobjs, sizeof(struct obj), compare_obj);
 	for (int i = 0; i < NCHANS; ++i) if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 		int inside = 0, j = 0;
 		while (j < nobjs) {
@@ -657,8 +662,8 @@ static void sanitize_bms(void)
 			if (inside) {
 				/* remove starting longnote if there's no ending longnote */
 				if (!(types & (1<<LNDONE))) types &= ~(1<<LNSTART);
-				/* remove visible note */
-				types &= ~(1<<NOTE);
+				/* remove visible note and bomb */
+				types &= ~((1<<NOTE)|(1<<BOMB));
 				/* remove invisible note if there is any longnote */
 				if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
 
@@ -885,11 +890,7 @@ static int get_bms_duration(void)
 				goto earlyexit;
 			}
 		} else if (chan == STOP_CHANNEL) {
-			if (type == STOP_BY_MSEC) {
-				time += index;
-			} else { /* STOP_BY_MEASURE */
-				time += MEASURE_TO_MSEC(stoptab[index], xbpm);
-			}
+			time += (type == STOP_BY_MSEC ? index : MEASURE_TO_MSEC(stoptab[index], xbpm));
 		}
 		if (rtime < time + ttime) rtime = time + ttime;
 		pos = objs[i].time;
@@ -1140,7 +1141,7 @@ static int opt_showinfo = 1, opt_fullscreen = 1, opt_joystick = -1;
 static double playspeed = 1, targetspeed;
 static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit = 0;
 static double startoffset, startshorten;
-static int pcur, pfront, prear, pcheck[NNOTECHANS], pthru[NNOTECHANS]; /* indices to objs */
+static int pcur, pfront, prear, pcheck, pthru[NNOTECHANS]; /* indices to objs */
 static int bga[] = {[BGA_LAYER]=-1, [BGA2_LAYER]=-1, [BGA3_LAYER]=-1, [POORBGA_LAYER]=0};
 static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER), poormask = (1<<POORBGA_LAYER);
 static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
@@ -1151,11 +1152,11 @@ static SDL_Surface *sprite = NULL;
 static int keymap[SDLK_LAST]; /* -1: none, 0..NNOTECHANS-1: notes, +0..+1: speed down/up */
 static XV(int) joybmap, joyamap;
 static int keypressed[2][NNOTECHANS]; /* keypressed[0] for buttons, keypressed[1] for axes */
-struct tkeykind { int spriteleft, width, color; };
-static const struct tkeykind *tkey[NNOTECHANS], tkeykinds[] = {
-	{0,0,0}, {25,25,0x808080}, {50,25,0xffff80}, {75,25,0x8080ff}, {130,30,0xe0e0e0},
-	{160,30,0xffff40}, {190,30,0x80ff80}, {220,30,0x8080ff}, {250,30,0xff4040},
-	{320,40,0xff8080}, {360,40,0x80ff80}};
+struct tkeykind { int spriteleft, spritebombleft, width, color; };
+static const struct tkeykind *tkey[NNOTECHANS], tkeykinds[] = {{0,0,0,0},
+	{25,0,25,0x808080}, {50,0,25,0xffff80}, {75,0,25,0x8080ff}, {130,100,30,0xe0e0e0},
+	{160,100,30,0xffff40}, {190,100,30,0x80ff80}, {220,100,30,0x8080ff},
+	{250,100,30,0xff4040}, {320,280,40,0xff8080}, {360,280,40,0x80ff80}};
 static int tkeyleft[NNOTECHANS], tpanel1 = 0, tpanel2 = 800, tbgax = 0, tbgay = 0;
 static const char *tgradestr[] = {"MISS", "BAD", "GOOD", "GREAT", "COOL"};
 static const int tgradecolor[] = {0xff4040, 0xff40ff, 0xffff40, 0x40ff40, 0x4040ff};
@@ -1446,6 +1447,7 @@ static void play_prepare(void)
 		}
 		for (int j = 0; j*2 < k->width; ++j) {
 			SDL_FillRect(sprite, R(k->spriteleft+800+j,0,k->width-2*j,600), blend(k->color, 0xffffff, k->width-j, k->width));
+			SDL_FillRect(sprite, R(k->spritebombleft+800+j,0,k->width-2*j,600), blend(0xc00000, 0, k->width-j, k->width));
 		}
 	}
 	for (int j = -244; j < 556; ++j) {
@@ -1484,16 +1486,16 @@ static void play_prepare(void)
 	SDL_BlitSurface(sprite, R(0,520,800,80), screen, R(0,520,0,0));
 }
 
-static void update_grade(int grade, int delta)
+static void update_grade(int grade, int scoredelta, int gaugedelta)
 {
 	++scocnt[grade];
 	grademode = grade;
 	gradetime = now + 700; /* disappears after 700ms */
-	score += delta + delta * scombo / nnotes;
+	score += scoredelta + scoredelta * scombo / nnotes;
 
 	if (grade < 1) {
 		scombo = 0;
-		gauge -= 30;
+		gauge -= gaugedelta ? gaugedelta : 30;
 		poorlimit = now + 600; /* switches to the normal BGA after 600ms */
 	} else if (grade < 2) {
 		scombo = 0;
@@ -1510,7 +1512,7 @@ static void update_grade(int grade, int delta)
 
 static int play_process(void)
 {
-	int i, j, k, l, ibottom;
+	int i, j, k, l, ibottom, prevpcur;
 	double bottom, top, line, tmp;
 	SDL_Event event;
 	char buf[99];
@@ -1547,7 +1549,7 @@ static int play_process(void)
 
 	for (; pfront < nobjs && objs[pfront].time < bottom; ++pfront);
 	for (; prear < nobjs && objs[prear].time <= top; ++prear);
-	for (; pcur < nobjs && objs[pcur].time < line; ++pcur) {
+	for (prevpcur = pcur; pcur < nobjs && objs[pcur].time < line; ++pcur) {
 		int chan = objs[pcur].chan, type = objs[pcur].type, index = objs[pcur].index;
 		if (chan == BGM_CHANNEL) {
 			if (index) play_sound(index, 1);
@@ -1569,26 +1571,23 @@ static int play_process(void)
 			}
 		} else if (chan == STOP_CHANNEL) {
 			if (now >= stoptime) stoptime = now;
-			if (type == STOP_BY_MSEC) {
-				stoptime += index;
-			} else { /* STOP_BY_MEASURE */
-				stoptime += (int) MEASURE_TO_MSEC(stoptab[index], bpm);
-			}
+			stoptime += (type == STOP_BY_MSEC ? index : (int) MEASURE_TO_MSEC(stoptab[index], bpm));
 			startoffset = objs[pcur].time;
 		} else if (opt_mode && (type == NOTE || type == LNSTART)) {
 			if (index) play_sound(index, 0);
-			update_grade(4, 300);
+			update_grade(4, 300, 0);
 		}
 	}
 	if (!opt_mode) {
-		for (i = 0; i < ARRAYSIZE(pcheck); ++i) {
-			for (; pcheck[i] < pcur; ++pcheck[i]) if (objs[pcheck[i]].chan == i) {
-				j = objs[pcheck[i]].type;
-				if (objs[pcheck[i]].nograding || j >= INVNOTE || (j == LNDONE && !pthru[i])) continue;
-				tmp = objs[pcheck[i]].time;
-				tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten[(int)tmp] * gradefactor;
-				if (tmp > 144) update_grade(0, 0); else break;
-			}
+		for (; pcheck < pcur; ++pcheck) {
+			int chan = objs[pcheck].chan, type = objs[pcheck].type;
+			tmp = objs[pcheck].time;
+			tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten[(int)tmp] * gradefactor;
+			if (tmp < 144) break;
+			if (!IS_NOTE_CHANNEL(chan) || objs[pcheck].nograding) continue;
+			if (type >= INVNOTE || (type == LNDONE && !pthru[chan])) continue;
+			update_grade(0, 0, 0);
+			pthru[chan] = 0;
 		}
 	}
 
@@ -1653,7 +1652,7 @@ static int play_process(void)
 				if (-144 < tmp && tmp < 144) {
 					objs[j].nograding = 1;
 				} else {
-					update_grade(0, 0);
+					update_grade(0, 0, 0);
 				}
 			}
 		}
@@ -1666,8 +1665,8 @@ static int play_process(void)
 				if (keypressed[joy][key]++) pressed = 0;
 			}
 			if (pressed && nobjs) {
-				for (j = pcur; j < nobjs && !(objs[j].chan == key); ++j);
-				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key); --l);
+				for (j = pcur; j < nobjs && !(objs[j].chan == key && objs[i].type <= INVNOTE); ++j);
+				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key && objs[i].type <= INVNOTE); --l);
 				tmp = (l >= 0 ? line - objs[l].time : DBL_MAX);
 				if (j < nobjs && tmp > objs[j].time - line) l = j;
 				if (l >= 0 && objs[l].index) play_sound(objs[l].index, 0);
@@ -1676,20 +1675,31 @@ static int play_process(void)
 				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key && objs[l].type < INVNOTE); --l);
 				tmp = (l >= 0 ? line - objs[l].time : DBL_MAX);
 				if (j < nobjs && tmp > objs[j].time - line) l = j;
-				if (l < pcheck[key]) continue;
 
-				if (objs[l].type == LNDONE) {
-					if (pthru[key]) update_grade(0, 0);
-				} else if (!objs[l].nograding) {
+				if (l >= pcheck && !objs[l].nograding && objs[l].type != LNDONE) {
 					tmp = MEASURE_TO_MSEC(objs[l].time - line, bpm) * shorten[(int)line] * gradefactor;
 					if (tmp < 0) tmp = -tmp;
 					if (tmp < 144) {
 						if (objs[l].type == LNSTART) pthru[key] = l + 1;
 						objs[l].nograding = 1;
-						update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, 300 - tmp/144*300);
+						update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, (1-tmp/144)*300, 0);
 					}
 				}
 			}
+		}
+	}
+	if (!opt_mode) {
+		for (int i = prevpcur; i < pcur; ++i) if (IS_NOTE_CHANNEL(objs[i].chan)) {
+			int chan = objs[i].chan, type = objs[i].type;
+			if (type != BOMB || !(keypressed[0][chan] || keypressed[1][chan])) continue;
+			pthru[chan] = 0; /* ongoing long note is not graded twice */
+			play_sound(objs[i].index, 0);
+			if (objs[i].value < 0) { /* instant death */
+				gauge = 0;
+				pcur = nobjs;
+				return 0;
+			}
+			update_grade(0, 0, objs[i].value);
 		}
 	}
 	if (bottom > length) {
@@ -1724,13 +1734,14 @@ static int play_process(void)
 				} else if (objs[j].type == LNDONE) {
 					k += 5;
 					l = 520;
-				} else if (objs[j].type == NOTE) {
+				} else if (objs[j].type == NOTE || objs[j].type == BOMB) {
 					l = k + 5;
 				} else {
 					continue;
 				}
 				if (k > 0 && l > k) {
-					SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,l-k), screen, R(tkeyleft[i],k,0,0));
+					int sleft = (objs[j].type == BOMB ? tkey[i]->spritebombleft : tkey[i]->spriteleft);
+					SDL_BlitSurface(sprite, R(sleft+800,0,tkey[i]->width,l-k), screen, R(tkeyleft[i],k,0,0));
 				}
 			}
 		}
