@@ -1132,9 +1132,9 @@ static enum bga opt_bga = BGA_AND_MOVIE;
 static int opt_showinfo = 1, opt_fullscreen = 1, opt_joystick = -1;
 
 static double playspeed = 1, targetspeed, bpm;
-static int now, origintime, starttime, stoptime = 0, adjustspeed = 0, poorlimit = 0;
+static int now, origintime, starttime, stoptime = 0, poorlimit = 0;
 static double startoffset, startshorten;
-static int pcur, pfront, prear, pcheck, pthru[NNOTECHANS]; /* indices to objs */
+static int pcur, pfront, pcheck, pthru[NNOTECHANS]; /* indices to objs */
 static int bga[] = {[BGA_LAYER]=-1, [BGA2_LAYER]=-1, [BGA3_LAYER]=-1, [POORBGA_LAYER]=0};
 static int bgamask = (1<<BGA_LAYER)|(1<<BGA2_LAYER)|(1<<BGA3_LAYER), poormask = (1<<POORBGA_LAYER);
 static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
@@ -1511,12 +1511,10 @@ static int play_process(void)
 	SDL_Event event;
 	char buf[99];
 
-	if (adjustspeed) {
+	if (targetspeed != playspeed) {
 		double delta = targetspeed - playspeed;
 		if (-0.001 < delta && delta < 0.001) {
-			adjustspeed = 0;
 			playspeed = targetspeed;
-			prear = pfront;
 		} else {
 			playspeed += delta * 0.1;
 		}
@@ -1542,7 +1540,6 @@ static int play_process(void)
 	top = adjust_object_time(bottom, 1.25/playspeed);
 
 	for (; pfront < nobjs && objs[pfront].time < bottom; ++pfront);
-	for (; prear < nobjs && objs[prear].time <= top; ++prear);
 	for (prevpcur = pcur; pcur < nobjs && objs[pcur].time < line; ++pcur) {
 		int chan = objs[pcur].chan, type = objs[pcur].type, index = objs[pcur].index;
 		if (chan == BGM_CHANNEL) {
@@ -1610,24 +1607,21 @@ static int play_process(void)
 
 		if (opt_mode >= EXCLUSIVE_MODE) continue;
 
+		static const double speeds[] = {0.1, 0.2, 0.4, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5,
+			3, 3.5, 4, 4.5, 5, 5.5, 6, 7, 8, 10, 15, 25, 40, 60, 99};
 		if (down && key == NNOTECHANS/*SPEED_DOWN*/) {
-			if (targetspeed > 20) targetspeed -= 5;
-			else if (targetspeed > 10) targetspeed -= 1;
-			else if (targetspeed > 1) targetspeed -= .5;
-			else if (targetspeed > .201) targetspeed -= .2;
-			else continue;
-			adjustspeed = 1;
-			Mix_PlayChannel(0, beep, 0);
+			for (k = 0; k < ARRAYSIZE(speeds) && speeds[k] < targetspeed - 0.001; ++k);
+			if (k > 0) {
+				targetspeed = speeds[k-1];
+				Mix_PlayChannel(0, beep, 0);
+			}
 		}
-
 		if (down && key == NNOTECHANS+1/*SPEED_UP*/) {
-			if (targetspeed < 1) targetspeed += .2;
-			else if (targetspeed < 10) targetspeed += .5;
-			else if (targetspeed < 20) targetspeed += 1;
-			else if (targetspeed < 95) targetspeed += 5;
-			else continue;
-			adjustspeed = 1;
-			Mix_PlayChannel(0, beep, 0);
+			for (k = ARRAYSIZE(speeds)-1; k >= 0 && speeds[k] > targetspeed + 0.001; --k);
+			if (k < ARRAYSIZE(speeds)-1) {
+				targetspeed = speeds[k+1];
+				Mix_PlayChannel(0, beep, 0);
+			}
 		}
 
 		if (opt_mode || key < 0 || key >= NNOTECHANS || !tkey[key]) continue;
@@ -1714,10 +1708,10 @@ static int play_process(void)
 		SDL_SetClipRect(screen, R(0,30,800,490));
 		for (int i = 0; i < ARRAYSIZE(tkey); ++i) if (tkey[i]) {
 			for (j = pfront; j < nobjs && !(objs[j].chan == i && objs[j].type != INVNOTE); ++j);
-			if (prear <= j && j < nobjs && objs[j].type == LNDONE) {
+			if (j < nobjs && objs[j].time > top && objs[j].type == LNDONE) {
 				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), screen, R(tkeyleft[i],30,0,0));
 			}
-			for (; j < prear; ++j) if (objs[j].chan == i) {
+			for (; j < nobjs && objs[j].time <= top; ++j) if (objs[j].chan == i) {
 				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, objs[j].time));
 				if (objs[j].type == LNSTART) {
 					l = k + 5;
