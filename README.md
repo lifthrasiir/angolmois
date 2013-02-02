@@ -376,6 +376,52 @@ are ordered and displayed. The following preset names are available:
 All names are case-insensitive. If not specified, Angolmois automatically uses
 the preset `pms` for files which name ends with `.pms` and `bms` for others.
 
+### `--key-spec <string> <string>`, `-K <string> <string>`
+
+Sets the custom key specification. This overrides prior `--preset` options.
+This option can be used for emulating various BMS extensions not supported by
+Angolmois itself.
+
+The key specification composed of two strings, one for the left panel and one
+for the right panel. The distinction between two panels is only useful for
+couple play (`#PLAYER 2`), and they will be merged to one panel otherwise.
+
+Each string contains three-letter lane specification optionally separated by
+whitespace (the string can be empty if the right panel is not used). First two
+letters are the note channel used for given lane (`11`, `26` etc.), and the
+third lowercased letter specifies the kind of given lane:
+
+	Primarly used for BMS/BME/BML:
+	a       White key
+	y       White key (displayed yellow)
+	b       Black key (displayed blue)
+	s       Scratch (displayed red)
+	p       Foot pedal (displayed green)
+
+	Primarly used for PMS:
+	w       White button
+	e       Yellow button
+	r       Green button
+	t       Navy button
+	s       Red button
+
+One key cannot have multiple lanes. The maximum possible number of lanes is
+therefore 72 (`10` to `1Z`, `20` to `2Z`), but it won't display properly so
+about 15 to 20 lanes are the sensible maximum. Likewise, too small number of
+lanes (less than 5) may cause a problem.
+
+In order to illustrate the point, the option `--preset 10/fp` is actually
+a shorthand for this equivalent key specification:
+
+	--key-spec '16s 11a 12b 13a 14b 15a 17p' '27p 21a 22b 23a 24b 25a 26s'
+
+...and the [OCT/FP][octfp] extension which Angolmois does not support natively
+can be emulated as follows:
+
+	--key-spec '21p 11a 12b 13a 14b 15a 18b 19a 22b 23a 24b 25a 28b 29a 26s'
+
+[octfp]: http://wayback.archive.org/web/20071103011620/http://www.diana.dti.ne.jp/~idee/octave.html
+
 ### `--bga`
 
 Loads and shows the BGA.
@@ -542,27 +588,16 @@ appear. This kind of variables are processed after other environment
 variables, so they can override keys for the specific channel. A key itself
 can be used for only one channel however.
 
-`XX` should be an uppercased alphanumeric key for the note channel (`11`, `26`
-etc.). `y` should be one lowercased letter which identifies the kind of that
-channel:
+These are intended as a general way to set keys when `--key-spec` is used.
+Like `--key-spec`, `XX` should be an uppercased alphanumeric key for the note
+channel (`11`, `26` etc.) and `y` should be one lowercased letter which
+identifies the kind of that channel. See `--key-spec` for details.
 
-	Primarly used for BMS/BME/BML:
-	a       White key
-	y       White key (displayed yellow)
-	b       Black key (displayed blue)
-	s       Scratch (displayed red)
-	p       Foot pedal (displayed green)
-
-	Primarly used for PMS:
-	w       White button
-	e       Yellow button
-	r       Green button
-	t       Navy button
-	s       Red button
-
-Note that this distinction is also used for `ANGOLMOIS_{1P,2P,PMS}_KEYS`
-environment variables: they assign the specified keys only when the channel
-and predefined kind agrees to each other.
+If multiple environment variables for same channel and different kind are
+available, Angolmois uses at most one variable with the matching channel and
+kind (or none if there is no match). This distinction is also used for
+`ANGOLMOIS_{1P,2P,PMS}_KEYS` environment variables: they assign the specified
+keys only when the channel and predefined kind agrees to each other.
 
 
 BMS Support Status

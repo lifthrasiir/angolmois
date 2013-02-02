@@ -249,7 +249,8 @@ counting the number of objects in channels `18`, `19`, `28` and `29`.
 (Therefore objects in `28` may trigger 7KEY even for `#PLAYER 1`.) Similarily,
 it automatically distinguishes two variants of PMS channels from each other by
 counting the number of objects in channels `16`, `17`, `18` and `19`. This
-automatic format detection can be suppressed with `--preset` option.
+automatic format detection can be suppressed with `--preset` or `--key-spec`
+option; the latter can entirely override Angolmois' key model too.
 
 Angolmois supports channels `17` and `27` as foot pedals (sort of); if those
 channels are not empty, the pedal lane is added to the right (for 10KEY and
