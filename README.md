@@ -418,7 +418,7 @@ a shorthand for this equivalent key specification:
 ...and the [OCT/FP][octfp] extension which Angolmois does not support natively
 can be emulated as follows:
 
-	--key-spec '21p 11a 12b 13a 14b 15a 18b 19a 22b 23a 24b 25a 28b 29a 26s'
+	--key-spec '21p 16s 11a 12b 13a 14b 15a 18b 19a 22b 23a 24b 25a 28b 29a 26s' ''
 
 [octfp]: http://wayback.archive.org/web/20071103011620/http://www.diana.dti.ne.jp/~idee/octave.html
 
