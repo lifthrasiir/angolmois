@@ -633,7 +633,7 @@ static void parse_bms(struct rngstate *r)
 
 static void remove_or_replace_note(int index)
 {
-	if (IS_NOTE_CHANNEL(objs[index].chan) && objs[index].index) {
+	if (IS_NOTE_CHANNEL(objs[index].chan) && objs[index].type < INVNOTE && objs[index].index) {
 		objs[index].chan = BGM_CHANNEL;
 		objs[index].type = 0;
 	} else {
@@ -874,7 +874,7 @@ static int get_bms_duration(void)
 		int chan = objs[i].chan, type = objs[i].type, index = objs[i].index;
 		time += MEASURE_TO_MSEC(adjust_object_position(pos, objs[i].time), xbpm);
 		ttime = 0.0;
-		if (IS_NOTE_CHANNEL(chan) || chan == BGM_CHANNEL) {
+		if ((IS_NOTE_CHANNEL(chan) && (type == NOTE || type == LNSTART)) || chan == BGM_CHANNEL) {
 			if (index && sndres[index].res) ttime = sndres[index].res->alen / 176.4;
 		} else if (chan == BPM_CHANNEL) {
 			tmp = (type == BPM_BY_INDEX ? bpmtab[index] : index);
@@ -1584,7 +1584,7 @@ static int play_process(void)
 		for (i = 0; i < ARRAYSIZE(pcheck); ++i) {
 			for (; pcheck[i] < pcur; ++pcheck[i]) if (objs[pcheck[i]].chan == i) {
 				j = objs[pcheck[i]].type;
-				if (objs[pcheck[i]].nograding || j == INVNOTE || (j == LNDONE && !pthru[i])) continue;
+				if (objs[pcheck[i]].nograding || j >= INVNOTE || (j == LNDONE && !pthru[i])) continue;
 				tmp = objs[pcheck[i]].time;
 				tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten[(int)tmp] * gradefactor;
 				if (tmp > 144) update_grade(0, 0); else break;
@@ -1672,8 +1672,8 @@ static int play_process(void)
 				if (j < nobjs && tmp > objs[j].time - line) l = j;
 				if (l >= 0 && objs[l].index) play_sound(objs[l].index, 0);
 
-				for (j = pcur; j < nobjs && !(objs[j].chan == key && objs[j].type != INVNOTE); ++j);
-				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key && objs[l].type != INVNOTE); --l);
+				for (j = pcur; j < nobjs && !(objs[j].chan == key && objs[j].type < INVNOTE); ++j);
+				for (l = pcur - 1; l >= 0 && !(objs[l].chan == key && objs[l].type < INVNOTE); --l);
 				tmp = (l >= 0 ? line - objs[l].time : DBL_MAX);
 				if (j < nobjs && tmp > objs[j].time - line) l = j;
 				if (l < pcheck[key]) continue;
@@ -1851,7 +1851,7 @@ static int play(void)
 	while (play_process());
 
 	for (; pcur < nobjs; ++pcur) {
-		if (IS_NOTE_CHANNEL(objs[pcur].chan)) break;
+		if (IS_NOTE_CHANNEL(objs[pcur].chan) && objs[pcur].type < INVNOTE) break;
 	}
 	if (!opt_mode && pcur == nobjs) {
 		if (gauge >= survival) {
