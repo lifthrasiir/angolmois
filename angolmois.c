@@ -666,7 +666,7 @@ static void sanitize_bms(void)
 				/* remove invisible note if there is any longnote */
 				if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
 
-				inside = !(types & (1<<LNDONE));
+				inside = (types != (1<<LNDONE));
 			} else {
 				/* remove starting longnote if there's also ending longnote */
 				if (types & (1<<LNDONE)) types &= ~(1<<LNSTART);
@@ -675,7 +675,7 @@ static void sanitize_bms(void)
 				/* keep only one note, in the order of importance */
 				types &= -types;
 
-				inside = (types & (1<<LNSTART));
+				inside = (types == (1<<LNSTART));
 			}
 
 			for (; j < k; ++j) if (objs[j].chan == i) {
