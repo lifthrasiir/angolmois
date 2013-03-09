@@ -408,7 +408,7 @@ static void parse_bms(struct rngstate *r)
 
 	FILE *fp;
 	int i, j, k, a, b, measure = 0, chan, poorbgafix = 1;
-	int prev[NNOTECHANS] = {0}, lprev[NNOTECHANS] = {0}, iprev[NNOTECHANS] = {0};
+	int prev12[NNOTECHANS] = {0}, prev56[NNOTECHANS] = {0};
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
 	struct blitcmd bc;
@@ -573,14 +573,14 @@ static void parse_bms(struct rngstate *r)
 					int c = chan - 1*36;
 					if (b) {
 						if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
-							if (iprev[c] && objs[iprev[c]-1].type==NOTE) {
-								objs[iprev[c]-1].type = LNSTART;
+							if (prev12[c] && objs[prev12[c]-1].type==NOTE) {
+								objs[prev12[c]-1].type = LNSTART;
 								add_obj(c, t, LNDONE, b, 0);
-								iprev[c] = 0;
+								prev12[c] = 0;
 							}
 						} else {
 							add_obj(c, t, NOTE, b, 0);
-							iprev[c] = nobjs;
+							prev12[c] = nobjs;
 						}
 					}
 				} else if (chan >= 3*36 && chan < 5*36) { /* channels 3x/4x */
@@ -588,27 +588,23 @@ static void parse_bms(struct rngstate *r)
 				} else if (chan >= 5*36 && chan < 7*36) { /* channels 5x/6x */
 					int c = chan - 5*36;
 					if (value[V_LNTYPE] == 1 && b) {
-						if (prev[c]) {
-							prev[c] = 0;
+						if (prev56[c]) {
 							add_obj(c, t, LNDONE, b, 0);
+							prev56[c] = 0;
 						} else {
-							prev[c] = b;
 							add_obj(c, t, LNSTART, b, 0);
+							prev56[c] = nobjs;
 						}
 					} else if (value[V_LNTYPE] == 2) {
-						if (prev[c] || prev[c] != b) {
-							if (prev[c]) {
-								if (lprev[c] + 1 < measure) {
-									add_obj(c, lprev[c]+1, LNDONE, 0, 0);
-								} else if (prev[c] != b) {
-									add_obj(c, t, LNDONE, 0, 0);
-								}
-							}
-							if (b && (prev[c]!=b || lprev[c]+1<measure)) {
-								add_obj(c, t, LNSTART, b, 0);
-							}
-							lprev[c] = measure;
-							prev[c] = b;
+						double t2 = measure + 1. * (k + 1) / a;
+						if (!b) {
+							prev56[c] = 0;
+						} else if (prev56[c] && objs[prev56[c]-1].time == t) {
+							objs[prev56[c]-1].time = t2;
+						} else {
+							add_obj(c, t, LNSTART, b, 0);
+							add_obj(c, t2, LNDONE, b, 0);
+							prev56[c] = nobjs;
 						}
 					}
 				} else if (chan >= 13*36 && chan < 15*36) { /* channels Dx/Ex */
@@ -623,9 +619,10 @@ static void parse_bms(struct rngstate *r)
 	if (poorbgafix) add_obj(BGA_CHANNEL, 0, POORBGA_LAYER, 0, 0); /* for POOR BGA movie */
 
 	length = measure + 2;
-	for (int i = 0; i < ARRAYSIZE(prev); ++i) if (prev[i]) {
-		double end = (value[V_LNTYPE] == 2 && lprev[i]+1 < measure ? lprev[i]+1 : measure+1);
-		add_obj(i, end, LNDONE, 0, 0);
+	for (int i = 0; i < NNOTECHANS; ++i) {
+		if (prev12[i] || (value[V_LNTYPE] == 1 && prev56[i])) {
+			add_obj(i, measure + 1, LNDONE, 0, 0);
+		}
 	}
 	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
 		if (_shorten[i] <= .001) _shorten[i] = 1;
@@ -649,7 +646,7 @@ static void sanitize_bms(void)
 	for (int i = 0; i < NCHANS; ++i) if (i != BGM_CHANNEL && i != STOP_CHANNEL) {
 		int inside = 0, j = 0;
 		while (j < nobjs) {
-			int k = j, types = 0;
+			int k = j, types = 0, lowest;
 			for (; k < nobjs && objs[k].time <= objs[j].time; ++k) if (objs[k].chan == i) {
 				if (types & (1 << objs[k].type)) {
 					remove_or_replace_note(k);
@@ -658,25 +655,17 @@ static void sanitize_bms(void)
 				}
 			}
 
-			if (inside) {
-				/* remove starting longnote if there's no ending longnote */
-				if (!(types & (1<<LNDONE))) types &= ~(1<<LNSTART);
-				/* remove visible note and bomb */
-				types &= ~((1<<NOTE)|(1<<BOMB));
-				/* remove invisible note if there is any longnote */
-				if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
+			/* remove overlapping LN endpoints altogether */
+			if (!(~types & ((1<<LNSTART)|(1<<LNDONE)))) types &= ~((1<<LNSTART)|(1<<LNDONE));
+			/* remove prohibited types according to inside */
+			types &= ~(inside ? (1<<LNSTART)|(1<<NOTE)|(1<<BOMB) : (1<<LNDONE));
+			/* invisible note cannot overlap with long note endpoints */
+			if (types & ((1<<LNSTART)|(1<<LNDONE))) types &= ~(1<<INVNOTE);
+			/* keep the most important (lowest) type, except for BOMB/INVNOTE combination */
+			lowest = types & -types;
+			types = lowest | (lowest == (1<<INVNOTE) ? types & (1<<BOMB) : 0);
 
-				inside = (types != (1<<LNDONE));
-			} else {
-				/* remove starting longnote if there's also ending longnote */
-				if (types & (1<<LNDONE)) types &= ~(1<<LNSTART);
-				/* remove ending longnote */
-				types &= ~(1<<LNDONE);
-				/* keep only one note, in the order of importance */
-				types &= -types;
-
-				inside = (types == (1<<LNSTART));
-			}
+			inside = (types & (1<<LNSTART) ? 1 : types & (1<<LNDONE) ? 0 : inside);
 
 			for (; j < k; ++j) if (objs[j].chan == i) {
 				if (IS_NOTE_CHANNEL(i) && !(types & (1 << objs[j].type))) {
