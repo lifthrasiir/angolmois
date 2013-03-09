@@ -465,11 +465,11 @@ the file name starts with `-`.
 
 ### File name
 
-An argument not starting with `-` is considered a file name. You need the full
-path to BMS/BME/BML/PMS file (except for PMS, the extension does not really
-matter though), and other image and sound files are resolved in the directory
-where the BMS/BME/BML/PMS file is (unless `#PATH_WAV` is in effect; see the
-"BMS support status" section).
+An argument not starting with `-` is considered a file name. You need
+the exact path to BMS/BME/BML/PMS file (the extension does not really matter
+except for PMS, though), and other image and sound files are resolved in
+the directory where the BMS/BME/BML/PMS file is (unless `#PATH_WAV` is
+in effect; see the "BMS support status" section).
 
 You may have two or more file names, but only the first is used. Multiple file
 names are reserved for later extension.
@@ -709,4 +709,20 @@ common methods:
 
 [dee2events]: http://manbow.nothing.sh/event/event.cgi
 [kbp]: http://k-bms.net/
+
+
+Appendix: Acknowledgements
+--------------------------
+
+I'd like to thank to the following persons for inspiration and advice:
+
+* Choi Kaya for the namesake; he is the creator of the [Project
+  Angolmois](http://angolmois.net/), which inspired me to create a source code
+  shaped as a recognizable image.
+* Park Joon-Kyu, Park Jiin, Hye-Shik Chang, Park Jaesong and numerous others
+  for helping the initial debugging phase of Angolmois 1.0.
+* [Hitkey](http://hitkey.nekokan.dyndns.info/) for the thorough analysis of
+  Angolmois and other BMS players.
+* [Nekokan](http://nekokan.dyndns.info/) for the Japanese translation of this
+  `README.md` and `INTERNALS.md`. :)
 

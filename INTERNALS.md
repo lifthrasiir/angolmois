@@ -36,7 +36,10 @@ changes include:
 
 Angolmois 2.0 beta 1 is being developed as of February 2013. This is mainly
 a feature-complete, stable release candidate for 2.0 final. It is expected
-that beta 1 will be released as final without much change.
+that beta 1 will be released as final without much change. Important changes
+include:
+
+* Dropped support of consecutive long notes. (Issue #15)
 
 
 BMS Support Status
@@ -52,6 +55,35 @@ useful for BMS writers and other software developers.
 This section is not intended to be complete. In doubt, always consult
 the source code. The source code of Angolmois is in public after all.
 
+### Glossary
+
+This document uses the following terms:
+
+* A **command** refers to one significant line in the BMS file, starting with
+  optional whitespace followed by `#`. A **data command** is a subset of
+  command which has a form of `#xxxyy:...`.
+* A **key** refers to one input element of the input device, normally
+  a button, a joystick axis or a turntable.
+* An **alphanumeric key** refers to a two-letter, base-36 data element present
+  in data commands. Alphanumeric keys are used as an identifier or direct
+  value.
+* A **measure** is a unit of time, which length is associated to the actual
+  time by BPM. The song is composed of multiple measures in BMS and each
+  measure is given a **measure number** starting at 0.
+* A **channel** refers to the type of data commands, conveniently represented
+  as one alphanumeric key.
+* A **lane** refers to a game element where objects are vertically positioned
+  and mapped to the physical key and screen area. Each lane has an associated
+  group of four channels.
+* An **object** refers to a game element positioned in the certain lane which
+  directly or indirectly affects the game play. There are five kinds of
+  objects supported by Angolmois: visible object (note), invisible object,
+  long note start and end, and bomb. Note that the horizontal measure bar is
+  not an object.
+* A **key model** refers to how the channels `10`-`2Z`, `30`-`4Z`, `50`-`6Z`
+  and `D0`-`EZ` (which forms 72 groups in total) are mapped to lanes, and also
+  how those lanes are mapped to the physical input device and screen.
+
 ### Basic Rules
 
 * Lines can end with `\r` (Mac OS classic), `\n` (Unix) or `\r\n` (Windows).
@@ -61,15 +93,15 @@ the source code. The source code of Angolmois is in public after all.
   use `00` to `ZZ`. They are case-insensitive as well.
 * Both one or more tabs and spaces count as whitespace.
 * Preceding whitespace is ignored.
-* Invalid key or number results in the command ignored entirely, but if the
-  prefix of the line parses to the correct command then the remainder is
-  ignored.[^1] As an exception, invalid keys in the data section does not
-  affect other valid keys.
+* Invalid alphanumeric key or number results in the command ignored entirely,
+  but if the prefix of the line parses to the correct command then
+  the remainder is ignored.[^1] As an exception, invalid alphanumeric keys in
+  the data commands does not affect other valid alphanumeric keys.
 * The duplicate command overrides the prior command unless the command itself
-  allows for duplicates. (It currently does not hold for the data section due
+  allows for duplicates. (It currently does not hold for the data commands due
   to the implementation strategy.)
-* In the absence of duplicates and possible ambiguities, all commands and data
-  are processed independently of their relative positions.
+* In the absence of duplicates and possible ambiguities, all commands are
+  processed independently of their relative positions.
 
 [^1]: Thus `#PLAYLEVEL 12.3` is valid even while `#PLAYLEVEL` requires
       an integer; it is equivalent to `#PLAYLEVEL 12`.
@@ -97,19 +129,31 @@ Corresponds to the single play (SP), couple play and double play (DP) mode
 respectively. Angolmois does not support battle play (`#PLAYER 4`) and has
 very limited support for couple play (`#PLAYER 2`).
 
-Angolmois always puts the notes on the left hand side and BGA on the right
-hand side. `#PLAYER 2` is implemented as split notes on both sides, and
+Angolmois always puts the objects on the left hand side and BGA on the right
+hand side. `#PLAYER 2` is implemented as split lanes on both sides, and
 otherwise same as `#PLAYER 3` (they share the same gauge and grading).
 
 * `#RANK <integer>` (defaults to `#RANK 2`)
 
-Angolmois assigns a grading area to every visible, invisible note and long
+Angolmois assigns a grading area to every visible, invisible object and long
 note start/end, which size is no larger than the threshold for BAD grade.
-No two grading areas overlap. Therefore the actual grading area can be a lot
-shorter when notes are very dense, but the grading is done strictly by
-the time difference basis.
+A grading area is specific to single lane (currently). No two grading areas
+overlap. Therefore the actual grading area can be a lot shorter when objects
+are very dense, but the grading is done strictly by the time difference basis.
 
-The current system will give BAD, GOOD, GREAT and COOL grade if the note is
+The concept of grading area is quite confusing, so let me explain with
+an example. Assume that there are two grades (GOOD or BAD), which threshold is
+respectively within ±50ms and ±100ms. So the size of grading area is at most
+±100ms, i.e. a threshold of the most forgiving grade. Now if there are two
+visible object separated by 50ms, the grading area of the first object starts
+at 100ms before it and ends at 25ms after it (contracted by 75ms); one of
+the second object starts at 25ms (again, contracted by 75ms) before it and
+ends at 100ms after it. The contracted grading areas entirely contain
+thresholds for BAD, so if the player presses a key between two objects,
+the closest object is graded and its grade will always be GOOD since it is
+always within ±50ms.
+
+The current system will give BAD, GOOD, GREAT and COOL grade if the object is
 approximately[^2] within `±{144, 84, 48, 14.4} / (1.5 - #RANK * 0.25)`
 milliseconds respectively. Unpressing the key at the end of LN has the same
 grading area as BAD. The following table summarizes the hard values:
@@ -127,7 +171,8 @@ support for every integer `#RANK` up to 5. `#RANK 6` or higher is same as
 may change without a notice.
 
 [^2]: Due to the current implementation strategy, the actual grading area may
-      vary when the measure is rescaled or BPM is changed.
+      vary if the object is very close to the point where the BPM or size of
+      measure is changed. This behavior may change.
 
 ### Resources
 
@@ -166,10 +211,10 @@ alpha channel it will retain its transparency; otherwise the color black
 Angolmois also supports an MPEG-1 video file playback if the file name ends
 with `.mpg` (case insensitive). There may be multiple video files loaded and
 played. It plays while it is "in display", that is, not replaced by other
-image or video (but may have been obscured by other layers or hidden due to
-POOR BGAs). If one video is shared among multiple layers, the playback status
-is shared among them and may restart unexpectedly. A video does not support
-a transparent color.
+image or video via data command (but may have been obscured by other layers or
+hidden due to POOR BGAs). If one video is shared among multiple layers,
+the playback status is shared among them and may restart unexpectedly. A video
+does not support a transparent color.
 
 If the image or video is larger than 256 by 256 pixels, only the upper left
 region will be used. Conversely, smaller one will be padded to the transparent
@@ -232,10 +277,10 @@ the same position.[^3] Negative STOP time is ignored just like zero BPM.
 [^3]: The current implementation does have a preference for milliseconds, but
       this behavior may change without a notice.
 
-### Data Section
+### Data Commands
 
-In general, data section does not allow whitespace between keys, but does
-strip preceding and trailing whitespace.
+In general, data commands do not allow whitespace between alphanumeric keys,
+but does strip preceding and trailing whitespace.
 
 * Channel `02` (defaults to 1.0)
 
@@ -296,40 +341,41 @@ be exploited to, for instance, play different sounds according to the grading.
 
 * `#LNOBJ xx`
 
-Forces the key `xx` in channels `1x` and `2x` to be used as an end marker for
-long notes. The end marker also forces the last visible object before it to
-become a start of a long note. Long notes defined in this manner are resolved
-after parsing, so the *last* normal object may be defined after an end marker.
-`xx` is ignored if it is the first visible object or the last visible object
-before it have been used as an end marker. `xx` is used as a key sound at the
-end of long notes defined in this manner.
+Forces the alphanumeric key `xx` in channels `1x` and `2x` to be used as
+an end marker for long notes. The end marker also forces the last visible
+object before it to become a start of a long note. Long notes defined in this
+manner are resolved after parsing, so the *last* normal object may be defined
+after an end marker. `xx` is ignored if it is the first visible object or
+the last visible object before it have been used as an end marker. `xx` is
+used as a key sound at the end of long notes defined in this manner.
 
 `#LNOBJ` can be used with channels `5x` and `6x`. In this case, the resolution
 for `#LNOBJ` and one for channels `5x` and `6x` is done independently (as if
 each other does not exist) and combined later. Angolmois does its best effort
-to fix problematic charts (e.g. overlapping long notes); offending objects
-that have been removed will be reused as BGMs. This process is also used for
-avoiding delicate parsing problems in channels `5x` and `6x` alone.
+to fix problematic charts (e.g. overlapping or consecutive long notes);
+offending objects that have been removed will be reused as BGMs. This process
+is also used for avoiding delicate parsing problems in channels `5x` and `6x`
+alone.
 
 * `#LNTYPE 1` (default)
 * Channels `5x` and `6x`
 
-Forces every matching pair of two non-`00` keys in those channels to be a
-start and end of new long note. (Both keys are assigned as a key sound.)
+Forces every matching pair of two non-`00` alphanumeric keys in those channels
+to be a start and end of new long note. (Both alphanumeric keys are assigned
+as a key sound.)
 
 The matching is resolved after parsing like `#LNOBJ`, but if the same measure
 for those channels is defined multiple times then Angolmois matches pairs of
-keys in the order of appearance in that measure. This may result in
-problematic charts, which are later fixed as described above. BMS writers
+alphanumeric keys in the order of appearance in that measure. This may result
+in problematic charts, which are later fixed as described above. BMS writers
 should avoid writing the same measure multiple times for those channels.
 
 * `#LNTYPE 2`
 * Channels `5x` and `6x`
 
-Forces every consecutive row of the same non-`00` keys to be a long note. Only
-a start of the long note is assigned a key sound of given key. Angolmois will
-split the long note if it consists of consecutive but non-equal keys. This
-behavior may change if it turned out to be incompatible.
+Forces every consecutive row of the non-`00` (not necessarily same)
+alphanumeric keys to be a long note. Only a start of the long note is assigned
+a key sound of the first non-`00` alphanumeric key.
 
 Again the row is resolved after parsing, but as like `#LNTYPE 1`, defining
 the same measure multiple times may result in problematic charts. (Unlike
@@ -342,23 +388,21 @@ those channels.
 Inserts a "bomb" which is detonated when the player is pressing the key as
 the bomb passes through the bottom of the screen. The bomb is displayed as
 a dark red object (regardless of the color of lanes and other objects).
-The bomb has no grading area, but if the bomb is detonated before the grading
-area of long note end is reached, then the bomb immediately ends the long note
-grading.
+The bomb has no grading area. The bomb cannot be placed inside the long note.
 
 Detonating a bomb results in MISS grade. The amount of gauge decrease is
-specified with the base-36 key, or `ZZ` for the instant death[^4].
-The base-36 key has a unit of 0.5%; `01` for 0.5% decrease, `02` for 1%
-decrease, `2S` for 50% decrease, and `5K` for 100% decrease. Angolmois ignores
-more than 100% decrease except for `ZZ`.
+specified with the base-36 alphanumeric key, or `ZZ` for the instant
+death[^4]. The base-36 key has a unit of 0.5%; `01` for 0.5% decrease, `02`
+for 1% decrease, `2S` for 50% decrease, and `5K` for 100% decrease. Angolmois
+ignores more than 100% decrease except for `ZZ`.
 
 The bomb itself cannot be placed in the long note or at the same position as
-other notes, but the invisible object can overlap with it. It is possible to
-abuse this behavior to provide a custom bomb sound (somewhat).
+other objects, but the invisible object can overlap with it. It is possible
+to abuse this behavior to provide a custom bomb sound (somewhat).
 
 [^4]: Angolmois does not have the instant death except for this kind of bombs.
       It is not same as pressing ESC, as it will always display "YOU FAILED!"
-      message.
+      message. No bomb sound is played in this case.
 
 ### Control Flow
 
@@ -370,7 +414,8 @@ Upon the `#RANDOM` command, Angolmois generates one random number between one
 and given integer (inclusive) with an equal probability. If the integer was
 zero or negative the random number is still "generated", but put in the
 indeterminate state so that the number is not equal to any integer. Similarly
-the initial random number is in the indeterminate state.
+the initial random number (when not set by other `#RANDOM` or `#SETRANDOM`
+commands) is in the indeterminate state.
 
 * `#SETRANDOM <integer>`
 
