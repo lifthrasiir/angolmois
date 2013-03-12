@@ -550,44 +550,42 @@ static void parse_bms(struct rngstate *r)
 			j = 6 + strspn(line+6, " \t\r\n");
 			a = strcspn(line+j, " \t\r\n") / 2;
 			for (k = 0; k < a; ++k, j+=2) {
-				if (!key2index(line+j, &b)) continue;
+				if (!key2index(line+j, &b) || !b) continue;
 				t = measure + 1. * k / a;
 				if (chan == 1) {
-					if (b) add_obj(BGM_CHANNEL, t, 0, b, 0);
+					add_obj(BGM_CHANNEL, t, 0, b, 0);
 				} else if (chan == 3) {
-					if (b && b/36<16 && b%36<16) add_obj(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36, 0);
+					if (b/36<16 && b%36<16) add_obj(BPM_CHANNEL, t, BPM_BY_VALUE, b/36*16+b%36, 0);
 				} else if (chan == 4) {
-					if (b) add_obj(BGA_CHANNEL, t, BGA_LAYER, b, 0);
+					add_obj(BGA_CHANNEL, t, BGA_LAYER, b, 0);
 				} else if (chan == 6) {
-					if (b) add_obj(BGA_CHANNEL, t, POORBGA_LAYER, b, 0);
-					if (b && t == 0) poorbgafix = 0;
+					add_obj(BGA_CHANNEL, t, POORBGA_LAYER, b, 0);
+					if (t == 0) poorbgafix = 0;
 				} else if (chan == 7) {
-					if (b) add_obj(BGA_CHANNEL, t, BGA2_LAYER, b, 0);
+					add_obj(BGA_CHANNEL, t, BGA2_LAYER, b, 0);
 				} else if (chan == 8) {
-					if (b) add_obj(BPM_CHANNEL, t, BPM_BY_INDEX, b, 0);
+					add_obj(BPM_CHANNEL, t, BPM_BY_INDEX, b, 0);
 				} else if (chan == 9) {
-					if (b) add_obj(STOP_CHANNEL, t, STOP_BY_MEASURE, b, 0);
+					add_obj(STOP_CHANNEL, t, STOP_BY_MEASURE, b, 0);
 				} else if (chan == 10) {
-					if (b) add_obj(BGA_CHANNEL, t, BGA3_LAYER, b, 0);
+					add_obj(BGA_CHANNEL, t, BGA3_LAYER, b, 0);
 				} else if (chan >= 1*36 && chan < 3*36) { /* channels 1x/2x */
 					int c = chan - 1*36;
-					if (b) {
-						if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
-							if (prev12[c] && objs[prev12[c]-1].type==NOTE) {
-								objs[prev12[c]-1].type = LNSTART;
-								add_obj(c, t, LNDONE, b, 0);
-								prev12[c] = 0;
-							}
-						} else {
-							add_obj(c, t, NOTE, b, 0);
-							prev12[c] = nobjs;
+					if (value[V_LNOBJ] && b == value[V_LNOBJ]) {
+						if (prev12[c] && objs[prev12[c]-1].type==NOTE) {
+							objs[prev12[c]-1].type = LNSTART;
+							add_obj(c, t, LNDONE, b, 0);
+							prev12[c] = 0;
 						}
+					} else {
+						add_obj(c, t, NOTE, b, 0);
+						prev12[c] = nobjs;
 					}
 				} else if (chan >= 3*36 && chan < 5*36) { /* channels 3x/4x */
-					if (b) add_obj(chan - 3*36, t, INVNOTE, b, 0);
+					add_obj(chan - 3*36, t, INVNOTE, b, 0);
 				} else if (chan >= 5*36 && chan < 7*36) { /* channels 5x/6x */
 					int c = chan - 5*36;
-					if (value[V_LNTYPE] == 1 && b) {
+					if (value[V_LNTYPE] == 1) {
 						if (prev56[c]) {
 							add_obj(c, t, LNDONE, b, 0);
 							prev56[c] = 0;
@@ -597,10 +595,9 @@ static void parse_bms(struct rngstate *r)
 						}
 					} else if (value[V_LNTYPE] == 2) {
 						double t2 = measure + 1. * (k + 1) / a;
-						if (!b) {
-							prev56[c] = 0;
-						} else if (prev56[c] && objs[prev56[c]-1].time == t) {
+						if (prev56[c] && objs[prev56[c]-1].time == t) {
 							objs[prev56[c]-1].time = t2;
+							objs[prev56[c]-1].index = b;
 						} else {
 							add_obj(c, t, LNSTART, b, 0);
 							add_obj(c, t2, LNDONE, b, 0);
