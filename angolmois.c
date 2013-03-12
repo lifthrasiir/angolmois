@@ -628,7 +628,7 @@ static void parse_bms(struct rngstate *r)
 
 static void remove_or_replace_note(int i)
 {
-	if (IS_NOTE_CHANNEL(objs[i].chan) && objs[i].type < INVNOTE && objs[i].index) {
+	if (IS_NOTE_CHANNEL(objs[i].chan) && objs[i].type > LNDONE && objs[i].type < INVNOTE && objs[i].index) {
 		objs[i].chan = BGM_CHANNEL;
 		objs[i].type = 0;
 	} else {
