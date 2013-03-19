@@ -399,11 +399,11 @@ third lowercased letter specifies the kind of given lane:
 	p       Foot pedal (displayed green)
 
 	Primarly used for PMS:
-	w       White button
-	e       Yellow button
-	r       Green button
-	t       Navy button
-	s       Red button
+	q       White button
+	w       Yellow button
+	e       Green button
+	r       Navy button
+	t       Red button
 
 One key cannot have multiple lanes. The maximum possible number of lanes is
 therefore 72 (`10` to `1Z`, `20` to `2Z`), but it won't display properly so
