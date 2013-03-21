@@ -1909,7 +1909,7 @@ int main(int argc, char **argv)
 		 " --info", "q--no-info", "m--mirror", "s--shuffle", "S--shuffle-ex",
 		 "r--random", "R--random-ex", "k--preset", "K--key-spec", " --bga",
 		 "B--no-bga", " --movie", "M--no-movie", "j--joystick", NULL};
-	char buf[512] = "", *arg;
+	char buf[512] = "", *arg = NULL;
 	int i, j;
 
 #define FETCH_ARG(arg, opt) \
