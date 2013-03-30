@@ -1456,7 +1456,7 @@ static void play_prepare(void)
 			}
 		}
 	}
-	if (!tpanel2 && !opt_mode) {
+	if (!opt_mode) {
 		SDL_FillRect(sprite, R(0,584,368,16), 0x404040);
 		SDL_FillRect(sprite, R(4,588,360,8), 0);
 	}
@@ -1752,7 +1752,7 @@ static int play_process(void)
 		printstr(screen, 95, 522, 1, 0, buf+45, 0, 0);
 		i = (now - origintime) * tpanel1 / duration;
 		printchar(screen, 6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
-		if (!tpanel2 && !opt_mode) {
+		if (!opt_mode) {
 			if (gauge > 512) gauge = 512;
 			k = (int)(160*startshorten*(1+bottom)) % 40; /* i.e. cycles four times per measure */
 			i = (gauge<0 ? 0 : (gauge*400>>9) - k);
