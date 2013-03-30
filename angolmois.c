@@ -1383,8 +1383,9 @@ static void play_show_stagefile(void)
 		resource_loaded(0);
 		SDL_FreeSurface(stagefile_tmp);
 	}
-	while ((int)SDL_GetTicks() < t) check_exit();
-	if (opt_mode < EXCLUSIVE_MODE && opt_bga != NO_BGA) init_video();
+	if (opt_mode < EXCLUSIVE_MODE) {
+		while ((int)SDL_GetTicks() < t) check_exit();
+	}
 }
 
 static void play_prepare(void)
