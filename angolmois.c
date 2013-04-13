@@ -1278,9 +1278,7 @@ static void play_sound(int i, int group)
 	}
 	Mix_Volume(ch, group ? 96 : 128);
 	Mix_GroupChannel(ch, group);
-	if (XV_AT(sndlastchmap,ch) > 0 && XV_AT(sndlastchmap,ch) != i) {
-		sndres[XV_AT(sndlastchmap,ch)].lastch = -1;
-	}
+	if (XV_AT(sndlastchmap,ch) > 0) sndres[XV_AT(sndlastchmap,ch)].lastch = -1;
 	sndres[i].lastch = ch;
 	XV_AT(sndlastchmap,ch) = i;
 }
