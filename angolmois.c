@@ -333,8 +333,8 @@ static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [
 #define MAXKEY 1296
 static char *sndpath[MAXKEY], *imgpath[MAXKEY];
 static XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
-static struct { Mix_Chunk *res; int ch; } sndres[MAXKEY];
-static XV(int) sndchmap;
+static struct { Mix_Chunk *res; int lastch; } sndres[MAXKEY];
+static XV(int) sndlastchmap;
 static struct { SDL_Surface *surface; SMPEG *movie; } imgres[MAXKEY];
 static double bpmtab[MAXKEY], stoptab[MAXKEY];
 
@@ -767,7 +767,7 @@ static void load_resource(enum bga range)
 	struct blitcmd bc;
 
 	for (int i = 0; i < MAXKEY; ++i) {
-		sndres[i].ch = -1;
+		sndres[i].lastch = -1;
 		if (sndpath[i]) {
 			resource_loaded(sndpath[i]);
 			rwops = resolve_relative_path(sndpath[i], SOUND_EXTS);
@@ -1263,31 +1263,26 @@ static void init_ui(void)
 
 static void allocate_more_channels(int n)
 {
-	int i = XV_SIZE(sndchmap);
+	int i = XV_SIZE(sndlastchmap);
 	n = Mix_AllocateChannels(Mix_AllocateChannels(-1) + n);
-	XV_RESIZE(sndchmap, n);
-	while (i < n) XV_AT(sndchmap,i++) = -1;
-}
-
-static void play_sound_finished(int ch)
-{
-	if (XV_AT(sndchmap,ch) >= 0 && sndres[XV_AT(sndchmap,ch)].ch == ch) {
-		sndres[XV_AT(sndchmap,ch)].ch = -1;
-	}
-	XV_AT(sndchmap,ch) = -1;
+	XV_RESIZE(sndlastchmap, n);
+	while (i < n) XV_AT(sndlastchmap,i++) = -1;
 }
 
 static void play_sound(int i, int group)
 {
 	int ch;
 	if (!sndres[i].res) return;
-	while ((ch = Mix_PlayChannel(sndres[i].ch, sndres[i].res, 0)) < 0) {
+	while ((ch = Mix_PlayChannel(sndres[i].lastch, sndres[i].res, 0)) < 0) {
 		allocate_more_channels(32);
 	}
 	Mix_Volume(ch, group ? 96 : 128);
 	Mix_GroupChannel(ch, group);
-	sndres[i].ch = ch;
-	XV_AT(sndchmap,ch) = i;
+	if (XV_AT(sndlastchmap,ch) > 0 && XV_AT(sndlastchmap,ch) != i) {
+		sndres[XV_AT(sndlastchmap,ch)].lastch = -1;
+	}
+	sndres[i].lastch = ch;
+	XV_AT(sndlastchmap,ch) = i;
 }
 
 static const int INFO_INTERVAL = 47; /* try not to refresh screen or console too fast (tops at 21fps) */
@@ -1398,7 +1393,6 @@ static void play_prepare(void)
 	targetspeed = playspeed;
 	allocate_more_channels(64);
 	Mix_ReserveChannels(1); /* so that the beep won't be affected */
-	Mix_ChannelFinished(&play_sound_finished);
 	gradefactor = 1.5 - (value[V_RANK] < 5 ? value[V_RANK] : 5) * .25;
 
 	if (opt_mode >= EXCLUSIVE_MODE) return;
@@ -1914,7 +1908,7 @@ int main(int argc, char **argv)
 	int i, j;
 
 #define FETCH_ARG(arg, opt) \
-		if (argv[i] && ((arg) = j<1 || argv[i][++j] ? argv[i]+j : argv[++i])) ++i, j = 0; \
+		if (argv[i] && ((arg) = j > 0 && argv[i][++j] ? argv[i]+j : argv[++i])) j = 0; \
 		else die("No argument to the option -%c", (opt)) \
 
 	argv0 = argv[0];
