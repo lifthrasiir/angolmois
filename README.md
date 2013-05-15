@@ -120,8 +120,8 @@ Download the following files:
   support). You however need two smpeg header files: [smpeg.h][smpeg.h] and
   [MPEGfilter.h][mpegfilter.h].
 
-[smpeg.h]: http://svn.icculus.org/*checkout*/smpeg/trunk/smpeg.h
-[mpegfilter.h]: http://svn.icculus.org/*checkout*/smpeg/trunk/MPEGfilter.h
+[smpeg.h]: http://svn.icculus.org/*checkout*/smpeg/tags/release_0_4_5/smpeg.h
+[mpegfilter.h]: http://svn.icculus.org/*checkout*/smpeg/tags/release_0_4_5/MPEGfilter.h
 
 Now extract all the files to your MinGW directory. For SDL, you can safely
 extract it to the MinGW root. For SDL\_image and SDL\_mixer, extract `include`
@@ -708,7 +708,7 @@ common methods:
   existing songs that have been created separately.
 
 [dee2events]: http://manbow.nothing.sh/event/event.cgi
-[kbp]: http://k-bms.net/
+[kbp]: http://k-bms.com/
 
 
 Appendix: Acknowledgements
