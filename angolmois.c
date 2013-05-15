@@ -965,18 +965,20 @@ static SDL_Surface *newsurface(int w, int h)
 	return SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 32, 0xff0000, 0xff00, 0xff, 0);
 }
 
-static int bicubic_kernel(int x, int y) {
+static int bicubic_kernel(int x, int y)
+{
 	if (x < 0) x = -x;
 	if (x < y) {
-		return ((y*y - 2*x*x + x*x/y*x) << 11) / y / y;
+		return ((2*y*y - 5*x*x + 3*x*x/y*x) << (11-1)) / y / y;
 	} else if (x < y * 2) {
-		return ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << 11) / y / y;
+		return ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << (11-1)) / y / y;
 	} else {
 		return 0;
 	}
 }
 
-static void bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
+static void bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest)
+{
 	int x, dx, y, dy;
 	const int ww = src->w - 1, hh = src->h - 1;
 	const int w = dest->w - 1, h = dest->h - 1;
@@ -995,15 +997,15 @@ static void bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest) {
 				int xx = x + k/4 - 1, yy = y + k%4 - 1;
 				if (xx>=0 && xx<=ww && yy>=0 && yy<=hh) {
 					int c = getpixel(src, xx, yy);
-					int d = a[k/4][0] * a[k%4][1] >> 6;
+					int d = a[k/4][0] * a[k%4][1] >> (11*2-16);
 					r += (c>>16) * d;
 					g += (c>>8&255) * d;
 					b += (c&255) * d;
 				}
 			}
-			r = (r<0 ? 0 : r>>24 ? 255 : r>>16);
-			g = (g<0 ? 0 : g>>24 ? 255 : g>>16);
-			b = (b<0 ? 0 : b>>24 ? 255 : b>>16);
+			r = (r<0 ? 0 : r>>(16+8) ? 255 : r>>16);
+			g = (g<0 ? 0 : g>>(16+8) ? 255 : g>>16);
+			b = (b<0 ? 0 : b>>(16+8) ? 255 : b>>16);
 			putpixel(dest, i, j, (r<<16) | (g<<8) | b);
 
 			dy += hh;
