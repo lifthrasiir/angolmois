@@ -359,10 +359,14 @@ static const char KEYKIND_MNEMONICS[] = "*aybqwertsp"; /* should align with tkey
 
 static struct obj { double time; int chan, type, index, value, nograding:1; } *objs;
 static int nobjs;
-static double _shorten[2005], *shorten = _shorten + 1;
-static double originoffset = 0.0, length;
+static double shortens[1000], originoffset = 0.0, length;
 static int nleftkeys, nrightkeys, keyorder[NNOTECHANS], keykind[NNOTECHANS];
 static int nkeys, haslongnote, hasbpmchange, nnotes, maxscore, duration;
+
+static double shorten(double time)
+{
+	return (time < 0 || time >= ARRAYSIZE(shortens) ? 1.0 : shortens[(int) time]);
+}
 
 static int getdigit(int n)
 {
@@ -543,7 +547,7 @@ static void parse_bms(struct rngstate *r)
 		measure = (line[0] - '0') * 100 + (line[1] - '0') * 10 + (line[2] - '0');
 		if (!key2index(line+3, &chan)) SHOULD(0);
 		if (chan == 2) {
-			shorten[measure] = atof(line+6);
+			shortens[measure] = atof(line+6);
 		} else {
 			j = 6 + strspn(line+6, " \t\r\n");
 			a = strcspn(line+j, " \t\r\n") / 2;
@@ -619,8 +623,8 @@ static void parse_bms(struct rngstate *r)
 			add_obj(i, measure + 1, LNDONE, 0, 0);
 		}
 	}
-	for (int i = 0; i < ARRAYSIZE(_shorten); ++i) {
-		if (_shorten[i] <= .001) _shorten[i] = 1;
+	for (int i = 0; i < ARRAYSIZE(shortens); ++i) {
+		if (shortens[i] <= .001) shortens[i] = 1;
 	}
 }
 
@@ -836,17 +840,17 @@ static void load_resource(enum bga range)
 static double adjust_object_time(double base, double offset)
 {
 	int i = (int)(base+1)-1;
-	if ((i + 1 - base) * shorten[i] > offset) return base + offset / shorten[i];
-	offset -= (i + 1 - base) * shorten[i];
-	while (shorten[++i] <= offset) offset -= shorten[i];
-	return i + offset / shorten[i];
+	if ((i + 1 - base) * shorten(i) > offset) return base + offset / shorten(i);
+	offset -= (i + 1 - base) * shorten(i);
+	while (shorten(++i) <= offset) offset -= shorten(i);
+	return i + offset / shorten(i);
 }
 
 static double adjust_object_position(double base, double time)
 {
 	int i = (int)(base+1)-1, j = (int)(time+1)-1;
-	base = (time - j) * shorten[j] - (base - i) * shorten[i];
-	while (i < j) base += shorten[i++];
+	base = (time - j) * shorten(j) - (base - i) * shorten(i);
+	while (i < j) base += shorten(i++);
 	return base;
 }
 
@@ -1387,7 +1391,7 @@ static void play_prepare(void)
 	bpm = initbpm;
 	origintime = starttime = SDL_GetTicks();
 	startoffset = originoffset;
-	startshorten = shorten[(int) originoffset];
+	startshorten = shorten(originoffset);
 	targetspeed = playspeed;
 	allocate_more_channels(64);
 	Mix_ReserveChannels(1); /* so that the beep won't be affected */
@@ -1521,11 +1525,11 @@ static int play_process(void)
 		}
 		bottom = startoffset + MSEC_TO_MEASURE(now - starttime, bpm) / startshorten;
 	}
-	ibottom = (int)(bottom + 1) - 1;
-	if (ibottom >= -1 && startshorten != shorten[ibottom]) {
+	ibottom = (bottom < 0 ? -1 - (int) (-bottom) : (int) bottom);
+	if (startshorten != shorten(ibottom)) {
 		starttime += (int) (MEASURE_TO_MSEC(ibottom - startoffset, bpm) * startshorten);
 		startoffset = ibottom;
-		startshorten = shorten[ibottom];
+		startshorten = shorten(ibottom);
 	}
 	line = bottom;/*adjust_object_time(bottom, 0.03/playspeed);*/
 	top = adjust_object_time(bottom, 1.25/playspeed);
@@ -1547,8 +1551,8 @@ static int play_process(void)
 		} else if (chan == BPM_CHANNEL) {
 			double newbpm = (type == BPM_BY_INDEX ? bpmtab[index] : index);
 			if (newbpm) {
-				starttime = now;
-				startoffset = bottom;
+				starttime += (int) (MEASURE_TO_MSEC(objs[pcur].time - startoffset, bpm) * startshorten);
+				startoffset = objs[pcur].time;
 				bpm = newbpm;
 			}
 		} else if (chan == STOP_CHANNEL) {
@@ -1564,7 +1568,7 @@ static int play_process(void)
 		for (; pcheck < pcur; ++pcheck) {
 			int chan = objs[pcheck].chan, type = objs[pcheck].type;
 			tmp = objs[pcheck].time;
-			tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten[(int)tmp] * gradefactor;
+			tmp = MEASURE_TO_MSEC(line - tmp, bpm) * shorten(tmp) * gradefactor;
 			if (tmp < 144) break;
 			if (!IS_NOTE_CHANNEL(chan) || objs[pcheck].nograding) continue;
 			if (type >= INVNOTE || (type == LNDONE && !pthru[chan])) continue;
@@ -1627,7 +1631,7 @@ static int play_process(void)
 			if (unpressed && pthru[key]) {
 				for (j = pthru[key]; !(objs[j].chan == key && objs[j].type == LNDONE); ++j);
 				pthru[key] = 0;
-				tmp = MEASURE_TO_MSEC(objs[j].time - line, bpm) * shorten[(int)line] * gradefactor;
+				tmp = MEASURE_TO_MSEC(objs[j].time - line, bpm) * shorten(line) * gradefactor;
 				if (-144 < tmp && tmp < 144) {
 					objs[j].nograding = 1;
 				} else {
@@ -1656,7 +1660,7 @@ static int play_process(void)
 				if (j < nobjs && tmp > objs[j].time - line) l = j;
 
 				if (l >= pcheck && !objs[l].nograding && objs[l].type != LNDONE) {
-					tmp = MEASURE_TO_MSEC(objs[l].time - line, bpm) * shorten[(int)line] * gradefactor;
+					tmp = MEASURE_TO_MSEC(objs[l].time - line, bpm) * shorten(line) * gradefactor;
 					if (tmp < 0) tmp = -tmp;
 					if (tmp < 144) {
 						if (objs[l].type == LNSTART) pthru[key] = l + 1;
