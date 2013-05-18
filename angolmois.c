@@ -1840,6 +1840,9 @@ static int play(void)
 	play_prepare();
 	lastinfo = -1000;
 	while (play_process());
+	for (int i = 0; i < ARRAYSIZE(imgres); ++i) {
+		if (imgres[i].movie) SMPEG_delete(imgres[i].movie);
+	}
 
 	for (; pcur < nobjs; ++pcur) {
 		if (IS_NOTE_CHANNEL(objs[pcur].chan) && objs[pcur].type < INVNOTE) break;
