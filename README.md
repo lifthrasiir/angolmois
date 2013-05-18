@@ -406,9 +406,12 @@ third lowercased letter specifies the kind of given lane:
 	t       Red button
 
 One key cannot have multiple lanes. The maximum possible number of lanes is
-therefore 72 (`10` to `1Z`, `20` to `2Z`), but it won't display properly so
-about 15 to 20 lanes are the sensible maximum. Likewise, too small number of
-lanes (less than 5) may cause a problem.
+therefore 72 (`10` to `1Z`, `20` to `2Z`), but 72 lanes surely won't fit in
+the screen so about 15 to 20 lanes are the sensible maximum. In fact,
+Angolmois issues an error when lanes can't fit in the screen and can cause
+a glitch. On the other hands, it is possible to have 5 or less lanes
+(the absolute minimum is just one lane) but Angolmois automatically adjusts
+the layout in order to avoid glitches.
 
 In order to illustrate the point, the option `--preset 10/fp` is actually
 a shorthand for this equivalent key specification:

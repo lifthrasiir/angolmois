@@ -1408,9 +1408,20 @@ static void play_prepare(void)
 		tkey[chan] = &tkeykinds[keykind[chan]];
 		tkeyleft[chan] = tpanel2 + 1;
 	}
-	tbgax = tpanel1 + (tpanel2 - tpanel1 - 256) / 2;
-	tbgay = (600 - 256) / 2;
 	if (tpanel2 == 800) tpanel2 = 0;
+	if (tpanel1 < 165) {
+		for (int i = 0; i < nleftkeys; ++i) tkeyleft[keyorder[i]] += (165 - tpanel1) / 2;
+		tpanel1 = 165;
+	}
+	if (tpanel2 > 800 - 165) {
+		for (int i = nleftkeys; i < nrightkeys; ++i) tkeyleft[keyorder[i]] -= (tpanel2 - (800 - 165)) / 2;
+		tpanel2 = 800 - 165;
+	}
+	if ((tpanel2 && tpanel2 - tpanel1 < 40) || tpanel1 > 800 - 20) {
+		die("The screen can't hold that many lanes");
+	}
+	tbgax = tpanel1 + ((tpanel2 ? tpanel2 : 800) - tpanel1 - 256) / 2;
+	tbgay = (600 - 256) / 2;
 
 	/* sprite */
 	sprite = newsurface(1200, 600);
@@ -1676,6 +1687,16 @@ static int play_process(void)
 		return 0;
 	}
 
+	if (opt_bga != NO_BGA) {
+		int mask = (now < poorlimit ? poormask : bgamask);
+		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
+		for (j = 0; j < ARRAYSIZE(bga); ++j) {
+			if ((mask>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
+				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
+			}
+		}
+	}
+
 	if (opt_mode < EXCLUSIVE_MODE) {
 		SDL_FillRect(screen, R(0,30,tpanel1,490), map(0x404040));
 		if (tpanel2) SDL_FillRect(screen, R(tpanel2,30,800-tpanel2,490), map(0x404040));
@@ -1758,16 +1779,6 @@ static int play_process(void)
 		fprintf(stderr,
 			"\r%72s\r%02d:%02d.%d / %02d:%02d.%d (@%9.4f) | BPM %6.2f | %d / %d notes",
 			"", i/600, i/10%60, i%10, j/600, j/10%60, j%10, bottom, bpm, scombo, nnotes);
-	}
-
-	if (opt_bga != NO_BGA) {
-		int mask = (now < poorlimit ? poormask : bgamask);
-		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
-		for (j = 0; j < ARRAYSIZE(bga); ++j) {
-			if ((mask>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
-				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
-			}
-		}
 	}
 
 	if (screen) SDL_Flip(screen);
