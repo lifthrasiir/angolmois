@@ -227,6 +227,7 @@ static SDL_RWops *resolve_relative_path(char *path, const char **exts)
 			*p++ = *path++;
 		}
 	}
+	*p = '\0';
 	path = strrchr(pathbuf, '\\') + 1;
 	p = strrchr(path, '.');
 	if (p) strcpy(p, ".*");
@@ -234,11 +235,8 @@ static SDL_RWops *resolve_relative_path(char *path, const char **exts)
 	if (h == INVALID_HANDLE_VALUE) return NULL;
 	do {
 		if (match_filename(fdata.cFileName, basename, exts)) {
-			FILE *fp;
 			strcpy(path, fdata.cFileName);
-			fp = fopen(pathbuf, "rb");
-			if (!fp) continue;
-			ops = SDL_RWFromFP(fp, 1);
+			ops = SDL_RWFromFile(pathbuf, "rb");
 			break;
 		}
 	} while (FindNextFileA(h, &fdata));
@@ -304,9 +302,7 @@ static SDL_RWops *resolve_relative_path(char *path, const char **exts)
 	if (!d) goto exit;
 	while ((e = readdir(d))) {
 		if (match_filename(e->d_name, path, exts)) {
-			FILE *fp = fopen(e->d_name, "rb");
-			if (!fp) continue;
-			ops = SDL_RWFromFP(fp, 1);
+			ops = SDL_RWFromFile(e->d_name, "rb");
 			break;
 		}
 	}
