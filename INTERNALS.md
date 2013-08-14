@@ -19,7 +19,7 @@ interface and more stable game engine. There are so many changes that I cannot
 enumerate them here.
 
 Angolmois 2.0 alpha 2 (1994 lines of code) was finished on February 2013. This
-is intended as the only major feature release until 2.0 final. Important
+was intended as the only major feature release until 2.0 final. Important
 changes include:
 
 * Joystick support.
@@ -34,12 +34,19 @@ changes include:
 * _Incompatible to 2.0 alpha 1:_ Updated environment variable format.
 * _Incompatible to 2.0 alpha 1:_ C99 compiler is required now.
 
-Angolmois 2.0 beta 1 is being developed as of February 2013. This is mainly
-a feature-complete, stable release candidate for 2.0 final. It is expected
-that beta 1 will be released as final without much change. Important changes
-include:
+Angolmois 2.0 alpha 3 is being developed as of August 2013. This is
+an unplanned compatibility release for the conversion from SDL 1.2 to SDL 2.0.
+Important changes include:
 
+* Full-screen mode no longer changes the global screen resolution.
+* Environment variables for keys are now independent of keyboard layout.
 * Dropped support of consecutive long notes. (Issue #15)
+* `#BGA` now uses a separate namespace from `#BMP`, and `#BGA` referring
+  a movie now correctly works.
+
+Angolmois 2.0 beta 1 is a planned feature-complete, stable release candidate
+for 2.0 final. It is expected that beta 1 will be released as final without
+much change.
 
 
 BMS Support Status
@@ -222,13 +229,17 @@ color (or black).
 
 * `#BGAxx yy <integer> <integer> <integer> <integer> <integer> <integer>`
 
-The image composition using `#BGAxx` is done after completely loading images,
-and executed in the order of appearance. The target slot (`xx`) should be
-empty, i.e. not used by `#BMPxx` or other `#BGAxx`, and should not be a video.
+Since Angolmois 2.0 alpha 3, this command specifies an additional layer of
+indirection over `#BMPxx` rather than acting as an image composition command.
+When this command is present, drawing the image `xx` is accomplished by
+drawing the image specified by `#BMPyy` at given position and in given size.
+Namespaces used by `#BMPxx` and `#BGAxx` are distinct so `#BGAxx` cannot refer
+to other `#BGAyy`. `#BMPyy` referred by `#BGA` command may be a movie however.
 
 The top/left coordinates are clipped to 0 if negative; the width and height
 calculated from both coordinates are clipped to 256 if larger than 256. Other
-clippings do not occur.
+clippings do not occur. Initially `#BGAxx xx 0 0 256 256 0 0` is assumed for
+every alphanumeric key `xx`.
 
 * `#STAGEFILE <path>`
 

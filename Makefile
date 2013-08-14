@@ -8,7 +8,7 @@ CFLAGS = -Os -Wunused -Wall -W -std=c99
 all: $(BIN)
 
 $(BIN): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) `pkg-config --cflags --libs sdl SDL_image SDL_mixer` `smpeg-config --cflags --libs` -o $(BIN)
+	$(CC) $(CFLAGS) $(SRC) `pkg-config --cflags --libs sdl2 SDL2_image SDL2_mixer` `smpeg2-config --cflags --libs` -o $(BIN)
 
 clean:
 	rm -rf $(BIN)

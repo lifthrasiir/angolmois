@@ -32,7 +32,7 @@
 #include <SDL_image.h>
 #include <smpeg.h>
 
-static const char VERSION[] = "Angolmois 2.0.0 alpha 2";
+static const char VERSION[] = "Angolmois 2.0 alpha 3";
 static const char *argv0 = "angolmois";
 
 /******************************************************************************/
@@ -328,10 +328,10 @@ static int value[] = {[V_PLAYER]=1, [V_PLAYLEVEL]=0, [V_RANK]=2, [V_LNTYPE]=1, [
 
 #define MAXKEY 1296
 static char *sndpath[MAXKEY], *imgpath[MAXKEY];
-static XV(struct blitcmd { int dst, src, x1, y1, x2, y2, dx, dy; }) blitcmd = XV_EMPTY;
-static struct { Mix_Chunk *res; int lastch; } sndres[MAXKEY];
+static struct sndres { Mix_Chunk *res; int lastch; } sndres[MAXKEY];
 static XV(int) sndlastchmap;
-static struct { SDL_Surface *surface; SMPEG *movie; } imgres[MAXKEY];
+static struct imgres { SDL_Texture *tex; SMPEG *movie; SMPEG_Frame *frame; } imgres[MAXKEY];
+static struct bgares { struct imgres *image; int x, y, tx, ty, w, h; } bgares[MAXKEY];
 static double bpmtab[MAXKEY], stoptab[MAXKEY];
 
 #define NNOTECHANS (2*36)
@@ -411,7 +411,6 @@ static void parse_bms(struct rngstate *r)
 	int prev12[NNOTECHANS] = {0}, prev56[NNOTECHANS] = {0};
 	double t;
 	char *line, linebuf[4096], buf1[4096], buf2[4096];
-	struct blitcmd bc;
 	XV(struct rnd { int val, state, skip; }) rnd = XV_EMPTY;
 	XV(char*) bmsline = XV_EMPTY;
 
@@ -473,10 +472,17 @@ static void parse_bms(struct rngstate *r)
 			break;
 
 		case 14: /* bga## */
-			if (sscanf(line, KEY_PATTERN "%*[ \t]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
-			           buf1, buf2, &bc.x1, &bc.y1, &bc.x2, &bc.y2, &bc.dx, &bc.dy) >= 8 &&
-					key2index(buf1, &bc.dst) && key2index(buf2, &bc.src)) {
-				XV_PUSH(blitcmd, bc);
+			{
+				int dst, src, x1, y1, x2, y2, dx, dy;
+				if (sscanf(line, KEY_PATTERN "%*[ \t]" KEY_PATTERN "%*[ ]%d %d %d %d %d %d",
+						   buf1, buf2, &x1, &y1, &x2, &y2, &dx, &dy) >= 8 &&
+						key2index(buf1, &dst) && key2index(buf2, &src)) {
+					if (x1 < 0) x1 = 0;
+					if (y1 < 0) y1 = 0;
+					if (x2 > x1 + 256) x2 = x1 + 256;
+					if (y2 > y1 + 256) y2 = y1 + 256;
+					bgares[dst] = (struct bgares) {.image=&imgres[src], .x=x1, .y=y1, .tx=dx, .ty=dy, .w=x2-x1, .h=y2-y1};
+				}
 			}
 			break;
 
@@ -754,85 +760,6 @@ static void analyze_and_compact_bms(const char *left, const char *right)
 	nobjs -= j;
 }
 
-/* forward declarations to keep things apart */
-static SDL_Surface *newsurface(int w, int h);
-static void resource_loaded(const char *path);
-
-enum bga { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA };
-static void load_resource(enum bga range)
-{
-	SDL_RWops *rwops;
-	struct blitcmd bc;
-
-	for (int i = 0; i < MAXKEY; ++i) {
-		sndres[i].lastch = -1;
-		if (sndpath[i]) {
-			resource_loaded(sndpath[i]);
-			rwops = resolve_relative_path(sndpath[i], SOUND_EXTS);
-			if (rwops) sndres[i].res = Mix_LoadWAV_RW(rwops, 1);
-			if (!sndres[i].res) {
-				warn("failed to load sound #WAV%s (%s)", TO_KEY(i), sndpath[i]);
-			}
-			free(sndpath[i]);
-			sndpath[i] = 0;
-		}
-		if (imgpath[i]) {
-			resource_loaded(imgpath[i]);
-			if (strisuffix(imgpath[i], ".mpg")) {
-				if (range < BGA_BUT_NO_MOVIE) {
-					SMPEG *movie = NULL;
-					rwops = resolve_relative_path(imgpath[i], NULL);
-					if (rwops) movie = SMPEG_new_rwops(rwops, NULL, 0);
-					if (!movie) {
-						warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
-					} else {
-						imgres[i].surface = newsurface(256, 256);
-						imgres[i].movie = movie;
-						SMPEG_enablevideo(movie, 1);
-						SMPEG_loop(movie, 1);
-						SMPEG_setdisplay(movie, imgres[i].surface, NULL, NULL);
-					}
-				}
-			} else if (range < NO_BGA) {
-				SDL_Surface *image = NULL;
-				rwops = resolve_relative_path(imgpath[i], IMAGE_EXTS);
-				if (rwops) image = IMG_Load_RW(rwops, 1);
-				if (image) {
-					if (image->format->Amask) {
-						imgres[i].surface = SDL_DisplayFormatAlpha(image);
-						SDL_SetAlpha(imgres[i].surface, SDL_SRCALPHA|SDL_RLEACCEL, 255);
-					} else {
-						imgres[i].surface = SDL_DisplayFormat(image);
-						SDL_SetColorKey(imgres[i].surface, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
-					}
-					SDL_FreeSurface(image);
-				} else {
-					warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
-				}
-			}
-			free(imgpath[i]);
-			imgpath[i] = 0;
-		}
-	}
-
-	XV_EACH(bc, blitcmd) {
-		SDL_Surface *target = imgres[bc.dst].surface;
-		if (imgres[bc.dst].movie || imgres[bc.src].movie || !imgres[bc.src].surface) continue;
-		if (!target) {
-			imgres[bc.dst].surface = target = newsurface(256, 256);
-			SDL_FillRect(target, 0, SDL_MapRGB(target->format, 0, 0, 0));
-			SDL_SetColorKey(target, SDL_SRCCOLORKEY|SDL_RLEACCEL, 0);
-		}
-		if (bc.x1 < 0) bc.x1 = 0;
-		if (bc.y1 < 0) bc.y1 = 0;
-		if (bc.x2 > bc.x1 + 256) bc.x2 = bc.x1 + 256;
-		if (bc.y2 > bc.y1 + 256) bc.y2 = bc.y1 + 256;
-		SDL_BlitSurface(imgres[bc.src].surface, R(bc.x1, bc.y1, bc.x2-bc.x1, bc.y2-bc.y1),
-			target, R(bc.dx, bc.dy, 0, 0));
-	}
-	XV_FREE(blitcmd);
-}
-
 static double adjust_object_time(double base, double offset)
 {
 	int i = (int)(base+1)-1;
@@ -925,21 +852,12 @@ static void shuffle_bms(enum modf mode, struct rngstate *r, int begin, int end)
 }
 
 /******************************************************************************/
-/* general graphic functions */
+/* general graphic functions and font functions */
 
-static SDL_Surface *screen;
-
-static int getpixel(SDL_Surface *s, int x, int y)
-{
-	Uint8 r, g, b;
-	SDL_GetRGB(((Uint32*)s->pixels)[x+y*s->pitch/4], s->format, &r, &g, &b);
-	return (int)(r << 16) | ((int)g << 8) | (int)b;
-}
-
-static Uint32 map(int c)
-{
-	return SDL_MapRGB(screen->format, c >> 16, (c >> 8) & 255, c & 255);
-}
+static SDL_Window *screen;
+static SDL_Renderer *renderer;
+static Uint16 fontdata[3072];
+static Uint8 (*zoomfont[16])[96] = {NULL};
 
 static int putpixel(SDL_Surface *s, int x, int y, int c)
 {
@@ -954,79 +872,6 @@ static int blend(int x, int y, int a, int b)
 	}
 	return y;
 }
-
-static void putblendedpixel(SDL_Surface *s, int x, int y, int c, int o)
-{
-	putpixel(s, x, y, blend(getpixel(s,x,y), c, o, 255));
-}
-
-static SDL_Surface *newsurface(int w, int h)
-{
-	return SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 32, 0xff0000, 0xff00, 0xff, 0);
-}
-
-static int bicubic_kernel(int x, int y)
-{
-	if (x < 0) x = -x;
-	if (x < y) {
-		return ((2*y*y - 5*x*x + 3*x*x/y*x) << (11-1)) / y / y;
-	} else if (x < y * 2) {
-		return ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << (11-1)) / y / y;
-	} else {
-		return 0;
-	}
-}
-
-static void bicubic_interpolation(SDL_Surface *src, SDL_Surface *dest)
-{
-	int x, dx, y, dy;
-	const int ww = src->w - 1, hh = src->h - 1;
-	const int w = dest->w - 1, h = dest->h - 1;
-
-	dx = x = 0;
-	for (int i = 0; i <= w; ++i) {
-		dy = y = 0;
-		for (int j = 0; j <= h; ++j) {
-			int r = 0, g = 0, b = 0;
-			int a[4][2];
-			for (int k = 0; k < 4; ++k) {
-				a[k][0] = bicubic_kernel((x+k-1)*w - i*ww, w);
-				a[k][1] = bicubic_kernel((y+k-1)*h - j*hh, h);
-			}
-			for (int k = 0; k < 16; ++k) {
-				int xx = x + k/4 - 1, yy = y + k%4 - 1;
-				if (xx>=0 && xx<=ww && yy>=0 && yy<=hh) {
-					int c = getpixel(src, xx, yy);
-					int d = a[k/4][0] * a[k%4][1] >> (11*2-16);
-					r += (c>>16) * d;
-					g += (c>>8&255) * d;
-					b += (c&255) * d;
-				}
-			}
-			r = (r<0 ? 0 : r>>(16+8) ? 255 : r>>16);
-			g = (g<0 ? 0 : g>>(16+8) ? 255 : g>>16);
-			b = (b<0 ? 0 : b>>(16+8) ? 255 : b>>16);
-			putpixel(dest, i, j, (r<<16) | (g<<8) | b);
-
-			dy += hh;
-			if (dy > h) {
-				++y;
-				dy -= h;
-			}
-		}
-		dx += ww;
-		if (dx > w) {
-			++x;
-			dx -= w;
-		}
-	}
-}
-
-/******************************************************************************/
-/* font functions */
-
-static Uint16 fontdata[3072];
-static Uint8 (*zoomfont[16])[96] = {NULL};
 
 static void fontdecompress(void)
 {
@@ -1091,23 +936,97 @@ static void fontprocess(int z)
 	}
 }
 
-static void printchar(SDL_Surface *s, int x, int y, int z, int c, int u, int v)
+static void printchar(int x, int y, int z, int c, int u, int v)
 {
 	if (c == ' ' || c == '\t' || c == '\n' || c == '\r') return;
 	c -= (c<0 ? -96 : c<33 || c>126 ? c : 32);
 	for (int i = 0; i < 16*z; ++i) {
+		Uint32 blended = blend(u, v, i, 16*z-1);
+		SDL_SetRenderDrawColor(renderer, blended >> 16, blended >> 8, blended, 255);
 		for (int j = 0; j < 8*z; ++j) {
-			if (zoomfont[z][i*z+j%z][c] & (1<<(7-j/z))) {
-				putpixel(s, x+j, y+i, blend(u, v, i, 16*z-1));
-			}
+			if (zoomfont[z][i*z+j%z][c] & (1<<(7-j/z))) SDL_RenderDrawPoint(renderer, x+j, y+i);
 		}
 	}
 }
 
-static void printstr(SDL_Surface *s, int x, int y, int z, int a, const char *c, int u, int v)
+static void printstr(int x, int y, int z, int a, const char *c, int u, int v)
 {
 	if (a) x -= strlen(c) * a * (4*z);
-	for (; *c; x += 8*z) printchar(s, x, y, z, (Uint8)*c++, u, v);
+	for (; *c; x += 8*z) printchar(x, y, z, (Uint8)*c++, u, v);
+}
+
+/******************************************************************************/
+/* resource loading */
+
+static void update_movie(void *data, SMPEG_Frame *frame)
+{
+	((struct imgres *)data)->frame = frame;
+}
+
+enum bga { BGA_AND_MOVIE, BGA_BUT_NO_MOVIE, NO_BGA };
+static void load_resource(enum bga range, void (*resource_loaded)(const char *path))
+{
+	SDL_RWops *rwops;
+
+	for (int i = 0; i < MAXKEY; ++i) {
+		sndres[i].lastch = -1;
+		if (sndpath[i]) {
+			resource_loaded(sndpath[i]);
+			rwops = resolve_relative_path(sndpath[i], SOUND_EXTS);
+			if (rwops) sndres[i].res = Mix_LoadWAV_RW(rwops, 1);
+			if (!sndres[i].res) {
+				warn("failed to load sound #WAV%s (%s)", TO_KEY(i), sndpath[i]);
+			}
+			free(sndpath[i]);
+			sndpath[i] = 0;
+		}
+
+		if (imgpath[i]) {
+			resource_loaded(imgpath[i]);
+			if (strisuffix(imgpath[i], ".mpg")) {
+				if (range < BGA_BUT_NO_MOVIE) {
+					SMPEG *movie = NULL;
+					rwops = resolve_relative_path(imgpath[i], NULL);
+					if (rwops) movie = SMPEG_new_rwops(rwops, NULL, 1, 0);
+					if (!movie) {
+						warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
+					} else {
+						imgres[i].tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING, 256, 256);
+						imgres[i].movie = movie;
+						SMPEG_enablevideo(movie, 1);
+						SMPEG_loop(movie, 1);
+						SMPEG_setdisplay(movie, update_movie, &imgres[i], NULL);
+					}
+				}
+			} else if (range < NO_BGA) {
+				SDL_Surface *image = NULL;
+				rwops = resolve_relative_path(imgpath[i], IMAGE_EXTS);
+				if (rwops) image = IMG_Load_RW(rwops, 1);
+				if (image) {
+					if (!image->format->Amask) {
+						SDL_Surface *temp = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_RGB888, 0);
+						if (temp) {
+							SDL_FreeSurface(image);
+							image = temp;
+							SDL_SetColorKey(image, SDL_TRUE, SDL_MapRGB(image->format, 0, 0, 0));
+						}
+					}
+					if (image) {
+						imgres[i].tex = SDL_CreateTextureFromSurface(renderer, image);
+						SDL_FreeSurface(image);
+					}
+				} else {
+					warn("failed to load image #BMP%s (%s)", TO_KEY(i), imgpath[i]);
+				}
+			}
+			free(imgpath[i]);
+			imgpath[i] = 0;
+		}
+
+		if (!bgares[i].image) { /* default blit dimensions without #BGA */
+			bgares[i] = (struct bgares) {.image=&imgres[i], .x=0, .y=0, .tx=0, .ty=0, .w=256, .h=256};
+		}
+	}
 }
 
 /******************************************************************************/
@@ -1128,8 +1047,8 @@ static int score = 0, scocnt[5], scombo = 0, smaxcombo = 0;
 static double gradefactor;
 static int gradetime = 0, grademode, gauge = 256, survival = 150;
 
-static SDL_Surface *sprite = NULL;
-static int keymap[SDLK_LAST]; /* -1: none, 0..NNOTECHANS-1: notes, +0..+1: speed down/up */
+static SDL_Texture *sprite = NULL;
+static int keymap[SDL_NUM_SCANCODES]; /* -1: none, 0..NNOTECHANS-1: notes, +0..+1: speed down/up */
 static XV(int) joybmap, joyamap;
 static int keypressed[2][NNOTECHANS]; /* keypressed[0] for buttons, keypressed[1] for axes */
 struct tkeykind { int spriteleft, spritebombleft, width, color; };
@@ -1152,11 +1071,11 @@ static char *assign_keymap(int chan, int kind, const char *envname, char *s)
 		sep = s[k];
 		s[k] = '\0';
 		if (chan >= NNOTECHANS || keykind[chan] == kind) {
-			SDLKey key;
-			for (key = SDLK_FIRST; key < SDLK_LAST; ++key) { /* XXX may not work in SDL 2.0 */
-				if (strieq(SDL_GetKeyName(key), s)) break;
+			SDL_Scancode key;
+			for (key = 0; key < SDL_NUM_SCANCODES; ++key) {
+				if (strieq(SDL_GetScancodeName(key), s)) break;
 			}
-			if (key < SDLK_LAST) {
+			if (key < SDL_NUM_SCANCODES) {
 				keymap[key] = chan;
 			} else if (sscanf(s, "button %d", &i) >= 1) {
 				if (XV_CHECK(joybmap,i)) XV_AT(joybmap,i) = chan;
@@ -1221,15 +1140,17 @@ static Mix_Chunk *create_beep(void)
 
 static void init_video(void)
 {
-	if (opt_mode < EXCLUSIVE_MODE) {
-		int mode = (opt_fullscreen ? SDL_FULLSCREEN : SDL_SWSURFACE|SDL_DOUBLEBUF);
-		screen = SDL_SetVideoMode(800, 600, 32, mode);
-	} else {
-		screen = SDL_SetVideoMode(256, 256, 32, SDL_SWSURFACE|SDL_DOUBLEBUF);
+	int width = (opt_mode < EXCLUSIVE_MODE ? 800 : 256);
+	int height = (opt_mode < EXCLUSIVE_MODE ? 600 : 256);
+	int flags = (opt_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_OPENGL);
+	if (SDL_CreateWindowAndRenderer(width, height, flags, &screen, &renderer)) {
+		die("SDL Video Initialization Failure: %s", SDL_GetError());
 	}
-	if (!screen) die("SDL Video Initialization Failure: %s", SDL_GetError());
 	if (opt_mode < EXCLUSIVE_MODE) SDL_ShowCursor(SDL_DISABLE);
-	SDL_WM_SetCaption(VERSION, 0);
+ 	SDL_SetWindowTitle(screen, VERSION);
+	SDL_RenderSetLogicalSize(renderer, width, height);
+	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 }
 
 static void init_ui(void)
@@ -1247,7 +1168,7 @@ static void init_ui(void)
 	}
 	IMG_Init(IMG_INIT_JPG|IMG_INIT_PNG);
 	Mix_Init(MIX_INIT_OGG|MIX_INIT_MP3);
-	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048)<0) {
+	if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
 		die("SDL Mixer Initialization Failure: %s", Mix_GetError());
 	}
 
@@ -1284,18 +1205,38 @@ static void play_sound(int i, int group)
 }
 
 static const int INFO_INTERVAL = 47; /* try not to refresh screen or console too fast (tops at 21fps) */
-static SDL_Surface *stagefile_tmp;
+static SDL_Texture *stagefile;
+static char stagefile_meta[256];
 static int lastinfo;
 
 static void check_exit(void)
 {
 	SDL_Event event;
 	while (SDL_PollEvent(&event)) {
-		if (event.type == SDL_QUIT || (event.type == SDL_KEYUP && event.key.keysym.sym == SDLK_ESCAPE)) {
+		if (event.type == SDL_QUIT || (event.type == SDL_KEYUP && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)) {
 			if (opt_mode >= EXCLUSIVE_MODE) fprintf(stderr, "\r%72s\r", "");
 			exit(0);
 		}
 	}
+}
+
+static void render_stagefile(const char *path)
+{
+	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+	SDL_RenderClear(renderer);
+	printstr(400, 284, 2, 1, "loading bms file...", 0x202020, 0x808080);
+	if (stagefile) SDL_RenderCopy(renderer, stagefile, 0, 0);
+	if (opt_showinfo) {
+		SDL_SetRenderDrawColor(renderer, 0x10, 0x10, 0x10, 191);
+		SDL_RenderFillRect(renderer, R(0,0,800,42));
+		SDL_RenderFillRect(renderer, R(0,580,800,20));
+		printstr(6, 4, 2, 0, string[S_TITLE], 0x808080, 0xffffff);
+		printstr(792, 4, 1, 2, string[S_GENRE], 0x808080, 0xffffff);
+		printstr(792, 20, 1, 2, string[S_ARTIST], 0x808080, 0xffffff);
+		printstr(3, 582, 1, 0, stagefile_meta, 0x808080, 0xffffff);
+		printstr(797, 582, 1, 2, path, 0x808080, 0xc0c0c0);
+	}
+	SDL_RenderPresent(renderer);
 }
 
 static void resource_loaded(const char *path)
@@ -1305,9 +1246,7 @@ static void resource_loaded(const char *path)
 		lastinfo = now;
 		if (opt_mode < EXCLUSIVE_MODE) {
 			if (!path) path = "loading...";
-			SDL_BlitSurface(stagefile_tmp, R(0,0,800,20), screen, R(0,580,800,20));
-			printstr(screen, 797, 582, 1, 2, path, 0x808080, 0xc0c0c0);
-			SDL_Flip(screen);
+			render_stagefile(path);
 		} else {
 			if (path) {
 				fprintf(stderr, "\r%72s\rLoading: %.63s", "", path);
@@ -1321,60 +1260,40 @@ static void resource_loaded(const char *path)
 
 static void play_show_stagefile(void)
 {
-	SDL_Surface *temp, *stagefile;
-	char buf[256];
-	int i, j, t;
+	int t;
+	char ibuf[256];
 
-	sprintf(buf, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
+	snprintf(ibuf, sizeof ibuf, "%s: %s - %s", VERSION, string[S_ARTIST], string[S_TITLE]);
+	SDL_SetWindowTitle(screen, ibuf);
+
+	sprintf(stagefile_meta, "Level %d | BPM %.2f%s | %d note%s [%dKEY%s]",
 		value[V_PLAYLEVEL], initbpm, hasbpmchange ? "?" : "", nnotes,
 		nnotes == 1 ? "" : "s", nkeys, haslongnote ? "-LN" : "");
 
 	if (opt_mode < EXCLUSIVE_MODE) {
-		/*
-		char ibuf[256];
-		sprintf(ibuf, "%s: %s - %s", VERSION, string[S_ARTIST], string[S_TITLE]);
-		SDL_WM_SetCaption(ibuf, 0);
-		*/
-		printstr(screen, 400, 284, 2, 1, "loading bms file...", 0x202020, 0x808080);
-		SDL_Flip(screen);
-
-		stagefile_tmp = newsurface(800, 20);
+		render_stagefile("");
 		if (*string[S_STAGEFILE]) {
-			temp = IMG_Load_RW(resolve_relative_path(string[S_STAGEFILE], IMAGE_EXTS), 1);
+			SDL_Surface *temp = IMG_Load_RW(resolve_relative_path(string[S_STAGEFILE], IMAGE_EXTS), 1);
 			if (temp) {
-				stagefile = SDL_DisplayFormat(temp);
-				bicubic_interpolation(stagefile, screen);
+				stagefile = SDL_CreateTextureFromSurface(renderer, temp);
 				SDL_FreeSurface(temp);
-				SDL_FreeSurface(stagefile);
 			}
 		}
-		if (opt_showinfo) {
-			for (i = 0; i < 800; ++i) {
-				for (j = 0; j < 42; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
-				for (j = 580; j < 600; ++j) putblendedpixel(screen, i, j, 0x101010, 64);
-			}
-			printstr(screen, 6, 4, 2, 0, string[S_TITLE], 0x808080, 0xffffff);
-			printstr(screen, 792, 4, 1, 2, string[S_GENRE], 0x808080, 0xffffff);
-			printstr(screen, 792, 20, 1, 2, string[S_ARTIST], 0x808080, 0xffffff);
-			printstr(screen, 3, 582, 1, 0, buf, 0x808080, 0xffffff);
-			SDL_BlitSurface(screen, R(0,580,800,20), stagefile_tmp, R(0,0,800,20));
-		}
-		SDL_Flip(screen);
 	} else if (opt_showinfo) {
 		fprintf(stderr,
 				"------------------------------------------------------------------------\n"
 				"Title:    %s\nGenre:    %s\nArtist:   %s\n%s\n"
 				"------------------------------------------------------------------------\n",
-				string[S_TITLE], string[S_GENRE], string[S_ARTIST], buf);
+				string[S_TITLE], string[S_GENRE], string[S_ARTIST], stagefile_meta);
 	}
 
 	t = SDL_GetTicks() + 3000;
 	lastinfo = -1000;
-	load_resource(opt_bga);
+	load_resource(opt_bga, resource_loaded);
 	if (opt_showinfo) {
 		lastinfo = -1000; /* force update */
 		resource_loaded(0);
-		SDL_FreeSurface(stagefile_tmp);
+		SDL_DestroyTexture(stagefile);
 	}
 	if (opt_mode < EXCLUSIVE_MODE) {
 		while ((int)SDL_GetTicks() < t) check_exit();
@@ -1383,6 +1302,8 @@ static void play_show_stagefile(void)
 
 static void play_prepare(void)
 {
+	SDL_Surface *spritesurf;
+
 	/* configuration */
 	bpm = initbpm;
 	origintime = starttime = SDL_GetTicks();
@@ -1424,51 +1345,48 @@ static void play_prepare(void)
 	tbgay = (600 - 256) / 2;
 
 	/* sprite */
-	sprite = newsurface(1200, 600);
+	spritesurf = SDL_CreateRGBSurface(SDL_SWSURFACE, 1200, 600, 32, 0xff0000, 0xff00, 0xff, 0);
 	for (int i = 0; i < ARRAYSIZE(tkeykinds); ++i) {
 		const struct tkeykind *k = &tkeykinds[i];
 		for (int j = 140; j < 520; ++j) {
-			SDL_FillRect(sprite, R(k->spriteleft,j,k->width,1), blend(k->color, 0, j-140, 1000));
+			SDL_FillRect(spritesurf, R(k->spriteleft,j,k->width,1), blend(k->color, 0, j-140, 1000));
 		}
 		for (int j = 0; j*2 < k->width; ++j) {
-			SDL_FillRect(sprite, R(k->spriteleft+800+j,0,k->width-2*j,600), blend(k->color, 0xffffff, k->width-j, k->width));
-			SDL_FillRect(sprite, R(k->spritebombleft+800+j,0,k->width-2*j,600), blend(0xc00000, 0, k->width-j, k->width));
+			SDL_FillRect(spritesurf, R(k->spriteleft+800+j,0,k->width-2*j,600), blend(k->color, 0xffffff, k->width-j, k->width));
+			SDL_FillRect(spritesurf, R(k->spritebombleft+800+j,0,k->width-2*j,600), blend(0xc00000, 0, k->width-j, k->width));
 		}
 	}
 	for (int j = -244; j < 556; ++j) {
 		for (int i = -10; i < 20; ++i) {
 			int c = (i*2+j*3+750) % 2000;
 			c = blend(0xc0c0c0, 0x606060, c>1000 ? 1850-c : c-150, 700);
-			putpixel(sprite, j+244, i+10, c);
+			putpixel(spritesurf, j+244, i+10, c);
 		}
 		for (int i = -20; i < 60; ++i) {
 			int c = (i*3+j*2+750) % 2000;
 			c = blend(0xc0c0c0, 0x404040, c>1000 ? 1850-c : c-150, 700);
-			putpixel(sprite, j+244, i+540, c);
+			putpixel(spritesurf, j+244, i+540, c);
 		}
 	}
-	SDL_FillRect(sprite, R(tpanel1+20,0,(tpanel2?tpanel2-20:800)-(tpanel1+20),30), 0);
-	SDL_FillRect(sprite, R(tpanel1+20,520,(tpanel2?tpanel2-20:800)-(tpanel1+20),80), 0);
+	SDL_FillRect(spritesurf, R(tpanel1+20,0,(tpanel2?tpanel2-20:800)-(tpanel1+20),30), 0);
+	SDL_FillRect(spritesurf, R(tpanel1+20,520,(tpanel2?tpanel2-20:800)-(tpanel1+20),80), 0);
 	for (int i = 0; i < 20; ++i) {
 		for (int j = 20; j*j+i*i > 400; --j) {
-			putpixel(sprite, tpanel1+j, i+10, 0);
-			putpixel(sprite, tpanel1+j, 539-i, 0);
+			putpixel(spritesurf, tpanel1+j, i+10, 0);
+			putpixel(spritesurf, tpanel1+j, 539-i, 0);
 			if (tpanel2) {
-				putpixel(sprite, tpanel2-j-1, i+10, 0);
-				putpixel(sprite, tpanel2-j-1, 539-i, 0);
+				putpixel(spritesurf, tpanel2-j-1, i+10, 0);
+				putpixel(spritesurf, tpanel2-j-1, 539-i, 0);
 			}
 		}
 	}
 	if (!opt_mode) {
-		SDL_FillRect(sprite, R(0,584,368,16), 0x404040);
-		SDL_FillRect(sprite, R(4,588,360,8), 0);
+		SDL_FillRect(spritesurf, R(0,584,368,16), 0x404040);
+		SDL_FillRect(spritesurf, R(4,588,360,8), 0);
 	}
-	SDL_FillRect(sprite, R(10,564,tpanel1,1), 0x404040);
-
-	/* screen */
-	SDL_FillRect(screen, 0, map(0));
-	SDL_BlitSurface(sprite, R(0,0,800,30), screen, R(0,0,0,0));
-	SDL_BlitSurface(sprite, R(0,520,800,80), screen, R(0,520,0,0));
+	SDL_FillRect(spritesurf, R(10,564,tpanel1,1), 0x404040);
+	sprite = SDL_CreateTextureFromSurface(renderer, spritesurf);
+	SDL_FreeSurface(spritesurf);
 }
 
 static void update_grade(int grade, int scoredelta, int gaugedelta)
@@ -1580,9 +1498,9 @@ static int play_process(void)
 			return 0;
 		case SDL_KEYDOWN:
 		case SDL_KEYUP:
-			if (event.key.keysym.sym == SDLK_ESCAPE) return 0;
+			if (event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) return 0;
 			down = (event.type == SDL_KEYDOWN);
-			key = keymap[event.key.keysym.sym];
+			if (!event.key.repeat) key = keymap[event.key.keysym.scancode];
 			break;
 		case SDL_JOYBUTTONDOWN:
 		case SDL_JOYBUTTONUP:
@@ -1687,30 +1605,24 @@ static int play_process(void)
 		return 0;
 	}
 
-	if (opt_bga != NO_BGA) {
-		int mask = (now < poorlimit ? poormask : bgamask);
-		SDL_FillRect(screen, R(tbgax,tbgay,256,256), map(0));
-		for (j = 0; j < ARRAYSIZE(bga); ++j) {
-			if ((mask>>j&1) && bga[j] >= 0 && imgres[bga[j]].surface) {
-				SDL_BlitSurface(imgres[bga[j]].surface, R(0,0,256,256), screen, R(tbgax,tbgay,0,0));
-			}
-		}
-	}
-
 	if (opt_mode < EXCLUSIVE_MODE) {
-		SDL_FillRect(screen, R(0,30,tpanel1,490), map(0x404040));
-		if (tpanel2) SDL_FillRect(screen, R(tpanel2,30,800-tpanel2,490), map(0x404040));
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		SDL_RenderClear(renderer);
+		SDL_SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 255);
+		SDL_RenderFillRect(renderer, R(0,30,tpanel1,490));
+		if (tpanel2) SDL_RenderFillRect(renderer, R(tpanel2,30,800-tpanel2,490));
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
 		for (int i = 0; i < ARRAYSIZE(tkey); ++i) if (tkey[i]) {
-			SDL_FillRect(screen, R(tkeyleft[i],30,tkey[i]->width,490), map(0));
+			SDL_RenderFillRect(renderer, R(tkeyleft[i],30,tkey[i]->width,490));
 			if (keypressed[0][i] || keypressed[1][i]) {
-				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft,140,tkey[i]->width,380), screen, R(tkeyleft[i],140,0,0));
+				SDL_RenderCopy(renderer, sprite, R(tkey[i]->spriteleft,140,tkey[i]->width,380), R(tkeyleft[i],140,tkey[i]->width,380));
 			}
 		}
-		SDL_SetClipRect(screen, R(0,30,800,490));
+		SDL_RenderSetClipRect(renderer, R(0,30,800,490));
 		for (int i = 0; i < ARRAYSIZE(tkey); ++i) if (tkey[i]) {
 			for (j = pfront; j < nobjs && !(objs[j].chan == i && objs[j].type != INVNOTE); ++j);
 			if (j < nobjs && objs[j].time > top && objs[j].type == LNDONE) {
-				SDL_BlitSurface(sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), screen, R(tkeyleft[i],30,0,0));
+				SDL_RenderCopy(renderer, sprite, R(tkey[i]->spriteleft+800,0,tkey[i]->width,490), R(tkeyleft[i],30,tkey[i]->width,490));
 			}
 			for (; j < nobjs && objs[j].time <= top; ++j) if (objs[j].chan == i) {
 				k = (int)(525 - 400 * playspeed * adjust_object_position(bottom, objs[j].time));
@@ -1730,47 +1642,48 @@ static int play_process(void)
 				}
 				if (k > 0 && l > k) {
 					int sleft = (objs[j].type == BOMB ? tkey[i]->spritebombleft : tkey[i]->spriteleft);
-					SDL_BlitSurface(sprite, R(sleft+800,0,tkey[i]->width,l-k), screen, R(tkeyleft[i],k,0,0));
+					SDL_RenderCopy(renderer, sprite, R(sleft+800,0,tkey[i]->width,l-k), R(tkeyleft[i],k,tkey[i]->width,l-k));
 				}
 			}
 		}
+		SDL_SetRenderDrawColor(renderer, 0xc0, 0xc0, 0xc0, 255);
 		for (i = ibottom; i < top; ++i) {
 			j = (int)(530 - 400 * playspeed * adjust_object_position(bottom, i));
-			SDL_FillRect(screen, R(0,j,tpanel1,1), map(0xc0c0c0));
-			if (tpanel2) SDL_FillRect(screen, R(tpanel2,j,800-tpanel2,1), map(0xc0c0c0));
+			SDL_RenderFillRect(renderer, R(0,j,tpanel1,1));
+			if (tpanel2) SDL_RenderFillRect(renderer, R(tpanel2,j,800-tpanel2,1));
 		}
 		if (now < gradetime) {
 			int delta = (gradetime - now - 400) / 15;
 			if (delta < 0) delta = 0;
 			j = tgradecolor[grademode];
-			printstr(screen, tpanel1/2, 260 - delta, 2, 1, tgradestr[grademode], j, j|((j<<1)&0xfefefe));
+			printstr(tpanel1/2, 260 - delta, 2, 1, tgradestr[grademode], j, j|((j<<1)&0xfefefe));
 			if (scombo > 1) {
 				sprintf(buf, "%d COMBO", scombo);
-				printstr(screen, tpanel1/2, 288 - delta, 1, 1, buf, 0x808080, 0xffffff);
+				printstr(tpanel1/2, 288 - delta, 1, 1, buf, 0x808080, 0xffffff);
 			}
-			if (opt_mode) printstr(screen, tpanel1/2, 302 - delta, 1, 1, "(AUTO)", 0x404040, 0xc0c0c0);
+			if (opt_mode) printstr(tpanel1/2, 302 - delta, 1, 1, "(AUTO)", 0x404040, 0xc0c0c0);
 		}
-		SDL_SetClipRect(screen, 0);
+		SDL_RenderSetClipRect(renderer, 0);
 
 		i = (now - origintime) / 1000;
 		j = duration / 1000;
 		sprintf(buf, "SCORE %07d%c%4.1fx%c%02d:%02d / %02d:%02d%c@%9.4f%cBPM %6.2f",
 				score, 0, targetspeed, 0, i/60, i%60, j/60, j%60, 0, bottom, 0, bpm);
-		SDL_BlitSurface(sprite, R(0,0,800,30), screen, R(0,0,0,0));
-		SDL_BlitSurface(sprite, R(0,520,800,80), screen, R(0,520,0,0));
-		printstr(screen, 10, 8, 1, 0, buf, 0, 0);
-		printstr(screen, 5, 522, 2, 0, buf+14, 0, 0);
-		printstr(screen, tpanel1-94, 565, 1, 0, buf+20, 0, 0x404040);
-		printstr(screen, 95, 538, 1, 0, buf+34, 0, 0);
-		printstr(screen, 95, 522, 1, 0, buf+45, 0, 0);
+		SDL_RenderCopy(renderer, sprite, R(0,0,800,30), R(0,0,800,30));
+		SDL_RenderCopy(renderer, sprite, R(0,520,800,80), R(0,520,800,80));
+		printstr(10, 8, 1, 0, buf, 0, 0);
+		printstr(5, 522, 2, 0, buf+14, 0, 0);
+		printstr(tpanel1-94, 565, 1, 0, buf+20, 0, 0x404040);
+		printstr(95, 538, 1, 0, buf+34, 0, 0);
+		printstr(95, 522, 1, 0, buf+45, 0, 0);
 		i = (now - origintime) * tpanel1 / duration;
-		printchar(screen, 6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
+		printchar(6+(i<tpanel1?i:tpanel1), 548, 1, -1, 0x404040, 0x404040);
 		if (!opt_mode) {
 			if (gauge > 512) gauge = 512;
 			k = (int)(160*startshorten*(1+bottom)) % 40; /* i.e. cycles four times per measure */
 			i = (gauge<0 ? 0 : (gauge*400>>9) - k);
-			j = (gauge>=survival ? 0xc0 : 0xc0 - k*4) << 16;
-			SDL_FillRect(screen, R(4,588,i>360?360:i<5?5:i,8), map(j));
+			SDL_SetRenderDrawColor(renderer, (gauge>=survival ? 0xc0 : 0xc0 - k*4), 0, 0, 255);
+			SDL_RenderFillRect(renderer, R(4,588,i>360?360:i<5?5:i,8));
 		}
 	} else if (now - lastinfo >= INFO_INTERVAL) {
 		lastinfo = now;
@@ -1781,7 +1694,21 @@ static int play_process(void)
 			"", i/600, i/10%60, i%10, j/600, j/10%60, j%10, bottom, bpm, scombo, nnotes);
 	}
 
-	if (screen) SDL_Flip(screen);
+	if (opt_bga != NO_BGA) {
+		int mask = (now < poorlimit ? poormask : bgamask);
+		for (j = 0; j < ARRAYSIZE(bga); ++j) {
+			if ((mask>>j&1) && bga[j] >= 0 && bgares[bga[j]].image->tex) {
+				struct bgares *res = &bgares[bga[j]];
+				if (res->image->frame) {
+					SDL_UpdateTexture(res->image->tex, NULL, res->image->frame->image, res->image->frame->image_width);
+					res->image->frame = NULL;
+				}
+				SDL_RenderCopy(renderer, res->image->tex, R(res->x,res->y,res->w,res->h), R(tbgax+res->tx,tbgay+res->ty,res->w,res->h));
+			}
+		}
+	}
+
+	if (renderer) SDL_RenderPresent(renderer);
 	return 1;
 }
 

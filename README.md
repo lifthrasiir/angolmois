@@ -57,17 +57,17 @@ Features
 How To Compile (Unix-like)
 --------------
 
-You need a C compiler with full C99 support. The author typically uses GCC 4.6
+You need a C compiler with full C99 support. The author typically uses GCC 4.5
 or later, but earlier versions or Clang may work. Have a path to the compiler
 in your `$PATH`.
 
 You also need the following dependencies:
 
 * [pkg-config][pkgconfig]
-* [SDL][sdl] version 1.2.15 or later (but not 2.0)
-* [SDL\_image][sdlimage] version 1.2 or later
-* [SDL\_mixer][sdlmixer] version 1.2 or later
-* [smpeg][smpeg] version 0.4 or later
+* [SDL][sdl] version 2.0.0 or later
+* [SDL\_image][sdlimage] version 2.0.0 or later
+* [SDL\_mixer][sdlmixer] version 2.0.0 or later
+* [smpeg][smpeg] version 2.0.0 or later
 
 [pkgconfig]: http://www.freedesktop.org/wiki/Software/pkg-config
 [sdl]: http://www.libsdl.org/
@@ -77,9 +77,13 @@ You also need the following dependencies:
 
 In Mac OS X, you'd better have [Homebrew][homebrew] and issue the following:
 
-	$ brew install sdl sdl_image sdl_mixer smpeg
+	$ brew install sdl2 sdl2_image sdl2_mixer smpeg2
 
 [homebrew]: http://mxcl.github.com/homebrew/
+
+(Note: At the time of this writing---2013-08-15---, Homebrew does not have
+the full set of SDL 2.0 libraries. Meanwhile you need to manually compile
+them, or better, file a pull request with appropriate formulae for Homebrew :)
 
 In other platforms, you probably have a decent package manager so go for it.
 If your package manager has two versions of the library, use the "development"
@@ -91,8 +95,8 @@ Then the following command will do the work:
 
 If not, you should check the result of the following commands first:
 
-* `pkg-config --cflags --libs sdl SDL_image SDL_mixer`
-* `smpeg-config --cflags --libs`
+* `pkg-config --cflags --libs sdl2 SDL2_image SDL2_mixer`
+* `smpeg2-config --cflags --libs`
 
 
 How To Compile (Windows)
@@ -113,40 +117,42 @@ compile Angolmois and nothing else.
 
 Download the following files:
 
-* [SDL][sdl]: `SDL-devel-1.2.*-mingw32.tar.gz`
-* [SDL\_image][sdlimage]: `SDL_image-devel-1.2.*-VC.zip` (yes, this is fine)
-* [SDL\_mixer][sdlmixer]: `SDL_mixer-devel-1.2.*-VC.zip`
+* [SDL][sdl]: `SDL2-devel-2.0.*-mingw32.tar.gz`
+* [SDL\_image][sdlimage]: `SDL2_image-devel-2.0.*-mingw32.tar.gz`
+* [SDL\_mixer][sdlmixer]: `SDL2_mixer-devel-2.0.*-mingw32.tar.gz`
 * [smpeg][smpeg]: Actually, `smpeg.dll` is included in SDL\_mixer (for MP3
   support). You however need two smpeg header files: [smpeg.h][smpeg.h] and
-  [MPEGfilter.h][mpegfilter.h].
+  [MPEGframe.h][mpegframe.h].
 
-[smpeg.h]: http://svn.icculus.org/*checkout*/smpeg/tags/release_0_4_5/smpeg.h
-[mpegfilter.h]: http://svn.icculus.org/*checkout*/smpeg/tags/release_0_4_5/MPEGfilter.h
+[smpeg.h]: http://svn.icculus.org/*checkout*/smpeg/tags/release_2_0_0/smpeg.h
+[mpegframe.h]: http://svn.icculus.org/*checkout*/smpeg/tags/release_2_0_0/MPEGframe.h
 
-Now extract all the files to your MinGW directory. For SDL, you can safely
-extract it to the MinGW root. For SDL\_image and SDL\_mixer, extract `include`
-directory as is and `lib\x64` or `lib\x86` (depending on your Windows
-settings) directory to `lib` directory. Then copy all DLL files to
-the directory where `angolmois.c` lives.
+Now extract all the files to your MinGW directory. All those `*.tar.gz` files
+have two directories `i686-w64-mingw32` and `x86_64-w64-mingw32`. Choose one
+depending on your MinGW settings (choose the former if you use a stock MinGW).
+You need to copy files in that directory to three places:
+
+* Copy all directories (`bin`, `include`, `lib` etc.) to the MinGW root.
+* Copy all DLL files in the `bin` directory to the directory where
+  `angolmois.c` lives.
+* Copy `smpeg2.dll` in the `bin` directory to MinGW's `lib` directory.
 
 Angolmois' `Makefile` assumes that pkg-config is available, so it won't work.
 Try the following command instead if `make` does not work:
 
-	$ cc -Os -Wunused -Wall -W -std=c99 angolmois.c \
-	  `sdl-config --prefix=/mingw --cflags --libs` \
-	  -lSDL_mixer -lSDL_image -lsmpeg -o angolmois.exe
+	$ gcc -Os -Wunused -Wall -W -std=c99 angolmois.c \
+	  -I/mingw/include/SDL2 -L/mingw/lib -lmingw32 -lcomdlg32 \
+	  -lSDL2main -lSDL2 -lSDL2_mixer -lSDL2_image -lsmpeg2 -o angolmois.exe
 
 Then try launch it from MSYS:
 
 	$ ./angolmois.exe
 
-It should launch a file dialog, and if you cancel it it will create
-`stderr.txt` file in the same directory as `angolmois.exe`. (This is a default
-behavior of `SDLmain` library in Windows.) The file should contain the usage.
-
-If it works fine in MSYS, also try launch it from outside. If it does not
-launch with an error message that demands some DLL files, you should copy them
-from your MinGW directory (typically `libstdc++-*.dll` and `libgcc_*.dll`).
+It should launch a file dialog, and if you cancel it you will see
+a fast-scrolling usage. If it works fine in MSYS, also try launch it from
+outside. As far as I've tested, SDL 2.0's dependency is greatly reduced that
+`libstdc++-*.dll` and `libgcc_*.dll` are no longer required, but if you built
+SDL and related libraries yourself you may need them.
 
 You are greatly welcomed to suggest easier build instructions in Windows. :(
 
@@ -286,8 +292,9 @@ Enables the sound only mode. Same as `--exclusive --no-bga`.
 
 ### `--fullscreen`
 
-Enables the fullscreen mode. Your graphics driver should support 800x600
-screen resolution (otherwise it will exit immediately).
+Enables the fullscreen mode. Starting from 2.0 alpha 3, Angolmois no longer
+requires the graphics driver support for exact 800x600 screen resolution for
+this mode, but it still requires the equal or larger screen resolution.
 
 This is default, so there is actually no point to use this option.
 
@@ -502,11 +509,13 @@ variable should follow the following format:
 
 ...where `<key1>` etc. are actual keys for key 1. The actual keys are
 specified as a SDL virtual key name, such as `a`, `right shift`, or `f1`.
-(See the list in the [SDL wiki][sdlkeys].) The name is case-insensitive.
+(See the list in the [SDL wiki][sdlscancode].) The name is case-insensitive.
 You can leave the name as an empty string if you are not interested in that
 key (e.g. no 7KEY); in that case that key cannot be pressed in the game.
+Starting from Angolmois 2.0 alpha 3, keys are independent of the keyboard
+layout.
 
-[sdlkeys]: http://www.libsdl.org/cgi/docwiki.cgi/SDLKey
+[sdlscancode]: http://wiki.libsdl.org/moin.fcg/SDL_Scancode
 
 Multiple keys can be set, by separating each key name with `%`. (It looks
 obscure, but SDL uses lots of punctuations as a key name so we have no other
