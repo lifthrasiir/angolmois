@@ -1100,7 +1100,8 @@ static void read_keymap(void)
 		 "sabababap", {{6},{1},{2},{3},{4},{5},{8},{9},{7}}},
 		{"ANGOLMOIS_2P_KEYS", "right alt|m|k|,|l|.|;|/|right shift",
 		 "pabababas", {{36+6},{36+1},{36+2},{36+3},{36+4},{36+5},{36+8},{36+9},{36+7}}},
-		{"ANGOLMOIS_PMS_KEYS", "z|s|x|d|c|f|v|g|b",
+		{"ANGOLMOIS_PMS_KEYS", "z%button 0|s%button 1|x%button 7|d%button 2|c%button 6|"
+		                       "f%button 3|v%button 5|g%axis 1|b%button 4",
 		 "qwertrewq", {{1},{2},{3},{4},{5},{8,36+2},{9,36+3},{6,36+4},{7,36+5}}},
 		{"ANGOLMOIS_SPEED_KEYS", "f3|f4", "**", {{NNOTECHANS},{NNOTECHANS+1}}}};
 	char buf[1024] = "", name[32], *s;
